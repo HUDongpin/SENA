@@ -21,6 +21,10 @@ import {
 import { dirname, basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { isDeepStrictEqual, types } from "node:util";
+
+const protectedActivationNativeStructuredClone =
+  globalThis.structuredClone.bind(globalThis);
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SCRIPT_REPO_ROOT = resolve(dirname(SCRIPT_PATH), "..");
@@ -1309,6 +1313,7 @@ function runWritePolicy(flags) {
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) throw new Error("index registry snapshot is invalid");
   validatePr80RepairIndexTransition(registry);
+  validateProtectedCurrentnessRepairIndexTransition(registry);
 
   const findings = [];
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
@@ -2095,6 +2100,2064 @@ function validatePr80RepairIndexTransition(candidateRegistry) {
   );
 }
 
+export const PROTECTED_CURRENTNESS_REPAIR_TASK_ID =
+  "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901";
+export const PROTECTED_CURRENTNESS_REPAIR_BRANCH =
+  "codex/sena-protected-currentness-activation-repair-20260901";
+export const PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY =
+  "Codex-protected-currentness-activation-repair-01a05865";
+export const PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS =
+  "protected-currentness-activation-repair-candidate-awaiting-initial-checks";
+export const PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS =
+  "protected-currentness-activation-repair-ready-pending-final-head-checks";
+export const PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION =
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks";
+export const PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION =
+  "repairReadyAndProtectedMergeAuthorizedAfterFinalChecks";
+export const PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT =
+  "pr82-protected-currentness-activation-repair-candidate";
+export const PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT =
+  "pr82-protected-currentness-activation-repair-final-authorization";
+export const PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE = [
+  REGISTRY_REPO_PATH,
+  "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
+  "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+export const PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE = [
+  REGISTRY_REPO_PATH,
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+export const PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE = [REGISTRY_REPO_PATH];
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER = 82;
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA =
+  "922f5a4eabee972c61409439476766fb33f3537d";
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_TREE_SHA =
+  "d983467042c336a3031ef91d94140491f7071346";
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_BLOB_SHA =
+  "461b607ca65a83bc9d23dd32a6a1ad4b3c526ad7";
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT = 40;
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_SHA256 =
+  "27b1aa53a7daa7e1c8fd1403f9e0e51bcd7811dd3a074eca636f1fa907cae0ef";
+export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_SHA256 =
+  "0707e433e51614485d4f21dbc51646123578e53647fb684969c74edd6a580ecb";
+
+const PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE = Object.freeze({
+  headSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+  treeSha: "c3d3d91ff7868939cb331a8c237349d6abbd9357",
+  registryBlobSha: "b0f4bfd1f35d816e22774458a4bc1593c29a745b"
+});
+export const PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS = [
+  "status",
+  "oneShot",
+  "pullRequestNumber",
+  "protectedBaseSha",
+  "protectedBaseTreeSha",
+  "protectedBaseRegistryBlobSha",
+  "designPlanSeedHeadSha",
+  "designPlanSeedTreeSha",
+  "designPlanSeedRegistryBlobSha",
+  "designPlanSeedReceiptPrefix",
+  "requiredOverallPaths",
+  "requiredImplementationPaths",
+  "initialCandidateCompletionEvidence",
+  PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION,
+  PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION,
+  "pr46ReadyAndProtectedMergeAuthorizedNow",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized",
+  "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized"
+];
+const PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS = [
+  "headSha",
+  "treeSha",
+  "registryBlobSha",
+  "verifierBlobSha",
+  "governanceTestBlobSha",
+  "buildRunId",
+  "repositorySecurityRunIds",
+  "checkJobIds",
+  "requiredChecksPassed",
+  "annotationsEmpty",
+  "specReviewApproved",
+  "qualityReviewApproved"
+];
+const PROTECTED_CURRENTNESS_REPAIR_RECEIPT_BASE_KEYS = [
+  "schemaVersion",
+  "receiptKind",
+  "taskId",
+  "ownerKey",
+  "scope",
+  "authorizationBoundary"
+];
+const PROTECTED_CURRENTNESS_REPAIR_PERMANENTLY_FALSE_ACTIONS = [
+  "pr46ReadyAndProtectedMergeAuthorizedNow",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized",
+  "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized"
+];
+const PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_TRUE_PATHS = [
+  "initialCandidateCompletionEvidence.annotationsEmpty",
+  "initialCandidateCompletionEvidence.qualityReviewApproved",
+  "initialCandidateCompletionEvidence.requiredChecksPassed",
+  "initialCandidateCompletionEvidence.specReviewApproved"
+];
+
+const PROTECTED_ACTIVATION_COMPLETION_READBACK_KEYS = [
+  "pullRequestNumber",
+  "finalHeadSha",
+  "protectedSourceMainSha",
+  "protectedMergeCommitSha",
+  "protectedMergeTreeSha",
+  "protectedRegistryBlobSha",
+  "fetchedOriginMainSha",
+  "orderedParentShas",
+  "finalHeadTreeSha",
+  "finalHeadRegistryBlobSha",
+  "postMainBuild",
+  "postMainRepositorySecurity",
+  "commitBoundLiveAudits"
+];
+const PROTECTED_ACTIVATION_COMPLETION_EVIDENCE_KEYS = [
+  ...PROTECTED_ACTIVATION_COMPLETION_READBACK_KEYS,
+  "requiredChecksPassed",
+  "annotationsEmpty"
+];
+const PROTECTED_ACTIVATION_COMPLETION_WORKFLOW_KEYS = [
+  "workflowName",
+  "event",
+  "runId",
+  "jobId",
+  "headSha",
+  "status",
+  "conclusion",
+  "annotationCount"
+];
+const PROTECTED_ACTIVATION_COMPLETION_AUDITS_KEYS = [
+  "beforeRootFastForward",
+  "afterRootFastForward"
+];
+const PROTECTED_ACTIVATION_COMPLETION_AUDIT_RECORD_KEYS = [
+  "schemaVersion",
+  "phase",
+  "authorizationRegistryCommitSha",
+  "auditedRegistryBlobSha",
+  "checkoutHeadSha",
+  "status",
+  "errors",
+  "ownerBlockers",
+  "unreachableCommitCount"
+];
+const PROTECTED_ACTIVATION_COMPLETION_CONTRACT_KEYS = [
+  "authorizationSourceMainSha",
+  "protectedActivationBinding"
+];
+const PROTECTED_ACTIVATION_COMPLETION_BINDING_KEYS = [
+  "mode",
+  "requiredReceiptKind",
+  "requiredFinalAuthorizationReceiptKind",
+  "requiredAuthorizationStatus",
+  "requiredActivationLifecycleStatus",
+  "requiredActivationPullRequestNumber",
+  "mustDescendFromAuthorizationSourceMainSha",
+  "mustEqualFetchedOriginMain",
+  "postMainBuildRequired",
+  "postMainSecurityRequired",
+  "postMainAnnotationsMustBeEmpty",
+  "commitBoundLiveAuditRequired"
+];
+const protectedActivationCompletionActuals = new WeakSet();
+
+function protectedActivationCompletionPrototypeHasSerializationHook(value) {
+  let prototype = Object.getPrototypeOf(value);
+  while (prototype !== null) {
+    if (Object.hasOwn(prototype, "toJSON")) return true;
+    prototype = Object.getPrototypeOf(prototype);
+  }
+  return false;
+}
+
+function protectedActivationCompletionCanonicalJsonTree(value, seen = new Set()) {
+  if (value === null) return true;
+  const valueType = typeof value;
+  if (valueType === "string" || valueType === "boolean") return true;
+  if (valueType === "number") return Number.isFinite(value);
+  if (valueType !== "object" || types.isProxy(value)) return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (
+        Object.getPrototypeOf(value) !== Array.prototype ||
+        protectedActivationCompletionPrototypeHasSerializationHook(value)
+      ) {
+        return false;
+      }
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (
+        !lengthDescriptor ||
+        !Object.hasOwn(lengthDescriptor, "value") ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0 ||
+        lengthDescriptor.enumerable !== false ||
+        lengthDescriptor.writable !== true ||
+        lengthDescriptor.configurable !== false
+      ) {
+        return false;
+      }
+      const ownKeys = Reflect.ownKeys(value);
+      if (
+        ownKeys.some((key) => typeof key === "symbol") ||
+        ownKeys.length !== lengthDescriptor.value + 1 ||
+        ownKeys.at(-1) !== "length"
+      ) {
+        return false;
+      }
+      for (let index = 0; index < lengthDescriptor.value; index += 1) {
+        if (ownKeys[index] !== String(index)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (
+          !descriptor ||
+          !Object.hasOwn(descriptor, "value") ||
+          descriptor.enumerable !== true ||
+          descriptor.writable !== true ||
+          descriptor.configurable !== true ||
+          !protectedActivationCompletionCanonicalJsonTree(descriptor.value, seen)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (
+      Object.getPrototypeOf(value) !== Object.prototype ||
+      protectedActivationCompletionPrototypeHasSerializationHook(value)
+    ) {
+      return false;
+    }
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.some((key) => typeof key === "symbol")) return false;
+    for (const key of ownKeys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        !descriptor ||
+        !Object.hasOwn(descriptor, "value") ||
+        descriptor.enumerable !== true ||
+        descriptor.writable !== true ||
+        descriptor.configurable !== true ||
+        !protectedActivationCompletionCanonicalJsonTree(descriptor.value, seen)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function protectedActivationCompletionCanonicalDeepEqual(left, right) {
+  return Boolean(
+    protectedActivationCompletionCanonicalJsonTree(left) &&
+      protectedActivationCompletionCanonicalJsonTree(right) &&
+      isDeepStrictEqual(left, right)
+  );
+}
+
+function protectedActivationCompletionFrozenPlainTree(value, seen = new Set()) {
+  if (value === null) return true;
+  const valueType = typeof value;
+  if (valueType === "string" || valueType === "boolean") return true;
+  if (valueType === "number") return Number.isFinite(value);
+  if (valueType !== "object" || types.isProxy(value) || !Object.isFrozen(value)) {
+    return false;
+  }
+  if (seen.has(value)) return false;
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) {
+      if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+      const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+      if (
+        !lengthDescriptor ||
+        !Object.hasOwn(lengthDescriptor, "value") ||
+        !Number.isSafeInteger(lengthDescriptor.value) ||
+        lengthDescriptor.value < 0 ||
+        lengthDescriptor.enumerable !== false ||
+        lengthDescriptor.writable !== false ||
+        lengthDescriptor.configurable !== false
+      ) {
+        return false;
+      }
+      const ownKeys = Reflect.ownKeys(value);
+      if (
+        ownKeys.some((key) => typeof key === "symbol") ||
+        ownKeys.length !== lengthDescriptor.value + 1 ||
+        ownKeys.at(-1) !== "length"
+      ) {
+        return false;
+      }
+      for (let index = 0; index < lengthDescriptor.value; index += 1) {
+        if (ownKeys[index] !== String(index)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (
+          !descriptor ||
+          !Object.hasOwn(descriptor, "value") ||
+          descriptor.enumerable !== true ||
+          descriptor.writable !== false ||
+          descriptor.configurable !== false ||
+          !protectedActivationCompletionFrozenPlainTree(descriptor.value, seen)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (Object.getPrototypeOf(value) !== Object.prototype) return false;
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.some((key) => typeof key === "symbol")) return false;
+    for (const key of ownKeys) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (
+        !descriptor ||
+        !Object.hasOwn(descriptor, "value") ||
+        descriptor.enumerable !== true ||
+        descriptor.writable !== false ||
+        descriptor.configurable !== false ||
+        !protectedActivationCompletionFrozenPlainTree(descriptor.value, seen)
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function protectedActivationCompletionEvidenceMatchesFrozenActual(evidence, actual) {
+  return Boolean(
+    protectedActivationCompletionCanonicalJsonTree(evidence) &&
+      protectedActivationCompletionFrozenPlainTree(actual) &&
+      isDeepStrictEqual(evidence, actual)
+  );
+}
+
+function deepFreezeProtectedActivationCompletion(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const entry of Object.values(value)) {
+    deepFreezeProtectedActivationCompletion(entry);
+  }
+  return Object.freeze(value);
+}
+
+function protectedActivationControlledExactClone(source, failureRule) {
+  if (
+    !protectedActivationCompletionCanonicalJsonTree(source) &&
+    !protectedActivationCompletionFrozenPlainTree(source)
+  ) {
+    throw new Error(failureRule);
+  }
+  let clone;
+  try {
+    clone = protectedActivationNativeStructuredClone(source);
+  } catch {
+    throw new Error(failureRule);
+  }
+  if (
+    clone === source ||
+    !protectedActivationCompletionCanonicalJsonTree(clone) ||
+    !isDeepStrictEqual(clone, source)
+  ) {
+    throw new Error(failureRule);
+  }
+  return clone;
+}
+
+function protectedActivationControlledBrandedClone(source, brand, failureRule) {
+  const clone = protectedActivationControlledExactClone(source, failureRule);
+  deepFreezeProtectedActivationCompletion(clone);
+  if (
+    !protectedActivationCompletionFrozenPlainTree(clone) ||
+    !isDeepStrictEqual(clone, source)
+  ) {
+    throw new Error(failureRule);
+  }
+  brand.add(clone);
+  return clone;
+}
+
+function protectedActivationCompletionWorkflowExact(record, workflowName, headSha) {
+  return Boolean(
+    exactPlainJsonOwnKeys(record, PROTECTED_ACTIVATION_COMPLETION_WORKFLOW_KEYS) &&
+      record.workflowName === workflowName &&
+      record.event === "push" &&
+      Number.isInteger(record.runId) &&
+      record.runId > 0 &&
+      Number.isInteger(record.jobId) &&
+      record.jobId > 0 &&
+      record.headSha === headSha &&
+      record.status === "completed" &&
+      record.conclusion === "success" &&
+      record.annotationCount === 0
+  );
+}
+
+function protectedActivationCompletionAuditRecordExact(
+  audit,
+  phase,
+  protectedMergeCommitSha,
+  protectedRegistryBlobSha,
+  checkoutHeadSha
+) {
+  return Boolean(
+    exactPlainJsonOwnKeys(
+      audit,
+      PROTECTED_ACTIVATION_COMPLETION_AUDIT_RECORD_KEYS
+    ) &&
+      audit.schemaVersion === "sena-repo-governance-audit/v1" &&
+      audit.phase === phase &&
+      audit.authorizationRegistryCommitSha === protectedMergeCommitSha &&
+      audit.auditedRegistryBlobSha === protectedRegistryBlobSha &&
+      audit.checkoutHeadSha === checkoutHeadSha &&
+      audit.status === "pass" &&
+      Array.isArray(audit.errors) &&
+      audit.errors.length === 0 &&
+      Array.isArray(audit.ownerBlockers) &&
+      audit.ownerBlockers.length === 0 &&
+      audit.unreachableCommitCount === 0
+  );
+}
+
+function protectedActivationCompletionAuditsExact(
+  audits,
+  protectedMergeCommitSha,
+  protectedRegistryBlobSha,
+  recordedRootHeadSha
+) {
+  return Boolean(
+    exactPlainJsonOwnKeys(audits, PROTECTED_ACTIVATION_COMPLETION_AUDITS_KEYS) &&
+      protectedActivationCompletionAuditRecordExact(
+        audits.beforeRootFastForward,
+        "before-root-fast-forward",
+        protectedMergeCommitSha,
+        protectedRegistryBlobSha,
+        recordedRootHeadSha
+      ) &&
+      protectedActivationCompletionAuditRecordExact(
+        audits.afterRootFastForward,
+        "after-root-fast-forward",
+        protectedMergeCommitSha,
+        protectedRegistryBlobSha,
+        protectedMergeCommitSha
+      )
+  );
+}
+
+function protectedActivationCompletionEvidenceSchemaExact(evidence) {
+  if (
+    !exactPlainJsonOwnKeys(evidence, PROTECTED_ACTIVATION_COMPLETION_EVIDENCE_KEYS) ||
+    evidence.pullRequestNumber !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    ![
+      "finalHeadSha",
+      "protectedSourceMainSha",
+      "protectedMergeCommitSha",
+      "protectedMergeTreeSha",
+      "protectedRegistryBlobSha",
+      "fetchedOriginMainSha",
+      "finalHeadTreeSha",
+      "finalHeadRegistryBlobSha"
+    ].every((field) => isSha(evidence[field])) ||
+    !Array.isArray(evidence.orderedParentShas) ||
+    evidence.orderedParentShas.length !== 2 ||
+    !evidence.orderedParentShas.every(isSha) ||
+    !protectedActivationCompletionWorkflowExact(
+      evidence.postMainBuild,
+      "build-gate",
+      evidence.protectedMergeCommitSha
+    ) ||
+    !protectedActivationCompletionWorkflowExact(
+      evidence.postMainRepositorySecurity,
+      "repo-security-gate",
+      evidence.protectedMergeCommitSha
+    ) ||
+    new Set([
+      evidence.postMainBuild.runId,
+      evidence.postMainBuild.jobId,
+      evidence.postMainRepositorySecurity.runId,
+      evidence.postMainRepositorySecurity.jobId
+    ]).size !== 4 ||
+    evidence.requiredChecksPassed !== true ||
+    evidence.annotationsEmpty !== true
+  ) {
+    return false;
+  }
+  return true;
+}
+
+// Proof ceiling: the caller supplies independently read GitHub/audit records; this
+// resolver performs no network access and independently recomputes every Git identity.
+export function resolveProtectedActivationCompletionActual(readback) {
+  if (
+    !protectedActivationCompletionCanonicalJsonTree(readback) ||
+    !exactPlainJsonOwnKeys(readback, PROTECTED_ACTIVATION_COMPLETION_READBACK_KEYS) ||
+    readback.pullRequestNumber !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    ![
+      "finalHeadSha",
+      "protectedSourceMainSha",
+      "protectedMergeCommitSha",
+      "protectedMergeTreeSha",
+      "protectedRegistryBlobSha",
+      "fetchedOriginMainSha",
+      "finalHeadTreeSha",
+      "finalHeadRegistryBlobSha"
+    ].every((field) => isSha(readback[field])) ||
+    !Array.isArray(readback.orderedParentShas) ||
+    readback.orderedParentShas.length !== 2 ||
+    !readback.orderedParentShas.every(isSha) ||
+    !protectedActivationCompletionWorkflowExact(
+      readback.postMainBuild,
+      "build-gate",
+      readback.protectedMergeCommitSha
+    ) ||
+    !protectedActivationCompletionWorkflowExact(
+      readback.postMainRepositorySecurity,
+      "repo-security-gate",
+      readback.protectedMergeCommitSha
+    ) ||
+    new Set([
+      readback.postMainBuild.runId,
+      readback.postMainBuild.jobId,
+      readback.postMainRepositorySecurity.runId,
+      readback.postMainRepositorySecurity.jobId
+    ]).size !== 4
+  ) {
+    throw new Error("rule=protected-activation-completion-readback-invalid");
+  }
+  if (
+    !gitObjectExists(`${readback.protectedSourceMainSha}^{commit}`) ||
+    !gitObjectExists(`${readback.finalHeadSha}^{commit}`) ||
+    !gitObjectExists(`${readback.protectedMergeCommitSha}^{commit}`)
+  ) {
+    throw new Error("rule=protected-activation-completion-git-object-missing");
+  }
+  const fetchedOriginMainSha = gitText([
+    "rev-parse",
+    "refs/remotes/origin/main^{commit}"
+  ]).trim();
+  const mergeLine = gitText([
+    "rev-list",
+    "--parents",
+    "-n",
+    "1",
+    readback.protectedMergeCommitSha
+  ]).trim().split(/\s+/);
+  const orderedParentShas = mergeLine.slice(1);
+  const protectedMergeTreeSha = gitText([
+    "rev-parse",
+    `${readback.protectedMergeCommitSha}^{tree}`
+  ]).trim();
+  const protectedRegistryBlobSha = gitText([
+    "rev-parse",
+    `${readback.protectedMergeCommitSha}:${REGISTRY_REPO_PATH}`
+  ]).trim();
+  const finalHeadTreeSha = gitText([
+    "rev-parse",
+    `${readback.finalHeadSha}^{tree}`
+  ]).trim();
+  const finalHeadRegistryBlobSha = gitText([
+    "rev-parse",
+    `${readback.finalHeadSha}:${REGISTRY_REPO_PATH}`
+  ]).trim();
+  const finalDescendsFromSource = git([
+    "merge-base",
+    "--is-ancestor",
+    readback.protectedSourceMainSha,
+    readback.finalHeadSha
+  ], { allowFailure: true }).status === 0;
+  let protectedMergeRegistry;
+  try {
+    protectedMergeRegistry = loadRegistryFromCommit(
+      readback.protectedMergeCommitSha
+    ).parsed;
+  } catch {
+    throw new Error("rule=protected-activation-completion-readback-invalid");
+  }
+  const recordedRootHeadSha = (protectedMergeRegistry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+  )?.headSha;
+  const recordedRootIsCommit =
+    isSha(recordedRootHeadSha) && gitObjectExists(`${recordedRootHeadSha}^{commit}`);
+  const recordedRootIsPreMergeAncestor = recordedRootIsCommit &&
+    recordedRootHeadSha !== readback.protectedMergeCommitSha &&
+    git([
+      "merge-base",
+      "--is-ancestor",
+      recordedRootHeadSha,
+      readback.protectedMergeCommitSha
+    ], { allowFailure: true }).status === 0;
+  if (
+    readback.protectedMergeCommitSha !== fetchedOriginMainSha ||
+    readback.fetchedOriginMainSha !== fetchedOriginMainSha ||
+    !isDeepStrictEqual(orderedParentShas, [
+      readback.protectedSourceMainSha,
+      readback.finalHeadSha
+    ]) ||
+    !isDeepStrictEqual(
+      readback.orderedParentShas,
+      orderedParentShas
+    ) ||
+    readback.protectedMergeTreeSha !== protectedMergeTreeSha ||
+    readback.protectedRegistryBlobSha !== protectedRegistryBlobSha ||
+    readback.finalHeadTreeSha !== finalHeadTreeSha ||
+    readback.finalHeadRegistryBlobSha !== finalHeadRegistryBlobSha ||
+    protectedMergeTreeSha !== finalHeadTreeSha ||
+    protectedRegistryBlobSha !== finalHeadRegistryBlobSha ||
+    !finalDescendsFromSource ||
+    !recordedRootIsPreMergeAncestor ||
+    !protectedActivationCompletionAuditsExact(
+      readback.commitBoundLiveAudits,
+      readback.protectedMergeCommitSha,
+      protectedRegistryBlobSha,
+      recordedRootHeadSha
+    )
+  ) {
+    throw new Error("rule=protected-activation-completion-readback-invalid");
+  }
+  const authenticatedActual = {
+    pullRequestNumber: readback.pullRequestNumber,
+    finalHeadSha: readback.finalHeadSha,
+    protectedSourceMainSha: readback.protectedSourceMainSha,
+    protectedMergeCommitSha: readback.protectedMergeCommitSha,
+    protectedMergeTreeSha,
+    protectedRegistryBlobSha,
+    fetchedOriginMainSha,
+    orderedParentShas,
+    finalHeadTreeSha,
+    finalHeadRegistryBlobSha,
+    postMainBuild: readback.postMainBuild,
+    postMainRepositorySecurity: readback.postMainRepositorySecurity,
+    commitBoundLiveAudits: readback.commitBoundLiveAudits,
+    requiredChecksPassed: true,
+    annotationsEmpty: true
+  };
+  return protectedActivationControlledBrandedClone(
+    authenticatedActual,
+    protectedActivationCompletionActuals,
+    "rule=protected-activation-completion-readback-invalid"
+  );
+}
+
+export function protectedActivationCompletionEvidenceMatches(binding, evidence, actual) {
+  if (
+    !protectedActivationCompletionActuals.has(actual) ||
+    !protectedActivationCompletionCanonicalJsonTree(binding) ||
+    !protectedActivationCompletionCanonicalJsonTree(evidence) ||
+    !protectedActivationCompletionFrozenPlainTree(actual)
+  ) {
+    return false;
+  }
+  const protectedBinding = binding.protectedActivationBinding;
+  return Boolean(
+      exactPlainJsonOwnKeys(binding, PROTECTED_ACTIVATION_COMPLETION_CONTRACT_KEYS) &&
+      exactPlainJsonOwnKeys(
+        protectedBinding,
+        PROTECTED_ACTIVATION_COMPLETION_BINDING_KEYS
+      ) &&
+      binding.authorizationSourceMainSha === actual.protectedSourceMainSha &&
+      protectedBinding.mode ===
+        "loaded-fetched-origin-main-authorization-registry-commit" &&
+      protectedBinding.requiredReceiptKind ===
+        PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT &&
+      protectedBinding.requiredFinalAuthorizationReceiptKind ===
+        PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT &&
+      protectedBinding.requiredAuthorizationStatus === "pending-protected-activation" &&
+      protectedBinding.requiredActivationLifecycleStatus ===
+        PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS &&
+      protectedBinding.requiredActivationPullRequestNumber ===
+        PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER &&
+      protectedBinding.mustDescendFromAuthorizationSourceMainSha === true &&
+      protectedBinding.mustEqualFetchedOriginMain === true &&
+      protectedBinding.postMainBuildRequired === true &&
+      protectedBinding.postMainSecurityRequired === true &&
+      protectedBinding.postMainAnnotationsMustBeEmpty === true &&
+      protectedBinding.commitBoundLiveAuditRequired === true &&
+      protectedActivationCompletionEvidenceSchemaExact(evidence) &&
+      protectedActivationCompletionEvidenceMatchesFrozenActual(evidence, actual)
+  );
+}
+
+function isPlainRecord(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function exactOwnKeys(value, expectedKeys) {
+  return isPlainRecord(value) && sameStringSet(Object.keys(value), expectedKeys);
+}
+
+function exactPlainJsonOwnKeys(value, expectedKeys) {
+  return (
+    isPlainRecord(value) &&
+    Object.getPrototypeOf(value) === Object.prototype &&
+    exactOwnKeys(value, expectedKeys)
+  );
+}
+
+const INTEGRATED_MONOTONIC_BEHIND_ALTERNATE_BASE_KEYS = [
+  "base",
+  "baseRef",
+  "baseRefName",
+  "targetBaseRef"
+];
+
+function hasIntegratedMonotonicBehindAlternateBaseKey(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      INTEGRATED_MONOTONIC_BEHIND_ALTERNATE_BASE_KEYS.some((key) =>
+        Object.hasOwn(value, key)
+      )
+  );
+}
+
+function assertProtectedCurrentnessRepairOwnKeys(value, expectedKeys, rule) {
+  if (!exactOwnKeys(value, expectedKeys)) throw new Error(rule);
+}
+
+export function protectedCurrentnessRepairTrueBooleanPaths(value, path = []) {
+  if (!value || typeof value !== "object") return [];
+  const paths = [];
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    if (entry === true) paths.push(nextPath.join("."));
+    if (entry && typeof entry === "object") {
+      paths.push(...protectedCurrentnessRepairTrueBooleanPaths(entry, nextPath));
+    }
+  }
+  return paths.sort();
+}
+
+function protectedCurrentnessRepairWorkItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry?.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_ID
+  );
+}
+
+function protectedCurrentnessRepairBranch(registry) {
+  return (registry?.branches ?? []).find(
+    (entry) => entry?.name === PROTECTED_CURRENTNESS_REPAIR_BRANCH
+  );
+}
+
+function protectedCurrentnessRepairReceiptPrefixSha256(receipts, count) {
+  return sha256Buffer(Buffer.from(JSON.stringify(receipts.slice(0, count))));
+}
+
+export function validateProtectedCurrentnessRepairFrozenInitialSource(
+  sourceRegistry,
+  candidateRegistry,
+  context
+) {
+  const lifecycle = protectedCurrentnessRepairWorkItem(candidateRegistry)
+    ?.protectedCurrentnessActivationRepairLifecycle;
+  const sourceItem = protectedCurrentnessRepairWorkItem(sourceRegistry);
+  const sourceBranch = protectedCurrentnessRepairBranch(sourceRegistry);
+  const sourceDesignLifecycle =
+    sourceItem?.protectedCurrentnessActivationRepairDesignLifecycle;
+  const sourceReceipts = sourceRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(sourceReceipts) ||
+    sourceReceipts.length !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT ||
+    protectedCurrentnessRepairReceiptPrefixSha256(
+      sourceReceipts,
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT
+    ) !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_SHA256
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-frozen-source-receipt-prefix-invalid"
+    );
+  }
+  const sourcePrReceipt = sourceReceipts.find(
+    (entry) =>
+      entry?.receiptKind ===
+      "pr82-protected-currentness-activation-repair-post-publication-reconciliation"
+  );
+  if (
+    sourceItem?.prNumber !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    sourceItem?.plannedPullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    sourceBranch?.pr !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    sourceBranch?.plannedPullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    sourceDesignLifecycle?.seedDraftPullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    sourceDesignLifecycle?.postPublicationSeedEvidence?.pullRequest?.number !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    sourcePrReceipt?.pullRequest?.number !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-pr-identity-invalid");
+  }
+  if (
+    !context ||
+    context.pullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-pr-identity-invalid");
+  }
+  if (
+    context.seedHeadSha !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA ||
+    context.seedTreeSha !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_TREE_SHA ||
+    context.seedRegistryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_BLOB_SHA
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-context-invalid");
+  }
+  if (
+    !lifecycle ||
+    lifecycle.designPlanSeedHeadSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA ||
+    lifecycle.designPlanSeedTreeSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_TREE_SHA ||
+    lifecycle.designPlanSeedRegistryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_BLOB_SHA ||
+    lifecycle.designPlanSeedReceiptPrefix?.count !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT ||
+    lifecycle.designPlanSeedReceiptPrefix?.sha256 !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_SHA256
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-lifecycle-invalid");
+  }
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+    PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_SHA256
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-frozen-source-canonical-registry-invalid"
+    );
+  }
+  if (
+    !gitObjectExists(
+      `${PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA}^{commit}`
+    )
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-commit-unavailable");
+  }
+  let frozenTreeSha;
+  let frozenRegistryBlobSha;
+  let frozenRegistry;
+  try {
+    frozenTreeSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA}^{tree}`
+    ]).trim();
+    frozenRegistryBlobSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+    ]).trim();
+    frozenRegistry = loadRegistryFromCommit(
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA
+    ).parsed;
+  } catch {
+    throw new Error("rule=protected-currentness-repair-frozen-source-commit-unavailable");
+  }
+  if (frozenTreeSha !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_TREE_SHA) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-git-tree-invalid");
+  }
+  if (
+    frozenRegistryBlobSha !==
+    PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_BLOB_SHA
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-frozen-source-git-registry-blob-invalid"
+    );
+  }
+  if (!sameJson(frozenRegistry, sourceRegistry)) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-git-registry-invalid");
+  }
+  return true;
+}
+
+function validateProtectedCurrentnessRepairReceipt(
+  receipt,
+  expectedKind,
+  expectedScope,
+  expectedAction,
+  evidence = null
+) {
+  const expectedKeys = evidence
+    ? [
+        "schemaVersion",
+        "receiptKind",
+        "taskId",
+        "ownerKey",
+        "scope",
+        ...PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS,
+        "authorizationBoundary"
+      ]
+    : PROTECTED_CURRENTNESS_REPAIR_RECEIPT_BASE_KEYS;
+  assertProtectedCurrentnessRepairOwnKeys(
+    receipt,
+    expectedKeys,
+    "rule=protected-currentness-repair-receipt-schema-invalid"
+  );
+  assertProtectedCurrentnessRepairOwnKeys(
+    receipt.authorizationBoundary,
+    [expectedAction],
+    "rule=protected-currentness-repair-authorization-boundary-schema-invalid"
+  );
+  const allowedTruePaths = evidence
+    ? [
+        "annotationsEmpty",
+        `authorizationBoundary.${expectedAction}`,
+        "qualityReviewApproved",
+        "requiredChecksPassed",
+        "specReviewApproved"
+      ]
+    : [`authorizationBoundary.${expectedAction}`];
+  if (
+    receipt.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    receipt.receiptKind !== expectedKind ||
+    receipt.taskId !== PROTECTED_CURRENTNESS_REPAIR_TASK_ID ||
+    receipt.ownerKey !== PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY ||
+    !sameJson(receipt.scope, expectedScope) ||
+    !sameJson(protectedCurrentnessRepairTrueBooleanPaths(receipt), allowedTruePaths) ||
+    receipt.authorizationBoundary[expectedAction] !== true
+  ) {
+    throw new Error("rule=protected-currentness-repair-transition-receipt-invalid");
+  }
+  if (
+    evidence &&
+    !PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS.every((key) =>
+      sameJson(receipt[key], evidence[key])
+    )
+  ) {
+    throw new Error("rule=protected-currentness-repair-final-evidence-invalid");
+  }
+}
+
+export const PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY =
+  "structural-only";
+export const PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND =
+  "context-bound";
+
+export function validateProtectedCurrentnessRepairInitialEvidenceStructure(evidence) {
+  assertProtectedCurrentnessRepairOwnKeys(
+    evidence,
+    PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS,
+    "rule=protected-currentness-repair-final-evidence-schema-invalid"
+  );
+  if (
+    !["headSha", "treeSha", "registryBlobSha", "verifierBlobSha", "governanceTestBlobSha"]
+      .every((field) => isSha(evidence[field])) ||
+    !Number.isInteger(evidence.buildRunId) ||
+    evidence.buildRunId <= 0 ||
+    !exactDistinctPositiveIntegerArray(evidence.repositorySecurityRunIds, 2) ||
+    !exactDistinctPositiveIntegerArray(evidence.checkJobIds, 3) ||
+    evidence.requiredChecksPassed !== true ||
+    evidence.annotationsEmpty !== true ||
+    evidence.specReviewApproved !== true ||
+    evidence.qualityReviewApproved !== true
+  ) {
+    throw new Error("rule=protected-currentness-repair-final-evidence-structure-invalid");
+  }
+  return true;
+}
+
+export function validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
+  evidence,
+  context
+) {
+  validateProtectedCurrentnessRepairInitialEvidenceStructure(evidence);
+  if (
+    !context ||
+    context.evidenceContextComplete === false ||
+    !isSha(context.headSha) ||
+    !isSha(context.treeSha) ||
+    !isSha(context.registryBlobSha) ||
+    !isSha(context.verifierBlobSha) ||
+    !isSha(context.governanceTestBlobSha) ||
+    !Number.isInteger(context.buildRunId) ||
+    context.buildRunId <= 0 ||
+    !exactDistinctPositiveIntegerArray(context.repositorySecurityRunIds, 2) ||
+    !exactDistinctPositiveIntegerArray(context.checkJobIds, 3) ||
+    typeof context.requiredChecksPassed !== "boolean" ||
+    typeof context.annotationsEmpty !== "boolean" ||
+    typeof context.specReviewApproved !== "boolean" ||
+    typeof context.qualityReviewApproved !== "boolean"
+  ) {
+    throw new Error("rule=protected-currentness-repair-final-evidence-context-missing");
+  }
+  if (
+    context.headSha !== evidence.headSha ||
+    context.treeSha !== evidence.treeSha ||
+    context.registryBlobSha !== evidence.registryBlobSha ||
+    context.verifierBlobSha !== evidence.verifierBlobSha ||
+    context.governanceTestBlobSha !== evidence.governanceTestBlobSha ||
+    context.buildRunId !== evidence.buildRunId ||
+    !sameJson(context.repositorySecurityRunIds, evidence.repositorySecurityRunIds) ||
+    !sameJson(context.checkJobIds, evidence.checkJobIds) ||
+    context.requiredChecksPassed !== true ||
+    context.annotationsEmpty !== true ||
+    context.specReviewApproved !== true ||
+    context.qualityReviewApproved !== true
+  ) {
+    throw new Error("rule=protected-currentness-repair-final-evidence-context-mismatch");
+  }
+  return true;
+}
+
+function validateProtectedCurrentnessRepairPrState(item, branch, lifecycle) {
+  const expectedHead = lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS
+    ? lifecycle.designPlanSeedHeadSha
+    : lifecycle.initialCandidateCompletionEvidence?.headSha;
+  if (
+    item.noPrReason !== null ||
+    branch.upstream !== `origin/${PROTECTED_CURRENTNESS_REPAIR_BRANCH}` ||
+    branch.upstreamState !== "live" ||
+    branch.upstreamCacheState !== "present" ||
+    branch.noPrReason !== null
+  ) {
+    throw new Error("rule=protected-currentness-repair-custody-identity-invalid");
+  }
+  if (
+    item.ownerKey !== PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY ||
+    branch.ownerKey !== PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY ||
+    item.branch !== PROTECTED_CURRENTNESS_REPAIR_BRANCH ||
+    item.prNumber !== lifecycle.pullRequestNumber ||
+    item.plannedPullRequestNumber !== lifecycle.pullRequestNumber ||
+    item.prState !== "OPEN" ||
+    item.prIsDraft !== true ||
+    item.prReadyForReview !== false ||
+    item.mergeAuthorized !== false ||
+    item.headSha !== expectedHead ||
+    !sameJson(item.allowedPaths, PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE) ||
+    branch.pr !== lifecycle.pullRequestNumber ||
+    branch.plannedPullRequestNumber !== lifecycle.pullRequestNumber ||
+    branch.prBase !== "main" ||
+    branch.prState !== "OPEN" ||
+    branch.prStateObservationMode !== "monotonic" ||
+    branch.prIsDraft !== true ||
+    branch.prReadyForReview !== false ||
+    branch.mergeAuthorized !== false ||
+    branch.remotePresent !== true ||
+    branch.headSha !== expectedHead ||
+    branch.remoteHeadSha !== expectedHead ||
+    branch.prHeadSha !== expectedHead ||
+    branch.mergeable !== "MERGEABLE" ||
+    branch.mergeStateStatus !== "CLEAN"
+  ) {
+    throw new Error("rule=protected-currentness-repair-pr-state-invalid");
+  }
+}
+
+export function validateProtectedCurrentnessRepairLifecycleSnapshot(
+  registry,
+  mode,
+  context = null
+) {
+  if (
+    mode !== PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY &&
+    mode !== PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND
+  ) {
+    throw new Error("rule=protected-currentness-repair-snapshot-mode-required");
+  }
+  const item = protectedCurrentnessRepairWorkItem(registry);
+  const branch = protectedCurrentnessRepairBranch(registry);
+  const lifecycle = item?.protectedCurrentnessActivationRepairLifecycle;
+  if (!item || !branch || !lifecycle) {
+    throw new Error("rule=protected-currentness-repair-lifecycle-missing");
+  }
+  assertProtectedCurrentnessRepairOwnKeys(
+    lifecycle,
+    PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS,
+    "rule=protected-currentness-repair-lifecycle-schema-invalid"
+  );
+  assertProtectedCurrentnessRepairOwnKeys(
+    lifecycle.designPlanSeedReceiptPrefix,
+    ["count", "sha256"],
+    "rule=protected-currentness-repair-receipt-prefix-schema-invalid"
+  );
+  const retirement = (registry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  const protectedActivationBinding =
+    retirement?.finalBaseHandshakeAuthorization?.protectedActivationBinding;
+  if (
+    lifecycle.pullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    item.prNumber !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    item.plannedPullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    branch.pr !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    branch.plannedPullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    protectedActivationBinding?.requiredActivationPullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    (mode === PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND &&
+      context.pullRequestNumber !==
+        PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER)
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-pr-identity-invalid");
+  }
+  if (
+    lifecycle.oneShot !== true ||
+    !Number.isInteger(lifecycle.pullRequestNumber) ||
+    lifecycle.pullRequestNumber <= 0 ||
+    !isSha(lifecycle.protectedBaseSha) ||
+    !isSha(lifecycle.protectedBaseTreeSha) ||
+    !isSha(lifecycle.protectedBaseRegistryBlobSha) ||
+    !isSha(lifecycle.designPlanSeedHeadSha) ||
+    !isSha(lifecycle.designPlanSeedTreeSha) ||
+    !isSha(lifecycle.designPlanSeedRegistryBlobSha) ||
+    lifecycle.designPlanSeedHeadSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA ||
+    lifecycle.designPlanSeedTreeSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_TREE_SHA ||
+    lifecycle.designPlanSeedRegistryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_BLOB_SHA ||
+    !Number.isInteger(lifecycle.designPlanSeedReceiptPrefix.count) ||
+    lifecycle.designPlanSeedReceiptPrefix.count < 0 ||
+    !validSha256(lifecycle.designPlanSeedReceiptPrefix.sha256) ||
+    lifecycle.designPlanSeedReceiptPrefix.count !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT ||
+    lifecycle.designPlanSeedReceiptPrefix.sha256 !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_SHA256 ||
+    !sameJson(lifecycle.requiredOverallPaths, PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE) ||
+    !sameJson(
+      lifecycle.requiredImplementationPaths,
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE
+    ) ||
+    !PROTECTED_CURRENTNESS_REPAIR_PERMANENTLY_FALSE_ACTIONS.every(
+      (field) => lifecycle[field] === false
+    ) ||
+    (mode === PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND &&
+      context.pullRequestNumber !== lifecycle.pullRequestNumber)
+  ) {
+    throw new Error("rule=protected-currentness-repair-lifecycle-core-invalid");
+  }
+  if (
+    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
+    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
+  ) {
+    throw new Error("rule=protected-currentness-repair-status-invalid");
+  }
+
+  const receipts = registry.releaseReceipts ?? [];
+  const prefixCount = lifecycle.designPlanSeedReceiptPrefix.count;
+  if (
+    receipts.length < prefixCount ||
+    protectedCurrentnessRepairReceiptPrefixSha256(receipts, prefixCount) !==
+      lifecycle.designPlanSeedReceiptPrefix.sha256
+  ) {
+    throw new Error("rule=protected-currentness-repair-receipt-prefix-invalid");
+  }
+  const initialReceipt = receipts[prefixCount];
+  if (lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS) {
+    if (receipts.length !== prefixCount + 1) {
+      throw new Error("rule=protected-currentness-repair-initial-receipt-delta-invalid");
+    }
+    validateProtectedCurrentnessRepairReceipt(
+      initialReceipt,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION
+    );
+    if (
+      lifecycle.initialCandidateCompletionEvidence !== null ||
+      lifecycle[PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION] !== true ||
+      lifecycle[PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION] !== false ||
+      !sameJson(protectedCurrentnessRepairTrueBooleanPaths(lifecycle), [
+        PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION,
+        "oneShot"
+      ])
+    ) {
+      throw new Error("rule=protected-currentness-repair-initial-action-set-invalid");
+    }
+  } else {
+    assertProtectedCurrentnessRepairOwnKeys(
+      lifecycle.initialCandidateCompletionEvidence,
+      PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS,
+      "rule=protected-currentness-repair-final-evidence-schema-invalid"
+    );
+    if (
+      lifecycle[PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION] !== false ||
+      lifecycle[PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION] !== true ||
+      !sameJson(protectedCurrentnessRepairTrueBooleanPaths(lifecycle), [
+        ...PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_TRUE_PATHS,
+        "oneShot",
+        PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION
+      ])
+    ) {
+      throw new Error("rule=protected-currentness-repair-final-action-set-invalid");
+    }
+    if (receipts.length !== prefixCount + 2) {
+      throw new Error("rule=protected-currentness-repair-final-receipt-delta-invalid");
+    }
+    validateProtectedCurrentnessRepairReceipt(
+      initialReceipt,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION
+    );
+    validateProtectedCurrentnessRepairReceipt(
+      receipts[prefixCount + 1],
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION,
+      lifecycle.initialCandidateCompletionEvidence
+    );
+    if (mode === PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND) {
+      validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
+        lifecycle.initialCandidateCompletionEvidence,
+        context
+      );
+    } else {
+      validateProtectedCurrentnessRepairInitialEvidenceStructure(
+        lifecycle.initialCandidateCompletionEvidence
+      );
+    }
+  }
+  validateProtectedCurrentnessRepairPrState(item, branch, lifecycle);
+  return { item, branch, lifecycle };
+}
+
+const REPAIR_INITIAL_MUTABLE_RECORDS = {
+  repairWorkItem: [
+    "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
+    "expectedCloseAt", "dirtyState", "evidenceState",
+    "protectedCurrentnessActivationRepairLifecycle"
+  ],
+  repairBranch: [
+    "headSha", "remoteHeadSha", "remoteObservedAt", "prStateObservationMode",
+    "prHeadSha", "lastOwnerHeartbeatAt", "lastObservedAt", "lastCommitAt",
+    "nextReviewAt", "expectedCloseAt", "closeout"
+  ],
+  a01WorkItem: ["aheadBehindObservationMode", "lastObservedAt", "nextReviewAt", "evidenceState"],
+  pr81WorkItem: ["aheadBehindObservationMode", "lastObservedAt", "nextReviewAt", "evidenceState"],
+  pr81Branch: ["prStateObservationMode", "lastObservedAt", "nextReviewAt", "closeout"],
+  branchRetirementWorkItem: [
+    "finalBaseHandshakeAuthorization", "lastObservedAt", "nextReviewAt", "evidenceState"
+  ],
+  branchRetirementBranch: ["prStateObservationMode", "lastObservedAt", "nextReviewAt", "closeout"],
+  rootWorkItem: ["lastObservedAt", "nextReviewAt", "evidenceState"],
+  rootBranch: ["lastObservedAt", "nextReviewAt", "closeout"]
+};
+
+const PROTECTED_CURRENTNESS_REPAIR_INITIAL_MUTABLE_AUTHORIZATION_CONTAINERS = [
+  {
+    recordType: "workItem",
+    identity: PROTECTED_CURRENTNESS_REPAIR_TASK_ID,
+    field: "aheadBehind",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "workItem",
+    identity: PROTECTED_CURRENTNESS_REPAIR_TASK_ID,
+    field: "evidenceState",
+    allowedNewTruePaths: [
+      ["unreviewedCurrentness", "checksPassed"],
+      ["unreviewedCurrentness", "remotePresent"]
+    ]
+  },
+  {
+    recordType: "branch",
+    identity: PROTECTED_CURRENTNESS_REPAIR_BRANCH,
+    field: "closeout",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "workItem",
+    identity: "SENA-A01-REPO-GOVERNANCE-20260827",
+    field: "evidenceState",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "workItem",
+    identity: "SENA-PR80-POST-MAIN-CLOSEOUT-20260901",
+    field: "evidenceState",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "branch",
+    identity: "codex/sena-pr80-post-main-closeout-20260901",
+    field: "closeout",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "workItem",
+    identity: "SENA-BRANCH-RETIREMENT-20260829",
+    field: "evidenceState",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "branch",
+    identity: "codex/sena-branch-retirement-20260829",
+    field: "closeout",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "workItem",
+    identity: "SENA-A01-ROOT-CONTROL-PLANE-20260828",
+    field: "evidenceState",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "branch",
+    identity: "main",
+    field: "closeout",
+    allowedNewTruePaths: []
+  }
+];
+const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_AUTHORIZATION_CONTAINERS = [
+  {
+    recordType: "workItem",
+    identity: PROTECTED_CURRENTNESS_REPAIR_TASK_ID,
+    field: "aheadBehind",
+    allowedNewTruePaths: []
+  },
+  {
+    recordType: "workItem",
+    identity: PROTECTED_CURRENTNESS_REPAIR_TASK_ID,
+    field: "evidenceState",
+    allowedNewTruePaths: [
+      ["unreviewedCurrentness", "annotationsEmpty"],
+      ["unreviewedCurrentness", "requiredChecksPassed"]
+    ]
+  },
+  {
+    recordType: "branch",
+    identity: PROTECTED_CURRENTNESS_REPAIR_BRANCH,
+    field: "closeout",
+    allowedNewTruePaths: []
+  }
+];
+
+function protectedCurrentnessRepairPrimitiveTruePathSegments(value, path = []) {
+  if (!value || typeof value !== "object") return [];
+  const paths = [];
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    if (entry === true) {
+      paths.push(nextPath);
+    }
+    if (entry && typeof entry === "object") {
+      paths.push(
+        ...protectedCurrentnessRepairPrimitiveTruePathSegments(entry, nextPath)
+      );
+    }
+  }
+  return paths;
+}
+
+function protectedCurrentnessRepairPathIdentity(pathSegments) {
+  if (
+    !Array.isArray(pathSegments) ||
+    pathSegments.length === 0 ||
+    !pathSegments.every((segment) => typeof segment === "string")
+  ) {
+    return undefined;
+  }
+  return JSON.stringify(pathSegments);
+}
+
+function protectedCurrentnessRepairMutableContainer(registry, descriptor) {
+  const collection = descriptor.recordType === "workItem"
+    ? registry?.workItems
+    : registry?.branches;
+  const identityKey = descriptor.recordType === "workItem" ? "taskId" : "name";
+  return (collection ?? []).find(
+    (entry) => entry?.[identityKey] === descriptor.identity
+  )?.[descriptor.field];
+}
+
+function protectedCurrentnessRepairIntroducesMutableAuthorization(
+  sourceRegistry,
+  candidateRegistry,
+  descriptors
+) {
+  return descriptors.some((descriptor) => {
+    const sourcePaths = new Set(
+      protectedCurrentnessRepairPrimitiveTruePathSegments(
+        protectedCurrentnessRepairMutableContainer(sourceRegistry, descriptor)
+      ).map(protectedCurrentnessRepairPathIdentity)
+    );
+    const allowedNewTruePaths = new Set(
+      descriptor.allowedNewTruePaths.map(
+        protectedCurrentnessRepairPathIdentity
+      )
+    );
+    return protectedCurrentnessRepairPrimitiveTruePathSegments(
+      protectedCurrentnessRepairMutableContainer(candidateRegistry, descriptor)
+    ).some((pathSegments) => {
+      const pathIdentity = protectedCurrentnessRepairPathIdentity(pathSegments);
+      return (
+        pathIdentity === undefined ||
+        (!sourcePaths.has(pathIdentity) &&
+          !allowedNewTruePaths.has(pathIdentity))
+      );
+    });
+  });
+}
+
+function redactProtectedCurrentnessRepairFields(record, fields, label) {
+  const copy = protectedActivationControlledExactClone(
+    record ?? {},
+    "rule=protected-currentness-repair-registry-normalization-invalid"
+  );
+  for (const field of fields) copy[field] = `<${label}:${field}>`;
+  return copy;
+}
+
+function normalizedRepairInitialImmutableRegistrySha256(registry) {
+  const copy = protectedActivationControlledExactClone(
+    registry,
+    "rule=protected-currentness-repair-registry-normalization-invalid"
+  );
+  copy.updatedAt = "<repair-owned>";
+  copy.workItems = (copy.workItems ?? []).map((entry) => {
+    if (entry.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_ID) {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.repairWorkItem,
+        "repair-item"
+      );
+    }
+    if (entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.a01WorkItem,
+        "a01-item"
+      );
+    }
+    if (entry.taskId === "SENA-PR80-POST-MAIN-CLOSEOUT-20260901") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.pr81WorkItem,
+        "pr81-item"
+      );
+    }
+    if (entry.taskId === "SENA-BRANCH-RETIREMENT-20260829") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.branchRetirementWorkItem,
+        "pr46-item"
+      );
+    }
+    if (entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.rootWorkItem,
+        "root-item"
+      );
+    }
+    return entry;
+  });
+  copy.branches = (copy.branches ?? []).map((entry) => {
+    if (entry.name === PROTECTED_CURRENTNESS_REPAIR_BRANCH) {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.repairBranch,
+        "repair-branch"
+      );
+    }
+    if (entry.name === "codex/sena-pr80-post-main-closeout-20260901") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.pr81Branch,
+        "pr81-branch"
+      );
+    }
+    if (entry.name === "codex/sena-branch-retirement-20260829") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.branchRetirementBranch,
+        "pr46-branch"
+      );
+    }
+    if (entry.name === "main") {
+      return redactProtectedCurrentnessRepairFields(
+        entry,
+        REPAIR_INITIAL_MUTABLE_RECORDS.rootBranch,
+        "root-branch"
+      );
+    }
+    return entry;
+  });
+  copy.releaseReceipts = (copy.releaseReceipts ?? []).filter(
+    (entry) => ![
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+    ].includes(entry?.receiptKind)
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(copy)));
+}
+
+const PROTECTED_PR46_REBINDING_CONFLICT_PATHS = [
+  REGISTRY_REPO_PATH,
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+const PROTECTED_PR46_REBINDING_PROTECTED_ONLY_PATHS = [
+  "coordination/repo-governance/pr46-final-ready-repair-design.md",
+  "coordination/repo-governance/pr46-final-ready-repair-implementation-plan.md",
+  "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
+  "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
+];
+const PROTECTED_PR46_REBINDING_RED_GREEN_APPEND = [
+  "integrated-monotonic-behind-must-never-imply-cleanup-or-deletion-authority",
+  "root-protected-advance-chain-must-reject-parent-tree-registry-path-pr-or-receipt-drift",
+  "pr46-activation-evidence-must-match-the-protected-repair-pr-number"
+];
+const PROTECTED_PR46_REBINDING_REQUIRED_EXECUTION = [
+  "verify-the-owner-reviewed-repair-design-and-plan-seed-at-exact-protected-source-969a206",
+  "push-only-the-named-repair-branch-and-create-one-draft-pr-to-read-back-its-actual-number",
+  "write-and-observe-red-tests-before-each-currentness-chain-lifecycle-or-activation-production-change",
+  "commit-and-push-the-exact-three-path-initial-repair-candidate-after-full-local-gates-and-immutable-reviews",
+  "verify-initial-repair-head-build-both-security-checks-and-zero-annotation-readback",
+  "commit-and-push-one-registry-only-final-repair-authorization",
+  "verify-final-repair-head-build-both-security-checks-zero-annotations-and-fresh-reviews",
+  "mark-the-repair-pr-ready-and-use-an-ordinary-protected-merge-with-exact-head-lease-and-no-admin-bypass",
+  "verify-repair-post-main-build-security-zero-annotations-and-commit-bound-live-audit-before-and-after-root-fast-forward",
+  "revalidate-pr46-exact-e24c635-head-three-conflicts-empty-candidate-only-and-four-path-protected-only-set",
+  "only-after-those-gates-allow-pr46-to-consume-the-protected-binding-without-changing-its-core",
+  "stop-before-pr46-mutation-local-ref-retirement-branch-worktree-orphan-remote-target-provider-deployment-or-history-mutation"
+];
+const PROTECTED_PR46_REBINDING_FALSE_ACTIONS = [
+  "implementationAuthorizedNow",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized"
+];
+const protectedPr46RebindingSources = new WeakSet();
+
+export function resolveProtectedPr46ActivationRebindingSource(sourceRegistry) {
+  if (!protectedActivationCompletionCanonicalJsonTree(sourceRegistry)) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-registry-invalid");
+  }
+  if (
+    !gitObjectExists(`${PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA}^{commit}`)
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-git-identity-invalid");
+  }
+  let frozenTreeSha;
+  let frozenRegistryBlobSha;
+  let frozenRegistry;
+  try {
+    frozenTreeSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA}^{tree}`
+    ]).trim();
+    frozenRegistryBlobSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+    ]).trim();
+    frozenRegistry = loadRegistryFromCommit(
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA
+    ).parsed;
+  } catch {
+    throw new Error("rule=protected-currentness-repair-frozen-source-git-identity-invalid");
+  }
+  if (
+    frozenTreeSha !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_TREE_SHA ||
+    frozenRegistryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_BLOB_SHA
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-git-identity-invalid");
+  }
+  const sourceReceipts = sourceRegistry.releaseReceipts;
+  if (
+    !protectedActivationCompletionCanonicalJsonTree(frozenRegistry) ||
+    !protectedActivationCompletionCanonicalDeepEqual(sourceRegistry, frozenRegistry) ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_SHA256 ||
+    !Array.isArray(sourceReceipts) ||
+    sourceReceipts.length !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT ||
+    protectedCurrentnessRepairReceiptPrefixSha256(
+      sourceReceipts,
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT
+    ) !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_SHA256
+  ) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-registry-invalid");
+  }
+  const retirement = (sourceRegistry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  const authorization = retirement?.finalBaseHandshakeAuthorization;
+  if (!protectedActivationCompletionCanonicalJsonTree(authorization)) {
+    throw new Error("rule=protected-currentness-repair-frozen-source-registry-invalid");
+  }
+  return protectedActivationControlledBrandedClone(
+    authorization,
+    protectedPr46RebindingSources,
+    "rule=protected-currentness-repair-frozen-source-registry-invalid"
+  );
+}
+
+export function expectedProtectedPr46ActivationRebinding(
+  sourceAuthorization,
+  repairPrNumber
+) {
+  if (
+    repairPrNumber !== PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    !Number.isInteger(repairPrNumber) ||
+    repairPrNumber <= 0
+  ) {
+    throw new Error("rule=protected-currentness-repair-activation-pr-invalid");
+  }
+  if (!protectedPr46RebindingSources.has(sourceAuthorization)) {
+    throw new Error("rule=protected-currentness-repair-pr46-source-unbranded");
+  }
+  const pendingSourceKeys = PR46_HANDSHAKE_KEYS.filter(
+    (field) => ![
+      "protectedReceiptPrefix",
+      "remergeCandidateCompletionEvidence"
+    ].includes(field)
+  );
+  if (
+    !protectedActivationCompletionFrozenPlainTree(sourceAuthorization) ||
+    !exactPlainJsonOwnKeys(sourceAuthorization, pendingSourceKeys) ||
+    !exactPlainJsonOwnKeys(sourceAuthorization.authorizedResolverTransition, [
+      "implementationPaths",
+      "allowedStatuses",
+      "allowedTransitions",
+      "requiredResolverModes",
+      "arbitraryStatusMustFailClosed",
+      "unknownTrueAuthorizationMustFailClosedRecursively",
+      "candidateProjectionBinding",
+      "pendingState",
+      "remergeConsumedState",
+      "finalReadyState",
+      "requiredRedGreenCases"
+    ]) ||
+    !isPlainRecord(sourceAuthorization.authorizedResolverTransition.pendingState) ||
+    !Array.isArray(sourceAuthorization.authorizedResolverTransition.requiredRedGreenCases) ||
+    PROTECTED_PR46_REBINDING_RED_GREEN_APPEND.some((entry) =>
+      sourceAuthorization.authorizedResolverTransition.requiredRedGreenCases.includes(entry)
+    ) ||
+    PROTECTED_PR46_REBINDING_FALSE_ACTIONS.some(
+      (field) => sourceAuthorization[field] !== false
+    )
+  ) {
+    throw new Error("rule=protected-currentness-repair-pr46-binding-missing");
+  }
+  const expected = protectedActivationControlledExactClone(
+    sourceAuthorization,
+    "rule=protected-currentness-repair-pr46-binding-missing"
+  );
+  expected.status = "pending-protected-activation";
+  expected.authorizationSourceMainSha = PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha;
+  expected.authorizationSourceMainTreeSha =
+    PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.treeSha;
+  expected.authorizationSourceRegistryBlobSha =
+    PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.registryBlobSha;
+  expected.protectedActivationBinding = {
+    mode: "loaded-fetched-origin-main-authorization-registry-commit",
+    requiredReceiptKind: PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+    requiredFinalAuthorizationReceiptKind: PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT,
+    requiredAuthorizationStatus: "pending-protected-activation",
+    requiredActivationLifecycleStatus: PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS,
+    requiredActivationPullRequestNumber: repairPrNumber,
+    mustDescendFromAuthorizationSourceMainSha: true,
+    mustEqualFetchedOriginMain: true,
+    postMainBuildRequired: true,
+    postMainSecurityRequired: true,
+    postMainAnnotationsMustBeEmpty: true,
+    commitBoundLiveAuditRequired: true
+  };
+  expected.currentProtectedMainSha = PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha;
+  expected.currentProtectedMainTreeSha = PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.treeSha;
+  expected.currentProtectedRegistryBlobSha =
+    PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.registryBlobSha;
+  expected.currentConflictPathCount = PROTECTED_PR46_REBINDING_CONFLICT_PATHS.length;
+  expected.currentConflictingPaths = [...PROTECTED_PR46_REBINDING_CONFLICT_PATHS];
+  expected.currentCandidateOnlyCleanPaths = [];
+  expected.authorizedResolverTransition.pendingState = {
+    ...expected.authorizedResolverTransition.pendingState,
+    conflictingPathsMustEqual: [...PROTECTED_PR46_REBINDING_CONFLICT_PATHS],
+    cleanCandidateOnlyPathsMustEqual: [],
+    cleanProtectedOnlyPathsMustEqual: [...PROTECTED_PR46_REBINDING_PROTECTED_ONLY_PATHS],
+    exactThreeFileResolutionMustPreserveProtectedRepairLifecycle: true
+  };
+  expected.authorizedResolverTransition.requiredRedGreenCases = [
+    ...sourceAuthorization.authorizedResolverTransition.requiredRedGreenCases,
+    ...PROTECTED_PR46_REBINDING_RED_GREEN_APPEND
+  ];
+  expected.requiredExecution = [...PROTECTED_PR46_REBINDING_REQUIRED_EXECUTION];
+  expected.finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation = true;
+  expected.finalResolverAndTestStageAuthorizedAfterProtectedActivation = true;
+  expected.finalMergeCommitPushAuthorizedAfterRequiredGates = true;
+  expected.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = false;
+  expected.pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks = false;
+  return expected;
+}
+
+export function validateProtectedPr46ActivationRebinding(
+  sourceAuthorization,
+  candidateAuthorization,
+  repairPrNumber
+) {
+  const expected = expectedProtectedPr46ActivationRebinding(
+    sourceAuthorization,
+    repairPrNumber
+  );
+  if (
+    !protectedActivationCompletionCanonicalJsonTree(candidateAuthorization) ||
+    !protectedActivationCompletionCanonicalDeepEqual(candidateAuthorization, expected)
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-pr46-activation-delta-invalid"
+    );
+  }
+  return true;
+}
+
+export function validateProtectedCurrentnessRepairInitialDelta(
+  sourceRegistry,
+  candidateRegistry,
+  context
+) {
+  const candidate = validateProtectedCurrentnessRepairLifecycleSnapshot(
+    candidateRegistry,
+    PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+  );
+  const lifecycle = candidate.lifecycle;
+  const sourceReceipts = sourceRegistry.releaseReceipts ?? [];
+  const candidateReceipts = candidateRegistry.releaseReceipts ?? [];
+  const sourceItem = protectedCurrentnessRepairWorkItem(sourceRegistry);
+  const sourceBranch = protectedCurrentnessRepairBranch(sourceRegistry);
+  const sourceFreezeBinding = (sourceRegistry.policy?.freezeExceptionBindings ?? []).find(
+    (entry) => entry?.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_ID
+  );
+  const candidateFreezeBinding = (candidateRegistry.policy?.freezeExceptionBindings ?? []).find(
+    (entry) => entry?.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_ID
+  );
+  const candidateRetirement = (candidateRegistry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  const protectedPr46ActivationSource =
+    resolveProtectedPr46ActivationRebindingSource(sourceRegistry);
+  let protectedPr46ActivationRebindingValid = false;
+  try {
+    protectedPr46ActivationRebindingValid = validateProtectedPr46ActivationRebinding(
+      protectedPr46ActivationSource,
+      candidateRetirement?.finalBaseHandshakeAuthorization,
+      context?.pullRequestNumber
+    );
+  } catch {
+    protectedPr46ActivationRebindingValid = false;
+  }
+  const sourceNormalizedSha256 =
+    normalizedRepairInitialImmutableRegistrySha256(sourceRegistry);
+  const candidateNormalizedSha256 =
+    normalizedRepairInitialImmutableRegistrySha256(candidateRegistry);
+  const introducesMutableAuthorization =
+    protectedCurrentnessRepairIntroducesMutableAuthorization(
+      sourceRegistry,
+      candidateRegistry,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_MUTABLE_AUTHORIZATION_CONTAINERS
+    );
+  if (
+    !context ||
+    context.seedHeadSha !== lifecycle.designPlanSeedHeadSha ||
+    context.seedTreeSha !== lifecycle.designPlanSeedTreeSha ||
+    context.seedRegistryBlobSha !== lifecycle.designPlanSeedRegistryBlobSha ||
+    lifecycle.protectedBaseSha !== PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha ||
+    lifecycle.protectedBaseTreeSha !== PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.treeSha ||
+    lifecycle.protectedBaseRegistryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.registryBlobSha ||
+    lifecycle.designPlanSeedReceiptPrefix.count !== sourceReceipts.length ||
+    candidateReceipts.length !== sourceReceipts.length + 1 ||
+    !sourceReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index])) ||
+    !sameJson(sourceItem?.allowedPaths, PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE) ||
+    !sameJson(candidate.item.allowedPaths, sourceItem?.allowedPaths) ||
+    sourceItem?.ownerKey !== PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY ||
+    candidate.item.ownerKey !== sourceItem.ownerKey ||
+    candidate.item.disposition !== sourceItem.disposition ||
+    sourceBranch?.ownerKey !== PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY ||
+    candidate.branch.ownerKey !== sourceBranch.ownerKey ||
+    candidate.branch.disposition !== sourceBranch.disposition ||
+    !sameJson(candidateFreezeBinding, sourceFreezeBinding) ||
+    !protectedPr46ActivationRebindingValid ||
+    sourceNormalizedSha256 !== candidateNormalizedSha256 ||
+    introducesMutableAuthorization
+  ) {
+    if (introducesMutableAuthorization) {
+      throw new Error(
+        "rule=protected-currentness-repair-mutable-authorization-delta-invalid"
+      );
+    }
+    throw new Error("rule=protected-currentness-repair-initial-delta-invalid");
+  }
+  return true;
+}
+
+const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_ITEM_FIELDS = [
+  "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
+  "dirtyState", "evidenceState"
+];
+const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_LIFECYCLE_FIELDS = [
+  "status",
+  "initialCandidateCompletionEvidence",
+  PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION,
+  PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION
+];
+const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_BRANCH_FIELDS = [
+  "headSha", "remoteHeadSha", "remoteObservedAt", "prState", "prIsDraft",
+  "prReadyForReview", "mergeAuthorized", "prHeadSha", "lastOwnerHeartbeatAt",
+  "lastObservedAt", "lastCommitAt", "nextReviewAt", "closeout", "mergeable",
+  "mergeStateStatus"
+];
+
+function normalizedRepairFinalImmutableRegistrySha256(registry) {
+  const copy = protectedActivationControlledExactClone(
+    registry,
+    "rule=protected-currentness-repair-registry-normalization-invalid"
+  );
+  copy.updatedAt = "<repair-final-owned>";
+  copy.workItems = (copy.workItems ?? []).map((entry) => {
+    if (entry.taskId !== PROTECTED_CURRENTNESS_REPAIR_TASK_ID) return entry;
+    return redactProtectedCurrentnessRepairFields(
+      {
+        ...entry,
+        protectedCurrentnessActivationRepairLifecycle:
+          redactProtectedCurrentnessRepairFields(
+            entry.protectedCurrentnessActivationRepairLifecycle,
+            PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_LIFECYCLE_FIELDS,
+            "repair-final-lifecycle"
+          )
+      },
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_ITEM_FIELDS,
+      "repair-final-item"
+    );
+  });
+  copy.branches = (copy.branches ?? []).map((entry) =>
+    entry.name === PROTECTED_CURRENTNESS_REPAIR_BRANCH
+      ? redactProtectedCurrentnessRepairFields(
+          entry,
+          PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_BRANCH_FIELDS,
+          "repair-final-branch"
+        )
+      : entry
+  );
+  copy.releaseReceipts = (copy.releaseReceipts ?? []).filter(
+    (entry) => entry?.receiptKind !== PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(copy)));
+}
+
+export function validateProtectedCurrentnessRepairFinalDelta(
+  sourceRegistry,
+  candidateRegistry,
+  context
+) {
+  const source = validateProtectedCurrentnessRepairLifecycleSnapshot(
+    sourceRegistry,
+    PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+  );
+  const candidate = validateProtectedCurrentnessRepairLifecycleSnapshot(
+    candidateRegistry,
+    PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND,
+    context
+  );
+  const sourceReceipts = sourceRegistry.releaseReceipts ?? [];
+  const candidateReceipts = candidateRegistry.releaseReceipts ?? [];
+  const immutableLifecycleFields = PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS.filter(
+    (field) => !PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_LIFECYCLE_FIELDS.includes(field)
+  );
+  const sourceNormalizedSha256 =
+    normalizedRepairFinalImmutableRegistrySha256(sourceRegistry);
+  const candidateNormalizedSha256 =
+    normalizedRepairFinalImmutableRegistrySha256(candidateRegistry);
+  const introducesMutableAuthorization =
+    protectedCurrentnessRepairIntroducesMutableAuthorization(
+      sourceRegistry,
+      candidateRegistry,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_AUTHORIZATION_CONTAINERS
+    );
+  if (
+    source.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS ||
+    candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS ||
+    !immutableLifecycleFields.every((field) =>
+      sameJson(source.lifecycle[field], candidate.lifecycle[field])
+    ) ||
+    candidateReceipts.length !== sourceReceipts.length + 1 ||
+    !sourceReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index])) ||
+    sourceNormalizedSha256 !== candidateNormalizedSha256 ||
+    introducesMutableAuthorization
+  ) {
+    if (introducesMutableAuthorization) {
+      throw new Error(
+        "rule=protected-currentness-repair-mutable-authorization-delta-invalid"
+      );
+    }
+    throw new Error("rule=protected-currentness-repair-final-delta-invalid");
+  }
+  validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
+    candidate.lifecycle.initialCandidateCompletionEvidence,
+    context
+  );
+  return true;
+}
+
+export function protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+  sourceRegistry,
+  candidateRegistry,
+  context = {}
+) {
+  const sourceLifecycle = protectedCurrentnessRepairWorkItem(sourceRegistry)
+    ?.protectedCurrentnessActivationRepairLifecycle;
+  if (!sourceLifecycle) {
+    validateProtectedCurrentnessRepairFrozenInitialSource(
+      sourceRegistry,
+      candidateRegistry,
+      context
+    );
+    const candidate = validateProtectedCurrentnessRepairLifecycleSnapshot(
+      candidateRegistry,
+      PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+    );
+    if (candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS) {
+      throw new Error("rule=protected-currentness-repair-transition-source-invalid");
+    }
+    validateProtectedCurrentnessRepairInitialDelta(sourceRegistry, candidateRegistry, context);
+    return candidate;
+  }
+  const candidate = validateProtectedCurrentnessRepairLifecycleSnapshot(
+    candidateRegistry,
+    PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+  );
+  if (sourceLifecycle.status === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS) {
+    throw new Error("rule=protected-currentness-repair-transition-replay");
+  }
+  if (
+    sourceLifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS ||
+    candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
+  ) {
+    throw new Error("rule=protected-currentness-repair-transition-source-invalid");
+  }
+  validateProtectedCurrentnessRepairFinalDelta(sourceRegistry, candidateRegistry, context);
+  return candidate;
+}
+
+export function protectedCurrentnessRepairObservationContextFromEnvironment(seedHeadSha) {
+  const requiredEnvironmentNames = [
+    "SENA_REPAIR_INITIAL_HEAD",
+    "SENA_REPAIR_INITIAL_TREE",
+    "SENA_REPAIR_INITIAL_REGISTRY_BLOB",
+    "SENA_REPAIR_INITIAL_VERIFIER_BLOB",
+    "SENA_REPAIR_INITIAL_TEST_BLOB",
+    "SENA_REPAIR_INITIAL_BUILD_RUN_ID",
+    "SENA_REPAIR_INITIAL_REPOSITORY_SECURITY_RUN_IDS",
+    "SENA_REPAIR_INITIAL_CHECK_JOB_IDS",
+    "SENA_REPAIR_INITIAL_REQUIRED_CHECKS_PASSED",
+    "SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY",
+    "SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED",
+    "SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED"
+  ];
+  return {
+    evidenceContextComplete: requiredEnvironmentNames.every(
+      (name) => typeof process.env[name] === "string" && process.env[name].length > 0
+    ),
+    seedHeadSha,
+    seedTreeSha: gitText(["rev-parse", `${seedHeadSha}^{tree}`]).trim(),
+    seedRegistryBlobSha: gitText([
+      "rev-parse",
+      `${seedHeadSha}:${REGISTRY_REPO_PATH}`
+    ]).trim(),
+    pullRequestNumber: Number(process.env.SENA_REPAIR_PR_NUMBER),
+    headSha: process.env.SENA_REPAIR_INITIAL_HEAD,
+    treeSha: process.env.SENA_REPAIR_INITIAL_TREE,
+    registryBlobSha: process.env.SENA_REPAIR_INITIAL_REGISTRY_BLOB,
+    verifierBlobSha: process.env.SENA_REPAIR_INITIAL_VERIFIER_BLOB,
+    governanceTestBlobSha: process.env.SENA_REPAIR_INITIAL_TEST_BLOB,
+    buildRunId: Number(process.env.SENA_REPAIR_INITIAL_BUILD_RUN_ID),
+    repositorySecurityRunIds: commaSeparatedPositiveIntegers(
+      process.env.SENA_REPAIR_INITIAL_REPOSITORY_SECURITY_RUN_IDS
+    ),
+    checkJobIds: commaSeparatedPositiveIntegers(process.env.SENA_REPAIR_INITIAL_CHECK_JOB_IDS),
+    requiredChecksPassed:
+      process.env.SENA_REPAIR_INITIAL_REQUIRED_CHECKS_PASSED === "true",
+    annotationsEmpty: process.env.SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY === "true",
+    specReviewApproved: process.env.SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED === "true",
+    qualityReviewApproved: process.env.SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED === "true"
+  };
+}
+
+export function assertProtectedCurrentnessRepairIndexPaths(lifecycle, paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return true;
+  const expected = lifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS
+    ? PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE
+    : lifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
+      ? PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE
+      : null;
+  if (!expected || !sameJson(paths, expected)) {
+    throw new Error("rule=protected-currentness-repair-index-path-set-mismatch");
+  }
+  return true;
+}
+
+export function validateProtectedCurrentnessRepairIndexTransition(candidateRegistry) {
+  const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], {
+    allowFailure: true
+  });
+  if (
+    branchResult.status !== 0 ||
+    String(branchResult.stdout).trim() !== PROTECTED_CURRENTNESS_REPAIR_BRANCH
+  ) {
+    return;
+  }
+  const staged = stagedChangedPaths();
+  if (staged.length === 0) return;
+  const lifecycle = protectedCurrentnessRepairWorkItem(candidateRegistry)
+    ?.protectedCurrentnessActivationRepairLifecycle;
+  assertProtectedCurrentnessRepairIndexPaths(lifecycle, staged);
+  const headSha = gitText(["rev-parse", "HEAD"]).trim();
+  const sourceRegistry = loadRegistryFromCommit(headSha).parsed;
+  protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+    sourceRegistry,
+    candidateRegistry,
+    protectedCurrentnessRepairObservationContextFromEnvironment(headSha)
+  );
+}
+
 function validateRegistry(registry) {
   const errors = [];
   const warnings = [];
@@ -2369,9 +4432,10 @@ function validateRegistry(registry) {
     if (!isExpectedClose(item.expectedCloseAt)) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} must declare ISO or owner-gated expectedCloseAt`);
     }
-    if (!Array.isArray(item.aheadBehind?.baseRef ? [item.aheadBehind] : null)) {
+    if (!item.aheadBehind || typeof item.aheadBehind !== "object") {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} must declare aheadBehind.baseRef/ahead/behind`);
     } else if (
+      !exactPlainJsonOwnKeys(item.aheadBehind, ["baseRef", "ahead", "behind"]) ||
       typeof item.aheadBehind.baseRef !== "string" ||
       !Number.isInteger(item.aheadBehind.ahead) ||
       !Number.isInteger(item.aheadBehind.behind)
@@ -2450,14 +4514,48 @@ function validateRegistry(registry) {
     if (!item.prNumber && !item.noPrReason) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} requires prNumber or noPrReason`);
     }
+    if (item.aheadBehindObservationMode !== undefined) {
+      if (item.aheadBehindObservationMode !== "integrated-monotonic-behind") {
+        errors.push(
+          `workItem ${item.taskId ?? "<unknown>"} aheadBehindObservationMode must be integrated-monotonic-behind when declared`
+        );
+      } else {
+        if (item.disposition !== "integrated") {
+          errors.push(
+            `workItem ${item.taskId ?? "<unknown>"} integrated-monotonic-behind observation requires integrated disposition`
+          );
+        }
+        if (Object.hasOwn(item, "cleanupAuthorization")) {
+          errors.push(
+            `workItem ${item.taskId ?? "<unknown>"} integrated-monotonic-behind observation forbids cleanupAuthorization`
+          );
+        }
+        if (
+          !exactPlainJsonOwnKeys(item.aheadBehind, ["baseRef", "ahead", "behind"]) ||
+          item.aheadBehind?.baseRef !== "origin/main" ||
+          item.aheadBehind?.ahead !== 0 ||
+          !Number.isInteger(item.aheadBehind?.behind) ||
+          item.aheadBehind.behind < 0 ||
+          item.lastMergedPullRequest?.headSha !== item.headSha ||
+          item.lastMergedPullRequest?.postMainChecksPassed !== true ||
+          !isSha(item.lastMergedPullRequest?.mergeCommitSha) ||
+          hasIntegratedMonotonicBehindAlternateBaseKey(item.lastMergedPullRequest)
+        ) {
+          errors.push(
+            `workItem ${item.taskId ?? "<unknown>"} has invalid integrated-monotonic-behind observation contract`
+          );
+        }
+      }
+    }
     if (item.cleanupAuthorization !== undefined) {
       const cleanup = item.cleanupAuthorization;
       const targetRef = `refs/heads/${item.branch}`;
       const targetBranch = (registry.branches ?? []).find((branch) => branch.name === item.branch);
       const operatorItem = (registry.workItems ?? []).find(
-        (candidate) => candidate.taskId === cleanup.operatorTaskId
+        (candidate) => candidate.taskId === cleanup?.operatorTaskId
       );
       if (
+        !isPlainRecord(cleanup) ||
         item.disposition !== "integrated" ||
         targetBranch?.disposition !== "integrated" ||
         cleanup.status !== "active" ||
@@ -2653,6 +4751,30 @@ function validateRegistry(registry) {
   } catch (error) {
     errors.push(error instanceof Error ? error.message : "rule=pr80-repair-lifecycle-invalid");
   }
+  const hasProtectedCurrentnessRepairLifecycle = Boolean(
+    protectedCurrentnessRepairWorkItem(registry)
+      ?.protectedCurrentnessActivationRepairLifecycle
+  );
+  const hasProtectedCurrentnessRepairReceipt = (registry.releaseReceipts ?? []).some(
+    (entry) => [
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+    ].includes(entry?.receiptKind)
+  );
+  if (hasProtectedCurrentnessRepairLifecycle || hasProtectedCurrentnessRepairReceipt) {
+    try {
+      validateProtectedCurrentnessRepairLifecycleSnapshot(
+        registry,
+        PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+      );
+    } catch (error) {
+      errors.push(
+        error instanceof Error
+          ? error.message
+          : "rule=protected-currentness-repair-lifecycle-invalid"
+      );
+    }
+  }
   return { errors, warnings, activeWriterCount: activeWriters.length };
 }
 
@@ -2810,7 +4932,1265 @@ function integratedCleanupBehindAdvanceAllowed(item, actualHeadSha, observed) {
   return headIsIntegrated && recordedMergeIsOnProtectedMain;
 }
 
-function integratedReadOnlyRootRegistryAdvanceAllowed(item, actualHeadSha) {
+export function integratedMonotonicBehindShapeAllowed(item, actualHeadSha, observed) {
+  const recorded = item?.aheadBehind;
+  const merged = item?.lastMergedPullRequest;
+  return Boolean(
+    item?.aheadBehindObservationMode === "integrated-monotonic-behind" &&
+      item.disposition === "integrated" &&
+      exactPlainJsonOwnKeys(recorded, ["baseRef", "ahead", "behind"]) &&
+      exactPlainJsonOwnKeys(observed, ["baseRef", "ahead", "behind"]) &&
+      recorded?.baseRef === "origin/main" &&
+      observed?.baseRef === recorded.baseRef &&
+      actualHeadSha === item.headSha &&
+      Number.isInteger(recorded.ahead) &&
+      recorded.ahead === 0 &&
+      Number.isInteger(recorded.behind) &&
+      recorded.behind >= 0 &&
+      Number.isInteger(observed.ahead) &&
+      observed.ahead === 0 &&
+      Number.isInteger(observed.behind) &&
+      observed.behind >= recorded.behind &&
+      merged?.headSha === item.headSha &&
+      merged.postMainChecksPassed === true &&
+      isSha(merged.mergeCommitSha) &&
+      !hasIntegratedMonotonicBehindAlternateBaseKey(merged) &&
+      !Object.hasOwn(item, "cleanupAuthorization")
+  );
+}
+
+export function integratedMonotonicBehindObservationAllowed(item, actualHeadSha, observed) {
+  if (!integratedMonotonicBehindShapeAllowed(item, actualHeadSha, observed)) return false;
+  const baseRef = item.aheadBehind.baseRef;
+  const mergeCommitSha = item.lastMergedPullRequest.mergeCommitSha;
+  if (
+    !gitObjectExists(`${actualHeadSha}^{commit}`) ||
+    !gitObjectExists(`${mergeCommitSha}^{commit}`) ||
+    !gitObjectExists(`${baseRef}^{commit}`)
+  ) {
+    return false;
+  }
+  return (
+    git(["merge-base", "--is-ancestor", actualHeadSha, baseRef], {
+      allowFailure: true
+    }).status === 0 &&
+    git(["merge-base", "--is-ancestor", mergeCommitSha, baseRef], {
+      allowFailure: true
+    }).status === 0
+  );
+}
+
+const PR81_CLOSEOUT_TASK_ID = "SENA-PR80-POST-MAIN-CLOSEOUT-20260901";
+const PR81_CLOSEOUT_BRANCH = "codex/sena-pr80-post-main-closeout-20260901";
+const PR81_CLOSEOUT_FINAL_STATUS =
+  "pr81-post-main-currentness-closeout-final-ready-pending-head-checks";
+const PR81_CLOSEOUT_CANDIDATE_RECEIPT =
+  "pr81-post-main-currentness-closeout-authorization-candidate";
+const PR81_CLOSEOUT_FINAL_RECEIPT =
+  "pr81-post-main-currentness-closeout-final-authorization";
+const REAL_PR81_DESCRIPTOR = Object.freeze({
+  firstParentSha: "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+  secondParentSha: "0444b59968f6699f0ace6f4cb6eda4d6f8f44695",
+  mergeCommitSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea"
+});
+const PR81_LIFECYCLE_KEYS = [
+  "status", "oneShot", "pullRequestNumber", "protectedSourceMainSha",
+  "protectedSourceTreeSha", "protectedSourceRegistryBlobSha",
+  "protectedSourceReceiptPrefix", "requiredCandidatePaths", "blockedAuditEvidence",
+  "requiredExecution", "initialCandidateCompletionEvidence",
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks",
+  "pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks",
+  "pr46RemergeOrMutationAuthorizedNow", "pr46ReadyAndProtectedMergeAuthorizedNow",
+  "localRefRetirementAuthorized", "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized", "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized", "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized", "quarantineMutationAuthorized",
+  "deploymentAuthorized", "providerMutationAuthorized", "resetAuthorized",
+  "rebaseAuthorized", "stashAuthorized", "forceAuthorized", "historyRewriteAuthorized"
+];
+const PR81_AUDIT_RECORD_KEYS = ["errors", "ownerBlockers", "unreachableCommitCount"];
+const PR81_INITIAL_EVIDENCE_KEYS = [
+  "headSha", "treeSha", "registryBlobSha", "buildRunId", "buildJobId",
+  "repositorySecurityRunIds", "repositorySecurityJobIds", "checkJobIds",
+  "requiredChecksPassed", "annotationsEmpty", "specReviewApproved",
+  "qualityReviewApproved", "prState", "prIsDraft", "mergeable", "mergeStateStatus"
+];
+const PR81_AUTHORIZATION_BOUNDARY_KEYS = [
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks",
+  "pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks",
+  "pr46RemergeOrMutationAuthorizedNow", "pr46ReadyAndProtectedMergeAuthorizedNow",
+  "localRefRetirementAuthorized", "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized", "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized", "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized", "quarantineMutationAuthorized",
+  "deploymentAuthorized", "providerMutationAuthorized", "resetAuthorized",
+  "rebaseAuthorized", "stashAuthorized", "forceAuthorized", "historyRewriteAuthorized"
+];
+const PR81_CANDIDATE_RECEIPT_KEYS = [
+  "schemaVersion", "receiptKind", "status", "recordedAt", "taskId", "threadId",
+  "ownerKey", "scope", "authorizationBasis", "protectedSource",
+  "pr80FinalAndPostMainEvidence", "blockedAuditEvidence", "executionOrder",
+  "authorizationBoundary", "evidenceBoundary"
+];
+const PR81_CANDIDATE_PROTECTED_SOURCE_KEYS = [
+  "mainSha", "treeSha", "registryBlobSha", "releaseReceiptPrefixCount",
+  "releaseReceiptPrefixSha256"
+];
+const PR81_CANDIDATE_PR80_EVIDENCE_KEYS = [
+  "finalHeadSha", "finalTreeSha", "finalRegistryBlobSha", "finalBuildRunId",
+  "finalBuildJobId", "finalRepositorySecurityRunIds", "finalRepositorySecurityJobIds",
+  "mergeCommitSha", "mergedAt", "orderedParentShas", "postMainBuildRunId",
+  "postMainBuildJobId", "postMainRepositorySecurityRunId",
+  "postMainRepositorySecurityJobId", "annotationsEmpty"
+];
+const PR81_CANDIDATE_BLOCKED_AUDIT_KEYS = [
+  "beforeRootFastForwardErrors", "afterRootFastForwardErrors", "ownerBlockers",
+  "unreachableCommitCount"
+];
+const PR81_FINAL_RECEIPT_KEYS = [
+  "schemaVersion", "receiptKind", "status", "recordedAt", "taskId", "threadId",
+  "ownerKey", "scope", "authorizationBasis", "protectedInitialReceiptPrefix",
+  "initialCandidateCompletionEvidence", "authorizationBoundary", "evidenceBoundary"
+];
+const PR81_FINAL_RECEIPT_EVIDENCE_KEYS = [
+  "headSha", "treeSha", "registryBlobSha", "buildRunId", "buildJobId",
+  "repositorySecurityRunIds", "repositorySecurityJobIds", "checkJobIds",
+  "requiredChecksPassed", "annotationsEmpty", "specReviewApproved",
+  "qualityReviewApproved", "pullRequestNumber", "pullRequestState",
+  "pullRequestIsDraft", "pullRequestMergeable", "pullRequestMergeStateStatus",
+  "pullRequestHeadSha"
+];
+export const PR81_FINAL_REQUIRED_EXECUTION = [
+  "stage-only-active-work-and-pass-index-audit-write-policy-security-native-pre-commit-and-49-of-49-governance-tests",
+  "commit-and-push-the-initial-registry-only-pr81-candidate-and-create-draft-pr81",
+  "verify-initial-pr81-exact-head-build-and-both-repository-security-checks-with-zero-annotations",
+  "obtain-fresh-independent-read-only-spec-and-quality-reviews-of-the-exact-initial-head",
+  "commit-and-push-one-registry-only-final-pr81-authorization-metadata-transition",
+  "verify-final-pr81-exact-head-build-and-both-repository-security-checks-with-zero-annotations",
+  "mark-pr81-ready-and-protected-merge-with-exact-head-lease-without-admin-bypass",
+  "verify-pr81-post-main-build-security-zero-annotations-and-exact-main-commit-bound-live-audit",
+  "only-after-pr81-protected-activation-and-audit-reenter-the-separately-gated-pr46-lifecycle",
+  "stop-before-any-pr46-ready-merge-local-ref-retirement-receipt-minting-branch-worktree-orphan-target-tag-quarantine-deployment-provider-or-history-mutation"
+];
+const PR81_FINAL_FALSE_ACTION_FIELDS = [
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks",
+  "pr46RemergeOrMutationAuthorizedNow", "pr46ReadyAndProtectedMergeAuthorizedNow",
+  "localRefRetirementAuthorized", "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized", "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized", "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized", "quarantineMutationAuthorized",
+  "deploymentAuthorized", "providerMutationAuthorized", "resetAuthorized",
+  "rebaseAuthorized", "stashAuthorized", "forceAuthorized", "historyRewriteAuthorized"
+];
+const PR81_FINAL_TRUE_ACTION = "pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks";
+const PROTECTED_MAIN_LAST_MERGED_KEYS = [
+  "number", "headSha", "headTreeSha", "registryBlobSha", "mergeCommitSha",
+  "mergedAt", "orderedParentShas", "prBuildRunId", "prBuildJobId",
+  "prRepositorySecurityRunIds", "prRepositorySecurityJobIds", "postMainBuildRunId",
+  "postMainBuildJobId", "postMainRepositorySecurityRunId",
+  "postMainRepositorySecurityJobId", "postMainChecksPassed", "annotationsEmpty",
+  "commitBoundLiveAuditStatus", "commitBoundLiveAuditErrors",
+  "commitBoundLiveAuditOwnerBlockers", "unreachableCommitCount"
+];
+
+function protectedMainAdvanceGitText(args) {
+  const result = git(args, { allowFailure: true });
+  if (result.error || result.status !== 0) return null;
+  return String(result.stdout ?? "").trim();
+}
+
+function protectedMainAdvanceCommitParents(commitSha) {
+  const line = protectedMainAdvanceGitText(["rev-list", "--parents", "-n", "1", commitSha]);
+  if (!line) return null;
+  const fields = line.split(/\s+/);
+  if (fields[0] !== commitSha) return null;
+  return fields.slice(1);
+}
+
+function protectedMainAdvanceObjectSha(specification) {
+  const output = protectedMainAdvanceGitText(["rev-parse", "--verify", specification]);
+  return isSha(output) ? output : null;
+}
+
+function protectedMainAdvanceRegistryFromCommit(commitSha) {
+  const result = git(["show", `${commitSha}:${REGISTRY_REPO_PATH}`], {
+    allowFailure: true
+  });
+  if (result.error || result.status !== 0) return null;
+  try {
+    return JSON.parse(String(result.stdout ?? ""));
+  } catch {
+    return null;
+  }
+}
+
+function protectedMainAdvanceChangedPaths(parentSha, commitSha) {
+  const result = git(
+    ["diff", "--name-only", "-z", "--no-renames", parentSha, commitSha],
+    { allowFailure: true }
+  );
+  if (result.error || result.status !== 0) return null;
+  return String(result.stdout ?? "").split("\0").filter(Boolean);
+}
+
+function protectedMainAdvanceExactOneRegistryMetadataCommit(initialHeadSha, finalHeadSha) {
+  if (!isSha(initialHeadSha) || !isSha(finalHeadSha) || initialHeadSha === finalHeadSha) {
+    return false;
+  }
+  const count = protectedMainAdvanceGitText([
+    "rev-list",
+    "--count",
+    `${initialHeadSha}..${finalHeadSha}`
+  ]);
+  const parents = protectedMainAdvanceCommitParents(finalHeadSha);
+  const paths = protectedMainAdvanceChangedPaths(initialHeadSha, finalHeadSha);
+  return Boolean(
+    count === "1" &&
+      sameJson(parents, [initialHeadSha]) &&
+      sameStringSet(paths, [REGISTRY_REPO_PATH])
+  );
+}
+
+function protectedMainAdvanceReceiptPrefixMatches(receipts, prefix) {
+  return Boolean(
+    Array.isArray(receipts) &&
+      exactPlainJsonOwnKeys(prefix, ["count", "sha256"]) &&
+      Number.isInteger(prefix.count) &&
+      prefix.count >= 0 &&
+      receipts.length >= prefix.count &&
+      validSha256(prefix.sha256) &&
+      sha256Buffer(Buffer.from(JSON.stringify(receipts.slice(0, prefix.count)))) ===
+        prefix.sha256
+  );
+}
+
+function protectedMainAdvanceReceiptAuthorizationExact(receipt, expectedTrueAction) {
+  const boundary = receipt?.authorizationBoundary;
+  if (!isPlainRecord(boundary) || boundary[expectedTrueAction] !== true) return false;
+  return Object.entries(boundary).every(
+    ([key, value]) => key === expectedTrueAction ? value === true : value === false
+  );
+}
+
+function protectedMainTrueAuthorizationPaths(value, path = []) {
+  if (!value || typeof value !== "object") return [];
+  const paths = [];
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    if (entry === true && key.includes("Authorized")) paths.push(nextPath.join("."));
+    if (entry && typeof entry === "object") {
+      paths.push(...protectedMainTrueAuthorizationPaths(entry, nextPath));
+    }
+  }
+  return paths.sort();
+}
+
+function protectedMainAdvanceLastMergedExact(
+  currentItem,
+  currentBranch,
+  {
+    pullRequestNumber,
+    secondParentSha,
+    mergeCommitSha,
+    mergeTreeSha,
+    registryBlobSha,
+    orderedParentShas,
+    auditContract
+  }
+) {
+  const itemMerged = currentItem?.lastMergedPullRequest;
+  const branchMerged = currentBranch?.lastMergedPullRequest;
+  const required = (merged) => {
+    const numericIds = [
+      merged?.prBuildRunId,
+      merged?.prBuildJobId,
+      ...(merged?.prRepositorySecurityRunIds ?? []),
+      ...(merged?.prRepositorySecurityJobIds ?? []),
+      merged?.postMainBuildRunId,
+      merged?.postMainBuildJobId,
+      merged?.postMainRepositorySecurityRunId,
+      merged?.postMainRepositorySecurityJobId
+    ];
+    return Boolean(
+      exactPlainJsonOwnKeys(merged, PROTECTED_MAIN_LAST_MERGED_KEYS) &&
+      merged.number === pullRequestNumber &&
+      merged.headSha === secondParentSha &&
+      merged.headTreeSha === mergeTreeSha &&
+      merged.registryBlobSha === registryBlobSha &&
+      merged.mergeCommitSha === mergeCommitSha &&
+      sameJson(merged.orderedParentShas, orderedParentShas) &&
+      merged.postMainChecksPassed === true &&
+      merged.annotationsEmpty === true &&
+      merged.commitBoundLiveAuditStatus === auditContract.status &&
+      sameJson(merged.commitBoundLiveAuditErrors, auditContract.errors) &&
+      sameJson(merged.commitBoundLiveAuditOwnerBlockers, auditContract.ownerBlockers) &&
+      merged.unreachableCommitCount === auditContract.unreachableCommitCount &&
+      typeof merged.mergedAt === "string" &&
+      Number.isFinite(Date.parse(merged.mergedAt)) &&
+      merged.prRepositorySecurityRunIds.length === 2 &&
+      merged.prRepositorySecurityJobIds.length === 2 &&
+      numericIds.every((value) => Number.isInteger(value) && value > 0) &&
+      new Set(numericIds).size === numericIds.length &&
+      !hasIntegratedMonotonicBehindAlternateBaseKey(merged)
+    );
+  };
+  return required(itemMerged) && required(branchMerged) && sameJson(itemMerged, branchMerged);
+}
+
+export function validatePr81ProtectedMainMergeDescriptor({
+  mergeTimeRegistry,
+  currentObservationRegistry,
+  mergeCommitSha,
+  orderedParentShas,
+  secondParentSha,
+  mergeTreeSha,
+  registryBlobSha
+}, options = {}) {
+  const item = (mergeTimeRegistry?.workItems ?? []).find(
+    (entry) => entry?.taskId === PR81_CLOSEOUT_TASK_ID
+  );
+  const branch = (mergeTimeRegistry?.branches ?? []).find(
+    (entry) => entry?.name === PR81_CLOSEOUT_BRANCH
+  );
+  const lifecycle = item?.pr81PostMainCurrentnessCloseoutLifecycle;
+  if (!item || !branch || !lifecycle) {
+    return false;
+  }
+  const receipts = mergeTimeRegistry.releaseReceipts;
+  const prefix = lifecycle.protectedSourceReceiptPrefix;
+  const initialEvidence = lifecycle.initialCandidateCompletionEvidence;
+  const candidateReceipt = Array.isArray(receipts) && Number.isInteger(prefix?.count)
+    ? receipts[prefix.count]
+    : null;
+  const finalReceipt = Array.isArray(receipts) && Number.isInteger(prefix?.count)
+    ? receipts[prefix.count + 1]
+    : null;
+  if (
+    !exactPlainJsonOwnKeys(lifecycle, PR81_LIFECYCLE_KEYS) ||
+    !exactPlainJsonOwnKeys(prefix, ["count", "sha256"]) ||
+    !exactPlainJsonOwnKeys(lifecycle.blockedAuditEvidence, [
+      "beforeRootFastForward", "afterRootFastForward"
+    ]) ||
+    !exactPlainJsonOwnKeys(
+      lifecycle.blockedAuditEvidence.beforeRootFastForward,
+      PR81_AUDIT_RECORD_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(
+      lifecycle.blockedAuditEvidence.afterRootFastForward,
+      PR81_AUDIT_RECORD_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(initialEvidence, PR81_INITIAL_EVIDENCE_KEYS) ||
+    !exactPlainJsonOwnKeys(candidateReceipt, PR81_CANDIDATE_RECEIPT_KEYS) ||
+    !exactPlainJsonOwnKeys(
+      candidateReceipt.protectedSource,
+      PR81_CANDIDATE_PROTECTED_SOURCE_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(
+      candidateReceipt.pr80FinalAndPostMainEvidence,
+      PR81_CANDIDATE_PR80_EVIDENCE_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(
+      candidateReceipt.blockedAuditEvidence,
+      PR81_CANDIDATE_BLOCKED_AUDIT_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(
+      candidateReceipt.authorizationBoundary,
+      PR81_AUTHORIZATION_BOUNDARY_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(finalReceipt, PR81_FINAL_RECEIPT_KEYS) ||
+    !exactPlainJsonOwnKeys(finalReceipt.protectedInitialReceiptPrefix, ["count", "sha256"]) ||
+    !exactPlainJsonOwnKeys(
+      finalReceipt.initialCandidateCompletionEvidence,
+      PR81_FINAL_RECEIPT_EVIDENCE_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(
+      finalReceipt.authorizationBoundary,
+      PR81_AUTHORIZATION_BOUNDARY_KEYS
+    )
+  ) {
+    return false;
+  }
+  const isRealDescriptorMember = [
+    ...orderedParentShas,
+    mergeCommitSha
+  ].some((sha) => Object.values(REAL_PR81_DESCRIPTOR).includes(sha));
+  if (
+    isRealDescriptorMember &&
+    !sameJson(
+      {
+        firstParentSha: orderedParentShas[0],
+        secondParentSha,
+        mergeCommitSha
+      },
+      REAL_PR81_DESCRIPTOR
+    )
+  ) {
+    return false;
+  }
+  if (
+    lifecycle.status !== PR81_CLOSEOUT_FINAL_STATUS ||
+    lifecycle.oneShot !== true ||
+    lifecycle.pullRequestNumber !== 81 ||
+    lifecycle.protectedSourceMainSha !== orderedParentShas[0] ||
+    lifecycle.protectedSourceTreeSha !==
+      protectedMainAdvanceObjectSha(`${orderedParentShas[0]}^{tree}`) ||
+    lifecycle.protectedSourceRegistryBlobSha !==
+      protectedMainAdvanceObjectSha(`${orderedParentShas[0]}:${REGISTRY_REPO_PATH}`) ||
+    !sameJson(lifecycle.requiredCandidatePaths, [REGISTRY_REPO_PATH]) ||
+    !sameJson(lifecycle.requiredExecution, PR81_FINAL_REQUIRED_EXECUTION) ||
+    PR81_FINAL_FALSE_ACTION_FIELDS.some((field) => lifecycle[field] !== false) ||
+    lifecycle[PR81_FINAL_TRUE_ACTION] !== true ||
+    !sameJson(protectedMainTrueAuthorizationPaths(lifecycle), [PR81_FINAL_TRUE_ACTION]) ||
+    !protectedMainAdvanceReceiptPrefixMatches(receipts, prefix) ||
+    receipts.length !== prefix.count + 2 ||
+    item.prNumber !== 81 ||
+    item.plannedPullRequestNumber !== 81 ||
+    item.branch !== PR81_CLOSEOUT_BRANCH ||
+    item.ownerKey !== "Codex-pr80-post-main-closeout-01a05865" ||
+    item.disposition !== "active" ||
+    item.prIsDraft !== true ||
+    item.prReadyForReview !== false ||
+    item.mergeAuthorized !== false ||
+    branch.pr !== 81 ||
+    branch.plannedPullRequestNumber !== 81 ||
+    branch.prBase !== "main" ||
+    branch.prState !== "OPEN" ||
+    branch.prIsDraft !== true ||
+    branch.prReadyForReview !== false ||
+    branch.mergeAuthorized !== false ||
+    !isPlainRecord(initialEvidence) ||
+    initialEvidence.prState !== "OPEN" ||
+    initialEvidence.prIsDraft !== true ||
+    initialEvidence.requiredChecksPassed !== true ||
+    initialEvidence.annotationsEmpty !== true ||
+    initialEvidence.specReviewApproved !== true ||
+    initialEvidence.qualityReviewApproved !== true ||
+    item.headSha !== initialEvidence.headSha ||
+    branch.headSha !== initialEvidence.headSha ||
+    branch.remoteHeadSha !== initialEvidence.headSha ||
+    branch.prHeadSha !== initialEvidence.headSha ||
+    !protectedMainAdvanceExactOneRegistryMetadataCommit(
+      initialEvidence.headSha,
+      secondParentSha
+    ) ||
+    lifecycle.finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks !== false ||
+    lifecycle.pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks !== true
+  ) {
+    return false;
+  }
+  if (
+    candidateReceipt?.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    candidateReceipt?.receiptKind !== PR81_CLOSEOUT_CANDIDATE_RECEIPT ||
+    candidateReceipt?.status !== "candidate-awaiting-initial-exact-head-checks" ||
+    candidateReceipt?.taskId !== PR81_CLOSEOUT_TASK_ID ||
+    candidateReceipt?.ownerKey !== item.ownerKey ||
+    !sameJson(candidateReceipt?.scope, [REGISTRY_REPO_PATH]) ||
+    candidateReceipt.protectedSource.mainSha !== lifecycle.protectedSourceMainSha ||
+    candidateReceipt.protectedSource.treeSha !== lifecycle.protectedSourceTreeSha ||
+    candidateReceipt.protectedSource.registryBlobSha !==
+      lifecycle.protectedSourceRegistryBlobSha ||
+    candidateReceipt.protectedSource.releaseReceiptPrefixCount !== prefix.count ||
+    candidateReceipt.protectedSource.releaseReceiptPrefixSha256 !== prefix.sha256 ||
+    !sameJson(
+      candidateReceipt.blockedAuditEvidence.beforeRootFastForwardErrors,
+      lifecycle.blockedAuditEvidence.beforeRootFastForward.errors
+    ) ||
+    !sameJson(
+      candidateReceipt.blockedAuditEvidence.afterRootFastForwardErrors,
+      lifecycle.blockedAuditEvidence.afterRootFastForward.errors
+    ) ||
+    !sameJson(candidateReceipt.blockedAuditEvidence.ownerBlockers, []) ||
+    candidateReceipt.blockedAuditEvidence.unreachableCommitCount !== 0 ||
+    !Array.isArray(candidateReceipt.executionOrder) ||
+    candidateReceipt.executionOrder.length === 0 ||
+    !protectedMainAdvanceReceiptAuthorizationExact(
+      candidateReceipt,
+      "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks"
+    ) ||
+    candidateReceipt.authorizationBoundary
+      .finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks !== true ||
+    candidateReceipt.authorizationBoundary
+      .pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks !== false ||
+    finalReceipt?.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    finalReceipt?.receiptKind !== PR81_CLOSEOUT_FINAL_RECEIPT ||
+    finalReceipt?.status !==
+      "authorized-for-pr81-ready-and-protected-merge-after-final-head-checks" ||
+    finalReceipt?.taskId !== PR81_CLOSEOUT_TASK_ID ||
+    finalReceipt?.ownerKey !== item.ownerKey ||
+    !sameJson(finalReceipt?.scope, [REGISTRY_REPO_PATH]) ||
+    finalReceipt.protectedInitialReceiptPrefix.count !== prefix.count + 1 ||
+    finalReceipt.protectedInitialReceiptPrefix.sha256 !==
+      sha256Buffer(Buffer.from(JSON.stringify(receipts.slice(0, prefix.count + 1)))) ||
+    finalReceipt?.initialCandidateCompletionEvidence?.headSha !== initialEvidence.headSha ||
+    finalReceipt?.initialCandidateCompletionEvidence?.treeSha !== initialEvidence.treeSha ||
+    finalReceipt?.initialCandidateCompletionEvidence?.registryBlobSha !==
+      initialEvidence.registryBlobSha ||
+    finalReceipt?.initialCandidateCompletionEvidence?.pullRequestNumber !== 81 ||
+    finalReceipt?.initialCandidateCompletionEvidence?.pullRequestState !==
+      initialEvidence.prState ||
+    finalReceipt?.initialCandidateCompletionEvidence?.pullRequestIsDraft !==
+      initialEvidence.prIsDraft ||
+    finalReceipt?.initialCandidateCompletionEvidence?.pullRequestHeadSha !==
+      initialEvidence.headSha ||
+    finalReceipt?.initialCandidateCompletionEvidence?.requiredChecksPassed !== true ||
+    finalReceipt?.initialCandidateCompletionEvidence?.annotationsEmpty !== true ||
+    finalReceipt?.initialCandidateCompletionEvidence?.specReviewApproved !== true ||
+    finalReceipt?.initialCandidateCompletionEvidence?.qualityReviewApproved !== true ||
+    !protectedMainAdvanceReceiptAuthorizationExact(
+      finalReceipt,
+      "pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks"
+    ) ||
+    finalReceipt.authorizationBoundary
+      .finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks !== false ||
+    finalReceipt.authorizationBoundary
+      .pr81ReadyAndProtectedMergeAuthorizedAfterFinalChecks !==
+        lifecycle[PR81_FINAL_TRUE_ACTION] ||
+    receipts.filter((receipt) => receipt?.receiptKind === PR81_CLOSEOUT_CANDIDATE_RECEIPT)
+      .length !== 1 ||
+    receipts.filter((receipt) => receipt?.receiptKind === PR81_CLOSEOUT_FINAL_RECEIPT)
+      .length !== 1
+  ) {
+    return false;
+  }
+  if (options.mergeTimeOnly === true) return true;
+  const currentItem = (currentObservationRegistry?.workItems ?? []).find(
+    (entry) => entry?.taskId === PR81_CLOSEOUT_TASK_ID
+  );
+  const currentBranch = (currentObservationRegistry?.branches ?? []).find(
+    (entry) => entry?.name === PR81_CLOSEOUT_BRANCH
+  );
+  return Boolean(
+    currentItem?.headSha === secondParentSha &&
+      currentItem.disposition === "integrated" &&
+      currentBranch?.headSha === secondParentSha &&
+      currentBranch.prHeadSha === secondParentSha &&
+      currentBranch.pr === 81 &&
+      currentBranch.prBase === "main" &&
+      currentBranch.prState === "MERGED" &&
+      currentBranch.prStateObservationMode === "monotonic" &&
+      currentBranch.disposition === "integrated" &&
+      protectedMainAdvanceLastMergedExact(currentItem, currentBranch, {
+        pullRequestNumber: 81,
+        secondParentSha,
+        mergeCommitSha,
+        mergeTreeSha,
+        registryBlobSha,
+        orderedParentShas,
+        auditContract: {
+          status: "failed-currentness-and-stale-activation-repair-required",
+          errors: [
+            "workItem ahead/behind differs from registry: SENA-A01-REPO-GOVERNANCE-20260827",
+            "registry PR state mismatch: #81"
+          ],
+          ownerBlockers: [],
+          unreachableCommitCount: 0
+        }
+      })
+  );
+}
+
+export function protectedMainRepairCandidateGitEvidenceMatches(
+  lifecycle,
+  protectedMainSha,
+  finalSecondParentSha
+) {
+  try {
+    const evidence = lifecycle?.initialCandidateCompletionEvidence;
+    const protectedRegistry = protectedMainAdvanceRegistryFromCommit(protectedMainSha);
+    const candidateRegistry = protectedMainAdvanceRegistryFromCommit(evidence?.headSha);
+    const candidateChangedPaths = protectedMainAdvanceChangedPaths(
+      protectedMainSha,
+      evidence?.headSha
+    );
+    return Boolean(
+      lifecycle?.protectedBaseSha === protectedMainSha &&
+        lifecycle.protectedBaseTreeSha ===
+          protectedMainAdvanceObjectSha(`${protectedMainSha}^{tree}`) &&
+        lifecycle.protectedBaseRegistryBlobSha === protectedMainAdvanceObjectSha(
+          `${protectedMainSha}:${REGISTRY_REPO_PATH}`
+        ) &&
+        protectedRegistry &&
+        protectedMainAdvanceObjectSha(`${evidence?.headSha}^{commit}`) &&
+        git(["merge-base", "--is-ancestor", protectedMainSha, evidence.headSha], {
+          allowFailure: true
+        }).status === 0 &&
+        evidence.treeSha ===
+          protectedMainAdvanceObjectSha(`${evidence.headSha}^{tree}`) &&
+        evidence.registryBlobSha === protectedMainAdvanceObjectSha(
+          `${evidence.headSha}:${REGISTRY_REPO_PATH}`
+        ) &&
+        evidence.verifierBlobSha === protectedMainAdvanceObjectSha(
+          `${evidence.headSha}:scripts/verify-sena-repo-governance.mjs`
+        ) &&
+        evidence.governanceTestBlobSha === protectedMainAdvanceObjectSha(
+          `${evidence.headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+        ) &&
+        candidateRegistry &&
+        sameStringSet(candidateChangedPaths, lifecycle.requiredOverallPaths) &&
+        protectedMainAdvanceExactOneRegistryMetadataCommit(
+          evidence.headSha,
+          finalSecondParentSha
+        ) &&
+        protectedMainAdvanceObjectSha(
+          `${finalSecondParentSha}:scripts/verify-sena-repo-governance.mjs`
+        ) === evidence.verifierBlobSha &&
+        protectedMainAdvanceObjectSha(
+          `${finalSecondParentSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+        ) === evidence.governanceTestBlobSha
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateProtectedCurrentnessRepairMergeDescriptor({
+  mergeTimeRegistry,
+  currentObservationRegistry,
+  mergeCommitSha,
+  orderedParentShas,
+  secondParentSha,
+  mergeTreeSha,
+  registryBlobSha
+}, options = {}) {
+  let mergeTime;
+  try {
+    mergeTime = validateProtectedCurrentnessRepairLifecycleSnapshot(
+      mergeTimeRegistry,
+      PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+    );
+  } catch {
+    return false;
+  }
+  if (
+    mergeTime.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS ||
+    mergeTime.item.branch !== PROTECTED_CURRENTNESS_REPAIR_BRANCH ||
+    mergeTime.branch.prBase !== "main" ||
+    mergeTime.lifecycle.pullRequestNumber !== 82 ||
+    mergeTime.item.headSha !==
+      mergeTime.lifecycle.initialCandidateCompletionEvidence?.headSha ||
+    mergeTime.branch.headSha !== mergeTime.item.headSha ||
+    !protectedMainAdvanceExactOneRegistryMetadataCommit(
+      mergeTime.item.headSha,
+      secondParentSha
+    )
+  ) {
+    return false;
+  }
+  if (!protectedMainRepairCandidateGitEvidenceMatches(
+    mergeTime.lifecycle,
+    orderedParentShas[0],
+    secondParentSha
+  )) {
+    return false;
+  }
+  if (options.mergeTimeOnly === true) return true;
+  const currentItem = protectedCurrentnessRepairWorkItem(currentObservationRegistry);
+  const currentBranch = protectedCurrentnessRepairBranch(currentObservationRegistry);
+  const hasLastMerged = Boolean(
+    currentItem?.lastMergedPullRequest || currentBranch?.lastMergedPullRequest
+  );
+  if (hasLastMerged) {
+    return Boolean(
+      currentItem?.headSha === secondParentSha &&
+        currentItem.disposition === "integrated" &&
+        currentBranch?.headSha === secondParentSha &&
+        currentBranch.prState === "MERGED" &&
+        currentBranch.prStateObservationMode === "monotonic" &&
+        currentBranch.disposition === "integrated" &&
+        protectedMainAdvanceLastMergedExact(currentItem, currentBranch, {
+          pullRequestNumber: 82,
+          secondParentSha,
+          mergeCommitSha,
+          mergeTreeSha,
+          registryBlobSha,
+          orderedParentShas,
+          auditContract: {
+            status: "pass",
+            errors: [],
+            ownerBlockers: [],
+            unreachableCommitCount: 0
+          }
+        })
+    );
+  }
+  const current = {
+    item: currentItem,
+    branch: currentBranch,
+    lifecycle: currentItem?.protectedCurrentnessActivationRepairLifecycle
+  };
+  return Boolean(
+    current.item &&
+      current.branch &&
+      current.item.headSha === mergeTime.item.headSha &&
+      current.item.ownerKey === mergeTime.item.ownerKey &&
+      current.item.branch === mergeTime.item.branch &&
+      current.item.disposition === "active" &&
+      current.branch.headSha === mergeTime.branch.headSha &&
+      current.branch.pr === 82 &&
+      current.branch.prBase === "main" &&
+      current.branch.prState === "OPEN" &&
+      current.branch.prStateObservationMode === "monotonic" &&
+      sameJson(current.lifecycle, mergeTime.lifecycle)
+  );
+}
+
+const PR46_RETIREMENT_TASK_ID = "SENA-BRANCH-RETIREMENT-20260829";
+const PR46_RETIREMENT_BRANCH = "codex/sena-branch-retirement-20260829";
+const PR46_FINAL_HANDSHAKE_STATUS =
+  "final-pr46-ready-authorization-pending-final-head-checks";
+const PR46_REMERGE_RECEIPT = "pr46-final-base-handshake-remerge-candidate";
+const PR46_FINAL_RECEIPT = "pr46-final-base-handshake-final-authorization";
+const PR46_FINAL_READY_ACTION =
+  "pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks";
+const PR46_FINAL_METADATA_ACTION =
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks";
+const PR46_USED_ACTIONS = [
+  "finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation",
+  "finalResolverAndTestStageAuthorizedAfterProtectedActivation",
+  "finalMergeCommitPushAuthorizedAfterRequiredGates",
+  PR46_FINAL_METADATA_ACTION
+];
+const PR46_CLOSED_ACTIONS = [
+  "implementationAuthorizedNow", "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized", "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized", "orphanWorktreeMutationAuthorized",
+  "targetTagMutationAuthorized", "quarantineMutationAuthorized",
+  "deploymentAuthorized", "providerMutationAuthorized", "resetAuthorized",
+  "rebaseAuthorized", "stashAuthorized", "forceAuthorized", "historyRewriteAuthorized"
+];
+const PR46_RECEIPT_BOUNDARY_KEYS = [
+  PR46_FINAL_METADATA_ACTION,
+  PR46_FINAL_READY_ACTION,
+  ...PR46_CLOSED_ACTIONS
+];
+const PR46_HANDSHAKE_KEYS = [
+  "status", "oneShot", "authorizationSourceMainSha", "authorizationSourceMainTreeSha",
+  "authorizationSourceRegistryBlobSha", "protectedActivationBinding", "pullRequestNumber",
+  "candidateHeadSha", "candidateTreeSha", "candidateRegistryBlobSha",
+  "candidateVerifierBlobSha", "candidateGovernanceTestBlobSha", "candidateParents",
+  "mergeBaseSha", "currentProtectedMainSha", "currentProtectedMainTreeSha",
+  "currentProtectedRegistryBlobSha", "currentMergeTreeSha", "currentConflictPathCount",
+  "currentConflictingPaths", "currentCandidateOnlyCleanPaths",
+  "currentBinaryDiffSha256AgainstProtectedMain", "observedResolverRed",
+  "authorizedResolverTransition", "candidateVerification", "requiredExecution",
+  "finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation",
+  "finalResolverAndTestStageAuthorizedAfterProtectedActivation",
+  "finalMergeCommitPushAuthorizedAfterRequiredGates", PR46_FINAL_METADATA_ACTION,
+  PR46_FINAL_READY_ACTION, ...PR46_CLOSED_ACTIONS, "protectedReceiptPrefix",
+  "remergeCandidateCompletionEvidence"
+];
+const PR46_CANDIDATE_RECEIPT_KEYS = [
+  "schemaVersion", "receiptKind", "status", "taskId", "ownerKey", "scope",
+  "protectedReceiptPrefix", "authorizationBoundary"
+];
+const PR46_FINAL_RECEIPT_KEYS = [
+  "schemaVersion", "receiptKind", "status", "taskId", "ownerKey", "scope",
+  "remergeCandidateCompletionEvidence", "authorizationBoundary"
+];
+const PR46_OVERALL_PATHS = [
+  REGISTRY_REPO_PATH,
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+
+export function protectedMainNormalizedNonOwnedRegistrySha256(registry) {
+  const normalized = protectedActivationControlledExactClone(
+    registry ?? {},
+    "rule=protected-activation-completion-registry-normalization-invalid"
+  );
+  normalized.updatedAt = "<branch-retirement-owned>";
+  normalized.workItems = (normalized.workItems ?? []).map((entry) =>
+    entry?.taskId === PR46_RETIREMENT_TASK_ID
+      ? { taskId: PR46_RETIREMENT_TASK_ID, owned: "<branch-retirement-owned>" }
+      : entry
+  );
+  normalized.branches = (normalized.branches ?? []).map((entry) =>
+    entry?.name === PR46_RETIREMENT_BRANCH
+      ? { name: PR46_RETIREMENT_BRANCH, owned: "<branch-retirement-owned>" }
+      : entry
+  );
+  normalized.releaseReceipts = (normalized.releaseReceipts ?? []).filter(
+    (entry) => entry?.taskId !== PR46_RETIREMENT_TASK_ID
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(normalized)));
+}
+
+export function protectedMainPr46BinaryDiffSha256(protectedMainSha, candidateHeadSha) {
+  const result = git(
+    [
+      "diff", "--binary", "--no-ext-diff", "--no-renames",
+      protectedMainSha, candidateHeadSha, "--", ...PR46_OVERALL_PATHS
+    ],
+    { allowFailure: true, binary: true }
+  );
+  if (result.error || result.status !== 0) return null;
+  return sha256Buffer(result.stdout ?? Buffer.alloc(0));
+}
+
+function protectedMainAdvancePr46EvidenceValid(handshake) {
+  const evidence = handshake?.remergeCandidateCompletionEvidence;
+  const requiredFields = handshake?.authorizedResolverTransition?.finalReadyState
+    ?.requiredRemergeCandidateCompletionEvidenceFields;
+  if (!exactPlainJsonOwnKeys(evidence, requiredFields)) return false;
+  const shaFields = [
+    "candidateHeadSha",
+    "candidateTreeSha",
+    "candidateRegistryBlobSha",
+    "candidateVerifierBlobSha",
+    "candidateGovernanceTestBlobSha"
+  ];
+  const sha256Fields = [
+    "binaryDiffSha256AgainstProtectedMain",
+    "normalizedRegistrySha256"
+  ];
+  return Boolean(
+    shaFields.every((field) => isSha(evidence[field])) &&
+      sha256Fields.every((field) => validSha256(evidence[field])) &&
+      Array.isArray(evidence.candidateParentShas) &&
+      evidence.candidateParentShas.length === 2 &&
+      evidence.candidateParentShas.every(isSha) &&
+      Number.isInteger(evidence.fullRepoGovernanceTestsPassed) &&
+      evidence.fullRepoGovernanceTestsPassed > 0 &&
+      evidence.fullRepoGovernanceTestsPassed === evidence.fullRepoGovernanceTestsTotal &&
+      Number.isInteger(evidence.buildRunId) &&
+      evidence.buildRunId > 0 &&
+      Array.isArray(evidence.repositorySecurityRunIds) &&
+      evidence.repositorySecurityRunIds.length === 2 &&
+      evidence.repositorySecurityRunIds.every((value) => Number.isInteger(value) && value > 0) &&
+      Array.isArray(evidence.checkJobIds) &&
+      evidence.checkJobIds.length === 3 &&
+      evidence.checkJobIds.every((value) => Number.isInteger(value) && value > 0) &&
+      [
+        "candidateIndexAuditPassed",
+        "writePolicyPassed",
+        "securityPassed",
+        "exactConflictIntakePassed",
+        "specReviewApproved",
+        "qualityReviewApproved",
+        "requiredChecksPassed",
+        "annotationsEmpty"
+      ].every((field) => evidence[field] === true) &&
+      typeof evidence.conflictIntakeMode === "string"
+  );
+}
+
+export function protectedMainPr46CandidateGitEvidenceMatches(
+  evidence,
+  protectedMainSha,
+  finalSecondParentSha
+) {
+  try {
+    const candidateParents = protectedMainAdvanceCommitParents(evidence?.candidateHeadSha);
+    const candidateRegistry = protectedMainAdvanceRegistryFromCommit(evidence?.candidateHeadSha);
+    const protectedMainRegistry = protectedMainAdvanceRegistryFromCommit(protectedMainSha);
+    const candidateChangedPaths = protectedMainAdvanceChangedPaths(
+      protectedMainSha,
+      evidence?.candidateHeadSha
+    );
+    return Boolean(
+      sameJson(candidateParents, evidence?.candidateParentShas) &&
+        candidateParents?.length === 2 &&
+        candidateParents[1] === protectedMainSha &&
+        evidence.candidateTreeSha ===
+          protectedMainAdvanceObjectSha(`${evidence.candidateHeadSha}^{tree}`) &&
+        evidence.candidateRegistryBlobSha === protectedMainAdvanceObjectSha(
+          `${evidence.candidateHeadSha}:${REGISTRY_REPO_PATH}`
+        ) &&
+        evidence.candidateVerifierBlobSha === protectedMainAdvanceObjectSha(
+          `${evidence.candidateHeadSha}:scripts/verify-sena-repo-governance.mjs`
+        ) &&
+        evidence.candidateGovernanceTestBlobSha === protectedMainAdvanceObjectSha(
+          `${evidence.candidateHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+        ) &&
+        candidateRegistry &&
+        protectedMainRegistry &&
+        sameStringSet(candidateChangedPaths, PR46_OVERALL_PATHS) &&
+        evidence.binaryDiffSha256AgainstProtectedMain ===
+          protectedMainPr46BinaryDiffSha256(protectedMainSha, evidence.candidateHeadSha) &&
+        evidence.normalizedRegistrySha256 ===
+          protectedMainNormalizedNonOwnedRegistrySha256(candidateRegistry) &&
+        protectedMainNormalizedNonOwnedRegistrySha256(protectedMainRegistry) ===
+          protectedMainNormalizedNonOwnedRegistrySha256(candidateRegistry) &&
+        protectedMainAdvanceExactOneRegistryMetadataCommit(
+          evidence.candidateHeadSha,
+          finalSecondParentSha
+        ) &&
+        protectedMainAdvanceObjectSha(
+          `${finalSecondParentSha}:scripts/verify-sena-repo-governance.mjs`
+        ) === evidence.candidateVerifierBlobSha &&
+        protectedMainAdvanceObjectSha(
+          `${finalSecondParentSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+        ) === evidence.candidateGovernanceTestBlobSha
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validatePr46ProtectedMainMergeDescriptor({
+  mergeTimeRegistry,
+  currentObservationRegistry,
+  mergeCommitSha,
+  orderedParentShas,
+  secondParentSha,
+  mergeTreeSha,
+  registryBlobSha
+}, options = {}) {
+  const item = (mergeTimeRegistry?.workItems ?? []).find(
+    (entry) => entry?.taskId === PR46_RETIREMENT_TASK_ID
+  );
+  const branch = (mergeTimeRegistry?.branches ?? []).find(
+    (entry) => entry?.name === PR46_RETIREMENT_BRANCH
+  );
+  const handshake = item?.finalBaseHandshakeAuthorization;
+  const finalReadyState = handshake?.authorizedResolverTransition?.finalReadyState;
+  const evidence = handshake?.remergeCandidateCompletionEvidence;
+  const receipts = mergeTimeRegistry?.releaseReceipts;
+  const prefix = handshake?.protectedReceiptPrefix;
+  const candidateReceipt = Array.isArray(receipts) && Number.isInteger(prefix?.count)
+    ? receipts[prefix.count]
+    : null;
+  const finalReceipt = Array.isArray(receipts) && Number.isInteger(prefix?.count)
+    ? receipts[prefix.count + 1]
+    : null;
+  if (
+    !item ||
+    !branch ||
+    !exactPlainJsonOwnKeys(handshake, PR46_HANDSHAKE_KEYS) ||
+    !exactPlainJsonOwnKeys(prefix, ["count", "sha256"]) ||
+    !exactPlainJsonOwnKeys(candidateReceipt, PR46_CANDIDATE_RECEIPT_KEYS) ||
+    !exactPlainJsonOwnKeys(
+      candidateReceipt.protectedReceiptPrefix,
+      ["count", "sha256"]
+    ) ||
+    !exactPlainJsonOwnKeys(
+      candidateReceipt.authorizationBoundary,
+      PR46_RECEIPT_BOUNDARY_KEYS
+    ) ||
+    !exactPlainJsonOwnKeys(finalReceipt, PR46_FINAL_RECEIPT_KEYS) ||
+    !exactPlainJsonOwnKeys(
+      finalReceipt.remergeCandidateCompletionEvidence,
+      finalReadyState?.requiredRemergeCandidateCompletionEvidenceFields
+    ) ||
+    !exactPlainJsonOwnKeys(
+      finalReceipt.authorizationBoundary,
+      PR46_RECEIPT_BOUNDARY_KEYS
+    ) ||
+    handshake?.status !== PR46_FINAL_HANDSHAKE_STATUS ||
+    !sameJson(finalReadyState?.requiredOverallChangedPathsFromProtectedMain, PR46_OVERALL_PATHS) ||
+    !sameJson(finalReadyState?.requiredCurrentCommitChangedPathsFromFirstParent, [REGISTRY_REPO_PATH]) ||
+    finalReadyState?.requiredCurrentFirstParentBinding !==
+      "remergeCandidateCompletionEvidence.candidateHeadSha" ||
+    !protectedMainAdvancePr46EvidenceValid(handshake) ||
+    !protectedMainAdvanceReceiptPrefixMatches(receipts, prefix) ||
+    receipts.length !== prefix.count + 2 ||
+    item.prNumber !== 46 ||
+    item.branch !== PR46_RETIREMENT_BRANCH ||
+    item.ownerKey !== "Codex-branch-retirement-01a04916" ||
+    item.headSha !== evidence.candidateHeadSha ||
+    item.disposition !== "active" ||
+    item.prIsDraft !== true ||
+    item.prReadyForReview !== false ||
+    item.mergeAuthorized !== false ||
+    branch.pr !== 46 ||
+    branch.prBase !== "main" ||
+    branch.headSha !== evidence.candidateHeadSha ||
+    branch.remoteHeadSha !== evidence.candidateHeadSha ||
+    branch.prHeadSha !== evidence.candidateHeadSha ||
+    branch.prState !== "OPEN" ||
+    branch.prIsDraft !== true ||
+    branch.prReadyForReview !== false ||
+    branch.mergeAuthorized !== false ||
+    PR46_USED_ACTIONS.some((field) => handshake[field] !== false) ||
+    PR46_CLOSED_ACTIONS.some((field) => handshake[field] !== false) ||
+    handshake[PR46_FINAL_READY_ACTION] !== true ||
+    !protectedMainAdvanceExactOneRegistryMetadataCommit(
+      evidence.candidateHeadSha,
+      secondParentSha
+    )
+  ) {
+    return false;
+  }
+  if (!protectedMainPr46CandidateGitEvidenceMatches(
+    evidence,
+    orderedParentShas[0],
+    secondParentSha
+  )) {
+    return false;
+  }
+  if (
+    candidateReceipt?.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    candidateReceipt?.receiptKind !== PR46_REMERGE_RECEIPT ||
+    candidateReceipt?.status !== "consumed-by-final-pr46-remerge-candidate-awaiting-ci" ||
+    candidateReceipt?.taskId !== PR46_RETIREMENT_TASK_ID ||
+    candidateReceipt?.ownerKey !== item.ownerKey ||
+    !sameJson(candidateReceipt?.scope, PR46_OVERALL_PATHS) ||
+    !sameJson(candidateReceipt?.protectedReceiptPrefix, prefix) ||
+    !protectedMainAdvanceReceiptAuthorizationExact(
+      candidateReceipt,
+      PR46_FINAL_METADATA_ACTION
+    ) ||
+    finalReceipt?.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    finalReceipt?.receiptKind !== PR46_FINAL_RECEIPT ||
+    finalReceipt?.status !== PR46_FINAL_HANDSHAKE_STATUS ||
+    finalReceipt?.taskId !== PR46_RETIREMENT_TASK_ID ||
+    finalReceipt?.ownerKey !== item.ownerKey ||
+    !sameJson(finalReceipt?.scope, [REGISTRY_REPO_PATH]) ||
+    !sameJson(finalReceipt?.remergeCandidateCompletionEvidence, evidence) ||
+    !protectedMainAdvanceReceiptAuthorizationExact(finalReceipt, PR46_FINAL_READY_ACTION) ||
+    receipts.filter((receipt) => receipt?.receiptKind === PR46_REMERGE_RECEIPT).length !== 1 ||
+    receipts.filter((receipt) => receipt?.receiptKind === PR46_FINAL_RECEIPT).length !== 1
+  ) {
+    return false;
+  }
+  if (options.mergeTimeOnly === true) return true;
+  const currentItem = (currentObservationRegistry?.workItems ?? []).find(
+    (entry) => entry?.taskId === PR46_RETIREMENT_TASK_ID
+  );
+  const currentBranch = (currentObservationRegistry?.branches ?? []).find(
+    (entry) => entry?.name === PR46_RETIREMENT_BRANCH
+  );
+  const hasLastMerged = Boolean(
+    currentItem?.lastMergedPullRequest || currentBranch?.lastMergedPullRequest
+  );
+  if (hasLastMerged) {
+    return Boolean(
+      currentItem?.headSha === secondParentSha &&
+        currentItem.disposition === "integrated" &&
+        currentBranch?.headSha === secondParentSha &&
+        currentBranch.prState === "MERGED" &&
+        currentBranch.prStateObservationMode === "monotonic" &&
+        currentBranch.disposition === "integrated" &&
+        protectedMainAdvanceLastMergedExact(currentItem, currentBranch, {
+          pullRequestNumber: 46,
+          secondParentSha,
+          mergeCommitSha,
+          mergeTreeSha,
+          registryBlobSha,
+          orderedParentShas,
+          auditContract: {
+            status: "pass",
+            errors: [],
+            ownerBlockers: [],
+            unreachableCommitCount: 0
+          }
+        })
+    );
+  }
+  return Boolean(
+    currentItem?.headSha === evidence.candidateHeadSha &&
+      currentItem.ownerKey === item.ownerKey &&
+      currentItem.branch === item.branch &&
+      currentItem.disposition === "active" &&
+      currentBranch?.headSha === evidence.candidateHeadSha &&
+      currentBranch.pr === 46 &&
+      currentBranch.prBase === "main" &&
+      currentBranch.prState === "OPEN" &&
+      currentBranch.prStateObservationMode === "monotonic" &&
+      sameJson(currentItem.finalBaseHandshakeAuthorization, handshake)
+  );
+}
+
+function protectedMainPr81MergeTimeCandidate(descriptor) {
+  if (!validatePr81ProtectedMainMergeDescriptor(descriptor, { mergeTimeOnly: true })) {
+    return null;
+  }
+  const expectedPaths = (descriptor.mergeTimeRegistry.workItems ?? []).find(
+    (entry) => entry?.taskId === PR81_CLOSEOUT_TASK_ID
+  ).pr81PostMainCurrentnessCloseoutLifecycle.requiredCandidatePaths;
+  return {
+    kind: "pr81-registry-closeout",
+    expectedPaths,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr81ProtectedMainMergeDescriptor({
+        ...descriptor,
+        currentObservationRegistry
+      });
+    }
+  };
+}
+
+function protectedMainRepairMergeTimeCandidate(descriptor) {
+  if (
+    !validateProtectedCurrentnessRepairMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    return null;
+  }
+  const expectedPaths = protectedCurrentnessRepairWorkItem(
+    descriptor.mergeTimeRegistry
+  ).protectedCurrentnessActivationRepairLifecycle.requiredOverallPaths;
+  return {
+    kind: "protected-currentness-repair",
+    expectedPaths,
+    currentObservationValidator(currentObservationRegistry) {
+      return validateProtectedCurrentnessRepairMergeDescriptor({
+        ...descriptor,
+        currentObservationRegistry
+      });
+    }
+  };
+}
+
+function protectedMainPr46MergeTimeCandidate(descriptor) {
+  if (!validatePr46ProtectedMainMergeDescriptor(descriptor, { mergeTimeOnly: true })) {
+    return null;
+  }
+  const expectedPaths = (descriptor.mergeTimeRegistry.workItems ?? []).find(
+    (entry) => entry?.taskId === PR46_RETIREMENT_TASK_ID
+  ).finalBaseHandshakeAuthorization.authorizedResolverTransition.finalReadyState
+    .requiredOverallChangedPathsFromProtectedMain;
+  return {
+    kind: "pr46-final-base-handshake",
+    expectedPaths,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr46ProtectedMainMergeDescriptor({
+        ...descriptor,
+        currentObservationRegistry
+      });
+    }
+  };
+}
+
+export function protectedMainUniqueMergeTimeCandidate(matches) {
+  const candidates = matches.filter(Boolean);
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+export function protectedMainMergeTimeCandidateResolution(descriptor) {
+  return protectedMainUniqueMergeTimeCandidate([
+    protectedMainPr81MergeTimeCandidate(descriptor),
+    protectedMainRepairMergeTimeCandidate(descriptor),
+    protectedMainPr46MergeTimeCandidate(descriptor)
+  ]);
+}
+
+export function protectedMainAdvanceChainResolution(
+  currentObservationRegistry,
+  fromSha,
+  toSha
+) {
+  const validated = [];
+  let activeCommitSha = null;
+  const rejected = (rule, failedCommitSha = activeCommitSha) => ({
+    allowed: false,
+    rule,
+    mergeCommitShas: [...validated],
+    failedCommitSha: isSha(failedCommitSha) ? failedCommitSha : null
+  });
+  try {
+    if (!isSha(fromSha) || !isSha(toSha)) {
+      return rejected("protected-advance-sha-invalid", null);
+    }
+    if (fromSha === toSha) {
+      return {
+        allowed: true,
+        rule: null,
+        mergeCommitShas: [],
+        failedCommitSha: null
+      };
+    }
+    if (!protectedMainAdvanceObjectSha(`${fromSha}^{commit}`)) {
+      return rejected("protected-advance-git-read-failed", fromSha);
+    }
+    if (!protectedMainAdvanceObjectSha(`${toSha}^{commit}`)) {
+      return rejected("protected-advance-git-read-failed", toSha);
+    }
+    if (git(["merge-base", "--is-ancestor", fromSha, toSha], {
+      allowFailure: true
+    }).status !== 0) {
+      return rejected("protected-advance-first-parent-chain-mismatch", toSha);
+    }
+    const chainText = protectedMainAdvanceGitText([
+      "rev-list",
+      "--first-parent",
+      "--reverse",
+      `${fromSha}..${toSha}`
+    ]);
+    if (!chainText) return rejected("protected-advance-git-read-failed", toSha);
+    const chain = chainText.split("\n").filter(Boolean);
+    let previous = fromSha;
+    for (const mergeCommitSha of chain) {
+      activeCommitSha = mergeCommitSha;
+      const orderedParentShas = protectedMainAdvanceCommitParents(mergeCommitSha);
+      if (!orderedParentShas) {
+        return rejected("protected-advance-git-read-failed");
+      }
+      if (orderedParentShas.length !== 2) {
+        return rejected("protected-advance-parent-count");
+      }
+      if (orderedParentShas[0] !== previous) {
+        return rejected("protected-advance-first-parent-order");
+      }
+      const secondParentSha = orderedParentShas[1];
+      const mergeTreeSha = protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`);
+      const secondParentTreeSha = protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`);
+      if (!mergeTreeSha || !secondParentTreeSha) {
+        return rejected("protected-advance-git-read-failed");
+      }
+      if (mergeTreeSha !== secondParentTreeSha) {
+        return rejected("protected-advance-tree-mismatch");
+      }
+      const registryBlobSha = protectedMainAdvanceObjectSha(
+        `${mergeCommitSha}:${REGISTRY_REPO_PATH}`
+      );
+      const secondParentRegistryBlobSha = protectedMainAdvanceObjectSha(
+        `${secondParentSha}:${REGISTRY_REPO_PATH}`
+      );
+      const mergeTimeRegistry = protectedMainAdvanceRegistryFromCommit(secondParentSha);
+      if (!registryBlobSha || !secondParentRegistryBlobSha || !mergeTimeRegistry) {
+        return rejected("protected-advance-registry-read-failed");
+      }
+      if (registryBlobSha !== secondParentRegistryBlobSha) {
+        return rejected("protected-advance-registry-blob-mismatch");
+      }
+      const mergeDescriptor = {
+        mergeTimeRegistry,
+        mergeCommitSha,
+        orderedParentShas,
+        secondParentSha,
+        mergeTreeSha,
+        registryBlobSha
+      };
+      const selectedCandidate = protectedMainMergeTimeCandidateResolution(
+        mergeDescriptor
+      );
+      const changedPaths = protectedMainAdvanceChangedPaths(previous, mergeCommitSha);
+      if (!selectedCandidate) {
+        return rejected("protected-advance-lifecycle-unrecognized");
+      }
+      if (!changedPaths) {
+        return rejected("protected-advance-git-read-failed");
+      }
+      if (!sameStringSet(changedPaths, selectedCandidate.expectedPaths)) {
+        return rejected("protected-advance-path-set-mismatch");
+      }
+      if (!selectedCandidate.currentObservationValidator(currentObservationRegistry)) {
+        return rejected("protected-advance-current-observation-invalid");
+      }
+      validated.push(mergeCommitSha);
+      previous = mergeCommitSha;
+    }
+    if (previous !== toSha) {
+      return rejected("protected-advance-first-parent-chain-mismatch", toSha);
+    }
+    return {
+      allowed: true,
+      rule: null,
+      mergeCommitShas: [...validated],
+      failedCommitSha: null
+    };
+  } catch {
+    return rejected("protected-advance-git-read-failed");
+  }
+}
+
+export function integratedReadOnlyRootRegistryAdvanceAllowed(
+  item,
+  actualHeadSha,
+  currentObservationRegistry
+) {
   if (
     item?.taskId !== "SENA-A01-ROOT-CONTROL-PLANE-20260828" ||
     item.disposition !== "integrated" ||
@@ -2832,11 +6212,20 @@ function integratedReadOnlyRootRegistryAdvanceAllowed(item, actualHeadSha) {
   ) {
     return false;
   }
-  const changedPaths = changedPathsAcrossCommitRange(item.headSha, actualHeadSha);
-  return changedPaths.length > 0 && changedPaths.every((path) => path === REGISTRY_REPO_PATH);
+  return protectedMainAdvanceChainResolution(
+    currentObservationRegistry,
+    item.headSha,
+    actualHeadSha
+  ).allowed;
 }
 
-function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(item, actualHeadSha, observed, branchRecord) {
+export function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(
+  item,
+  actualHeadSha,
+  observed,
+  branchRecord,
+  currentObservationRegistry
+) {
   const recorded = item?.aheadBehind;
   if (
     item?.taskId !== "SENA-A01-ROOT-CONTROL-PLANE-20260828" ||
@@ -2871,8 +6260,11 @@ function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(item, actualHeadSha,
   ) {
     return false;
   }
-  const changedPaths = changedPathsAcrossCommitRange(branchRecord.remoteHeadSha, remoteMainSha);
-  return changedPaths.length > 0 && changedPaths.every((path) => path === REGISTRY_REPO_PATH);
+  return protectedMainAdvanceChainResolution(
+    currentObservationRegistry,
+    item.headSha,
+    remoteMainSha
+  ).allowed;
 }
 
 function sha256File(path) {
@@ -3327,7 +6719,7 @@ function runAudit(flags) {
       branchItem && ACTIVE_WRITE_DISPOSITIONS.has(branchItem.disposition) ? branchItem : null;
     const integratedRootRegistryAdvance =
       branchItem?.headSha === branchRecord.headSha &&
-      integratedReadOnlyRootRegistryAdvanceAllowed(branchItem, actual.headSha);
+      integratedReadOnlyRootRegistryAdvanceAllowed(branchItem, actual.headSha, registry);
     if (actual.headSha !== branchRecord.headSha && !activeItem && !integratedRootRegistryAdvance) {
       errors.push(`branch head differs from registry: ${branchRecord.name}`);
     }
@@ -3367,7 +6759,11 @@ function runAudit(flags) {
       }
     }
 
-    const integratedRootRegistryAdvance = integratedReadOnlyRootRegistryAdvanceAllowed(item, actual.headSha);
+    const integratedRootRegistryAdvance = integratedReadOnlyRootRegistryAdvanceAllowed(
+      item,
+      actual.headSha,
+      registry
+    );
     if (actual.headSha !== item.headSha) {
       const advance = scopedWorkItemAdvance(item, actual.headSha);
       const unexpected = advance.laneChangedPaths.filter((path) => !pathIsAllowed(path, item.allowedPaths));
@@ -3386,7 +6782,8 @@ function runAudit(flags) {
       item,
       actual.headSha,
       observed,
-      registryBranches.get(item.branch)
+      registryBranches.get(item.branch),
+      registry
     );
     if (!observed) {
       errors.push(`ahead/behind base is unavailable: ${item.taskId} base=${item.aheadBehind.baseRef}`);
@@ -3397,6 +6794,10 @@ function runAudit(flags) {
       } else if (integratedRootRemoteRegistryAdvance) {
         warnings.push(
           `integrated read-only root observed a protected-main registry-only remote advance without advancing local main: ${item.taskId}`
+        );
+      } else if (integratedMonotonicBehindObservationAllowed(item, actual.headSha, observed)) {
+        warnings.push(
+          `integrated lane fell farther behind protected main without changing head: ${item.taskId}`
         );
       } else if (integratedCleanupBehindAdvanceAllowed(item, actual.headSha, observed)) {
         warnings.push(
