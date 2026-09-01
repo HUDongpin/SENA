@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-01T07:37:00Z",
+  "updatedAt": "2026-09-01T08:09:26Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -88,7 +88,9 @@
         "allowedPaths": [
           "coordination/repo-governance/active-work.json",
           "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
-          "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
+          "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
         "authorizationBasis": "Owner-scoped continuation after the comprehensive Task 1 gate exposed the owner-blocker fixture issue, limited to continuous governance protection; no new write or delete authority is granted."
       }
@@ -4851,35 +4853,42 @@
       "branch": "codex/sena-protected-currentness-activation-repair-20260901",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr80-post-main-closeout-20260901",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "44eabd6cab8d926312c09c7224616126be5a3ab0",
+      "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 4,
         "behind": 0
       },
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
         "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
-        "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-01T06:44:53Z",
-      "lastHeartbeatAt": "2026-09-01T07:37:00Z",
-      "lastObservedAt": "2026-09-01T07:37:00Z",
-      "nextReviewAt": "2026-09-02T07:37:00Z",
-      "expectedCloseAt": "owner-gated:seed-draft-pr-review-before-implementation",
-      "prNumber": null,
-      "plannedPullRequestNumber": null,
-      "prIsDraft": false,
+      "lastHeartbeatAt": "2026-09-01T08:09:26Z",
+      "lastObservedAt": "2026-09-01T08:09:26Z",
+      "nextReviewAt": "2026-09-02T08:09:26Z",
+      "expectedCloseAt": "owner-gated:tasks-2-5-local-tdd-and-independent-initial-candidate-review",
+      "prNumber": 82,
+      "plannedPullRequestNumber": 82,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "noPrReason": "No pull request exists yet; the recorded execution choice authorizes exactly one registry-only seed commit, one push of the named repair branch, and one Draft pull request after the seed gates pass.",
-      "dirtyState": "staged-registry-only-seed-proof-correction",
+      "prHeadSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+      "prBase": "main",
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN",
+      "noPrReason": null,
+      "dirtyState": "registry-only-post-publication-reconciliation-staged-then-clean-forward-advance",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "protectedCurrentnessActivationRepairDesignLifecycle": {
-        "status": "subagent-driven-execution-choice-recorded-seed-proof-corrected-release-authorized",
+        "status": "post-publication-pr82-reconciled-tdd-implementation-authorized",
         "oneShot": true,
         "protectedSourceMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
         "protectedSourceTreeSha": "c3d3d91ff7868939cb331a8c237349d6abbd9357",
@@ -4893,18 +4902,24 @@
           "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md"
         ],
         "approvedDecision": "one-self-closing-protected-repair-pr-without-pr46-self-authorization-or-remote-deletion",
-        "requiredNextSkill": "subagent-driven-development-or-executing-plans-after-owner-execution-choice",
+        "requiredNextSkill": "subagent-driven-development-tasks-2-through-5-local-tdd",
         "writtenSpecOwnerReviewPassed": true,
         "implementationPlanAuthorizedNow": false,
-        "implementationAuthorizedNow": false,
+        "implementationAuthorizedNow": true,
         "pushAuthorizedNow": false,
         "draftPullRequestAuthorizedNow": false,
         "seedRegistryChoiceCommitAuthorizedNow": false,
         "seedRegistryChoiceCommitAuthorizationConsumed": true,
         "seedRegistryChoiceCommitAuthorizationConsumedAt": "2026-09-01T07:30:12Z",
         "seedRegistryChoiceCommitSha": "44eabd6cab8d926312c09c7224616126be5a3ab0",
-        "seedPushAuthorizedNow": true,
-        "seedDraftPullRequestAuthorizedNow": true,
+        "seedPushAuthorizedNow": false,
+        "seedPushAuthorizationConsumed": true,
+        "seedPushAuthorizationConsumedAt": "2026-09-01T07:45:57Z",
+        "seedPushCommitSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+        "seedDraftPullRequestAuthorizedNow": false,
+        "seedDraftPullRequestAuthorizationConsumed": true,
+        "seedDraftPullRequestAuthorizationConsumedAt": "2026-09-01T07:46:32Z",
+        "seedDraftPullRequestNumber": 82,
         "readyAuthorizedNow": false,
         "protectedMergeAuthorizedNow": false,
         "pr46RemergeOrMutationAuthorizedNow": false,
@@ -4965,6 +4980,76 @@
             "sha256": "5ee513228fcac2a1c041df222ec53245d9de95fff0fb3553a7318417748798c4"
           }
         },
+        "postPublicationSeedEvidence": {
+          "classification": "design-plan-seed-only",
+          "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+          "treeSha": "7761b482f99d29c657bffd060f47ba3c4aa460fc",
+          "registryBlobSha": "b7d96dc0adee6469b27975e6c507de5d935043da",
+          "receiptPrefix": {
+            "count": 39,
+            "sha256": "ca28ed70f18ae639cd75decea46e4ceba68f8986025a6bbeade5752146b3f63f"
+          },
+          "pullRequest": {
+            "number": 82,
+            "url": "https://github.com/HUDongpin/SENA/pull/82",
+            "state": "OPEN",
+            "isDraft": true,
+            "headRefName": "codex/sena-protected-currentness-activation-repair-20260901",
+            "headRefOid": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+            "baseRefName": "main",
+            "baseRefOid": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN"
+          },
+          "workflowChecks": [
+            {
+              "workflowName": "repo-security-gate",
+              "event": "push",
+              "runId": 33483715420,
+              "jobId": 99778802651,
+              "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+              "status": "completed",
+              "conclusion": "success",
+              "annotationCount": 0,
+              "url": "https://github.com/HUDongpin/SENA/actions/runs/33483715420"
+            },
+            {
+              "workflowName": "repo-security-gate",
+              "event": "pull_request",
+              "runId": 33483767790,
+              "jobId": 99778966026,
+              "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+              "status": "completed",
+              "conclusion": "success",
+              "annotationCount": 0,
+              "url": "https://github.com/HUDongpin/SENA/actions/runs/33483767790"
+            },
+            {
+              "workflowName": "build-gate",
+              "event": "pull_request",
+              "runId": 33483767756,
+              "jobId": 99778965524,
+              "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+              "status": "completed",
+              "conclusion": "success",
+              "annotationCount": 0,
+              "url": "https://github.com/HUDongpin/SENA/actions/runs/33483767756"
+            }
+          ]
+        },
+        "authorizedImplementationScope": {
+          "tasks": [
+            "Task 2",
+            "Task 3",
+            "Task 4",
+            "Task 5"
+          ],
+          "localTddAuthorized": true,
+          "exactInitialCandidateRequiresIndependentReview": true,
+          "initialCandidatePushAuthorizedNow": false,
+          "initialCandidateReadyAuthorizedNow": false,
+          "initialCandidateMergeAuthorizedNow": false
+        },
         "cleanupAuthorizedNow": false,
         "rootCheckoutMutationAuthorized": false,
         "evidenceFlowMutationAuthorized": false,
@@ -4974,11 +5059,11 @@
         "archiveTagMutationAuthorized": false
       },
       "evidenceState": {
-        "local": "the execution-choice commit is exact 44eabd6; only the owner-authorized registry seed-proof correction is staged to bind continuous governance preservation and exact source currentness",
-        "ci": "the comprehensive Task 1 commit-bound test exposed one owner-blocker fixture/currentness issue; this additive registry-only correction must pass all staged and commit-bound gates before the one authorized push and Draft PR",
-        "merged": "PR81 remains protected-main active; this repair branch has no upstream or remote ref and is not yet in a PR, Ready, or merged; only seed publication is authorized",
+        "local": "the published design-plan seed is exact clean local and upstream head a25ff64; this registry-only reconciliation authorizes only Tasks 2-5 local TDD and an independently reviewed exact initial candidate",
+        "ci": "the a25ff64 design-plan seed passed exact push security, pull-request security, and build workflows with the three recorded jobs successful and zero annotations; this is seed-only evidence",
+        "merged": "PR82 is OPEN/Draft at exact head a25ff64 and base main 969a206, MERGEABLE/CLEAN, but is not Ready or merged; PR81 remains the protected-main source",
         "deployed": "not in scope and not authorized",
-        "live": "live and fetched main remain exact 969a206; PR46 remains exact e24c635 Draft/CONFLICTING/DIRTY; all remote branches, EvidenceFlow, rescue custody, keep-around refs, invalid pointers, and retirement targets remain preserved"
+        "live": "live main remains exact 969a206 and live repair remote/PR82 head is exact a25ff64; PR46 remains exact e24c635 Draft/CONFLICTING/DIRTY, while EvidenceFlow and all preservation objects remain unchanged"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -5939,29 +6024,31 @@
       "owner": "Codex protected currentness and activation repair designer",
       "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "44eabd6cab8d926312c09c7224616126be5a3ab0",
-      "upstream": null,
-      "upstreamState": "not-applicable",
-      "upstreamCacheState": "not-applicable",
-      "remotePresent": false,
-      "remoteHeadSha": null,
-      "remoteObservedAt": "2026-09-01T07:37:00Z",
-      "pr": null,
-      "plannedPullRequestNumber": null,
-      "prState": null,
-      "prIsDraft": false,
+      "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+      "upstream": "origin/codex/sena-protected-currentness-activation-repair-20260901",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": true,
+      "remoteHeadSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+      "remoteObservedAt": "2026-09-01T08:09:26Z",
+      "pr": 82,
+      "plannedPullRequestNumber": 82,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": null,
+      "prHeadSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
       "prBase": "main",
-      "noPrReason": "No pull request exists yet; exact seed push and Draft PR creation are authorized only after the registry-only execution-choice seed commit and gates pass.",
-      "lastOwnerHeartbeatAt": "2026-09-01T07:37:00Z",
-      "lastObservedAt": "2026-09-01T07:37:00Z",
-      "lastCommitAt": "2026-09-01T15:30:12+08:00",
-      "nextReviewAt": "2026-09-02T07:37:00Z",
-      "expectedCloseAt": "owner-gated:seed-draft-pr-review-before-implementation",
+      "noPrReason": null,
+      "lastOwnerHeartbeatAt": "2026-09-01T08:09:26Z",
+      "lastObservedAt": "2026-09-01T08:09:26Z",
+      "lastCommitAt": "2026-09-01T15:41:51+08:00",
+      "nextReviewAt": "2026-09-02T08:09:26Z",
+      "expectedCloseAt": "owner-gated:tasks-2-5-local-tdd-and-independent-initial-candidate-review",
       "disposition": "active",
-      "closeout": "subagent-driven execution choice is recorded; exactly one registry seed commit, named-branch push, and Draft PR are authorized, while implementation, Ready, merge, PR46, cleanup, deletion, other ref/branch/worktree/orphan/target/tag/quarantine, provider, deployment, and history mutation remain unauthorized"
+      "closeout": "PR82 is OPEN/Draft at exact local/upstream/remote/PR head a25ff64 against main 969a206 and is MERGEABLE/CLEAN; only Tasks 2-5 local TDD and an independently reviewed exact initial candidate are authorized, while push, Ready, merge, PR46, cleanup, deletion, other ref/branch/worktree/orphan/target/tag/quarantine, provider, deployment, and history mutation remain unauthorized",
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN"
     }
   ],
   "orphanWorktrees": [
@@ -9108,6 +9195,135 @@
         "seedPushAuthorizedNow": true,
         "seedDraftPullRequestAuthorizedNow": true,
         "implementationAuthorizedNow": false,
+        "readyAuthorizedNow": false,
+        "protectedMergeAuthorizedNow": false,
+        "pr46RemergeOrMutationAuthorizedNow": false,
+        "pr46ReadyAndProtectedMergeAuthorizedNow": false,
+        "cleanupAuthorizedNow": false,
+        "localRefRetirementAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "rootCheckoutMutationAuthorized": false,
+        "evidenceFlowMutationAuthorized": false,
+        "invalidPointerMutationAuthorized": false,
+        "keepAroundRefMutationAuthorized": false,
+        "otherRemoteBranchMutationAuthorized": false,
+        "archiveTagMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      }
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr82-protected-currentness-activation-repair-post-publication-reconciliation",
+      "status": "post-publication-pr82-reconciled-tdd-implementation-authorized",
+      "taskId": "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901",
+      "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "sourceHeadSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+      "sourceTreeSha": "7761b482f99d29c657bffd060f47ba3c4aa460fc",
+      "sourceRegistryBlobSha": "b7d96dc0adee6469b27975e6c507de5d935043da",
+      "sourceReceiptPrefix": {
+        "count": 39,
+        "sha256": "ca28ed70f18ae639cd75decea46e4ceba68f8986025a6bbeade5752146b3f63f"
+      },
+      "evidenceClassification": "design-plan-seed-only",
+      "pullRequest": {
+        "number": 82,
+        "url": "https://github.com/HUDongpin/SENA/pull/82",
+        "state": "OPEN",
+        "isDraft": true,
+        "headRefName": "codex/sena-protected-currentness-activation-repair-20260901",
+        "headRefOid": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+        "baseRefName": "main",
+        "baseRefOid": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+        "mergeable": "MERGEABLE",
+        "mergeStateStatus": "CLEAN"
+      },
+      "seedWorkflowEvidence": [
+        {
+          "workflowName": "repo-security-gate",
+          "event": "push",
+          "runId": 33483715420,
+          "jobId": 99778802651,
+          "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+          "status": "completed",
+          "conclusion": "success",
+          "annotationCount": 0,
+          "url": "https://github.com/HUDongpin/SENA/actions/runs/33483715420"
+        },
+        {
+          "workflowName": "repo-security-gate",
+          "event": "pull_request",
+          "runId": 33483767790,
+          "jobId": 99778966026,
+          "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+          "status": "completed",
+          "conclusion": "success",
+          "annotationCount": 0,
+          "url": "https://github.com/HUDongpin/SENA/actions/runs/33483767790"
+        },
+        {
+          "workflowName": "build-gate",
+          "event": "pull_request",
+          "runId": 33483767756,
+          "jobId": 99778965524,
+          "headSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+          "status": "completed",
+          "conclusion": "success",
+          "annotationCount": 0,
+          "url": "https://github.com/HUDongpin/SENA/actions/runs/33483767756"
+        }
+      ],
+      "changedFieldClasses": [
+        "repair-work-item-and-branch-post-publication-currentness",
+        "repair-five-path-work-item-and-freeze-binding-atomic-sync",
+        "repair-design-lifecycle-seed-consumption-and-local-tdd-authorization"
+      ],
+      "approvedOverallFivePathScope": [
+        "coordination/repo-governance/active-work.json",
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "matchingFreezeBindingAllowedPathsAtomicallySynchronized": true,
+      "authorizationBasis": "The owner selected one protected registry-only Task 1.5 post-publication reconciliation after specification review identified the sole P1 bootstrap blocker; this records the published seed and authorizes only Tasks 2-5 local TDD plus an independently reviewed exact initial candidate.",
+      "authorizationBoundary": {
+        "postPublicationRegistryOnlyReconciliationCommitAuthorizedOnce": true,
+        "postPublicationNamedBranchReconciliationPushAuthorizedOnce": true,
+        "postPublicationReconciliationAuthorizationConsumedByExactCommitAndSinglePush": true,
+        "furtherPostPublicationReconciliationCommitOrPushAuthorized": false,
+        "seedRegistryChoiceCommitAuthorizedNow": false,
+        "seedRegistryChoiceCommitAuthorizationConsumed": true,
+        "seedPushAuthorizedNow": false,
+        "seedPushAuthorizationConsumed": true,
+        "seedDraftPullRequestAuthorizedNow": false,
+        "seedDraftPullRequestAuthorizationConsumed": true,
+        "conditionalTddImplementationAuthorized": true,
+        "implementationAuthorizedNow": true,
+        "authorizedTasks": [
+          "Task 2",
+          "Task 3",
+          "Task 4",
+          "Task 5"
+        ],
+        "exactInitialCandidateRequiresIndependentReview": true,
+        "initialCandidatePushAuthorizedNow": false,
+        "pushAuthorizedNow": false,
+        "draftPullRequestAuthorizedNow": false,
         "readyAuthorizedNow": false,
         "protectedMergeAuthorizedNow": false,
         "pr46RemergeOrMutationAuthorizedNow": false,
