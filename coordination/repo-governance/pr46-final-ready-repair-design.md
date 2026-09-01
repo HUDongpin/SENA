@@ -1,6 +1,6 @@
 # PR46 Final-Ready Protected Minimal-Repair Design
 
-Status: approved design direction; implementation is not authorized until the owner reviews this written specification.
+Status: owner-approved execution direction; every exact candidate remains blocked until its local gates and immutable reviews pass.
 
 Date: 2026-09-01
 
@@ -10,10 +10,12 @@ Owners: SENA-A01 governance lane and SENA-BRANCH-RETIREMENT-20260829 lane
 
 Use one new protected A01 lifecycle to authorize a minimal, state-aware PR46 repair while preserving the existing PR46 evidence lineage.
 
-The repair has exactly two behavioral changes:
+The PR46 repair has exactly two behavioral changes:
 
-1. Make the conflict-intake integration assertion derive the one exact expected resolver mode from the stage-0 registry status instead of hard-coding the preceding remerge-consumed mode.
+1. Replace the conflict-intake integration test's dependence on the live SENA index, checkout status, and mutable `origin/main` with a deterministic isolated projection matrix. The matrix exercises staged-index, clean remerge-head, final-ready, and post-main execution contexts from explicit source/candidate snapshots, while the operational conflict-intake command remains an exact candidate gate.
 2. Replace the verifier's hard-coded PR79 activation identity with an exact positive `requiredActivationPullRequestNumber` supplied by the protected activation binding and checked against the candidate's activation-completion evidence.
+
+PR80 also introduces the protection needed to authorize those changes: a fail-closed two-state transition validator with an exact recursive true-action set, immutable receipt prefix, ordered one-receipt deltas, replay rejection, and negative tests. That protection is lifecycle enforcement, not a third PR46 behavioral change.
 
 The repair does not weaken the final-base-handshake state machine, recursive closed authorization set, exact parent/path/blob checks, live PR head check, normalized non-owned registry check, receipt sequence, CI requirements, exact-head lease, or cleanup prohibition.
 
@@ -104,7 +106,7 @@ The lifecycle has two coordinated but independently gated parts.
 
 ### 5.1 Part A: protected A01 repair authorization lifecycle
 
-The A01 lane creates PR80 from exact protected main. Its delta is limited to governance documentation and `coordination/repo-governance/active-work.json`.
+The A01 lane creates PR80 from exact protected main. Its initial candidate is limited to five paths: the registry, this design, the implementation plan, the governance verifier, and the governance test. The verifier/test delta exists only to make PR80's own authorization lifecycle enforceable before protection.
 
 The initial PR80 registry candidate must record:
 
@@ -116,14 +118,25 @@ The initial PR80 registry candidate must record:
 - the exact two permitted implementation paths:
   - `scripts/verify-sena-repo-governance.mjs`
   - `sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
-- the exact allowed post-activation actions: restore the blocked index to clean `e24c635`, run one ordinary remerge of the exact protected activation commit, reconstruct only branch-retirement-owned registry fields, implement the two repairs RED-first, commit/push the exact three-path merge candidate, create one later registry-only final authorization, and stop before cleanup.
+- the exact protected receipt prefix count and SHA-256, the only two allowed lifecycle statuses, the one allowed true action per status, and the one ordered receipt/scope required at each transition;
+- the exact allowed post-activation actions: restore the blocked index to clean `e24c635`, freeze the exact protected activation commit, require precisely three conflicts (registry, verifier, governance test), run one ordinary remerge, resolve those three paths under the protected/PR46 composition contract, implement the two PR46 repairs RED-first, commit/push the exact three-path merge candidate, create one later registry-only final authorization, and stop before cleanup.
 
 PR80 uses two candidate states:
 
 1. `pr80-repair-authorization-candidate-awaiting-initial-checks`
-2. `pr80-repair-authorization-final-ready-pending-final-head-checks`
+2. `pr80-ready-authorization-pending-final-head-checks`
 
 The initial state permits only the A01 registry-only final-authorization metadata commit after initial exact-head checks. The final state consumes that action and conditionally permits only PR80 Ready/protected merge after the final head's fresh checks.
+
+The verifier must reject an arbitrary status, a retained earlier action, any unknown top-level or nested `*Authorized: true`, a missing/extra/reordered receipt, receipt scope expansion, protected-receipt-prefix drift, a direct final-state bootstrap, or replay from the final state. The initial-to-final comparison must use an exact field-level allowlist rather than replacing the whole A01 work item/branch: `allowedPaths`, owner/disposition, historical authorization objects, and every other unlisted field remain immutable. Recursive authorization-path comparison spans the complete A01 work item and branch, with only the lifecycle's initial action replaced by its final action.
+
+The pre-commit write-policy must execute the real source-to-index transition, not merely validate a standalone JSON shape. The initial state is compared to exact protected `ca7d464` and must have exactly the five declared overall paths; the final state is compared to the exact initial PR80 head recorded in completion evidence and must have exactly one registry path.
+
+During either PR80 transition, the candidate receipt array must equal the source byte-semantically plus exactly one ordered receipt. The final PR80 commit seals the A01 writer lane: an unchanged final PR80 lifecycle may not authorize a third A01 commit. Later non-PR80 receipts may be appended only through a separately validated non-A01 lane (the existing branch-retirement lane is the planned continuation) without invalidating the historical PR80 prefix; the two PR80 receipts themselves, their order, scopes, actions, and evidence remain immutable.
+
+Final PR80 evidence requires one positive build run ID, exactly two distinct positive repository-security run IDs, and exactly three distinct positive check-job IDs. The lifecycle evidence, final receipt, and explicitly supplied observation context must match on all Git identities, run/job arrays, check/annotation booleans, and initial immutable-review approvals. Numeric shape alone is not provider authenticity; exact GitHub readback and review supply that evidence layer.
+
+During the exact initial-to-final registry-only transition, the final metadata candidate must still describe PR80 as exactly OPEN, Draft, not Ready, and not merge-authorized. Both A01 work-item and branch records must identify PR80, the branch base must remain `main`, mergeability must be `MERGEABLE/CLEAN`, and work-item head, branch head, remote head, and PR head must all equal the exact initial candidate head. Only after the final metadata head itself passes fresh checks may the external Ready transition occur. This pre-final constraint is not a permanent historical snapshot rule: after protected merge, a separately validated non-A01 lane may record truthful monotonic MERGED/non-Draft/final-head/merge-commit currentness and A01 closeout while preserving the immutable PR80 lifecycle and receipt pair.
 
 The two required A01 receipts are:
 
@@ -141,12 +154,12 @@ The sequence is:
 1. Revalidate the frozen PR46 blocker evidence and require the working file and index to remain at the clean pushed `e24c635` commit. If an identical blocked projection reappears before protected activation, restore it using `apply_patch` plus explicit `git add -- coordination/repo-governance/active-work.json`; do not use reset, checkout, rebase, or stash.
 2. Recompute the clean `e24c635` tree and registry/verifier/test blobs before any merge operation.
 3. Require a clean index/worktree and local/named-remote/PR head equality at `e24c635`.
-4. Run merge-tree preflight against the exact PR80 protected-main commit. The expected sole conflict is `coordination/repo-governance/active-work.json`; any additional conflict stops the lifecycle.
+4. Run merge-tree preflight against the exact PR80 protected-main commit. Because PR80 intentionally protects its own lifecycle in the verifier and governance test while PR46 already changed those files, the required conflict set is exactly `coordination/repo-governance/active-work.json`, `scripts/verify-sena-repo-governance.mjs`, and `sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`. The candidate-only clean set must be empty, and the protected-only clean set must contain exactly the design and implementation-plan documents. Any different set stops the lifecycle.
 5. Execute one ordinary `git merge --no-ff --no-commit <exact-protected-main>`.
-6. Restore `active-work.json` from the complete protected registry stage, then reconstruct only branch-retirement-owned work-item/branch fields and one bounded repair receipt.
+6. Resolve the three conflicts without accepting either side wholesale: use the complete protected registry as the registry base and reconstruct only branch-retirement-owned fields plus one bounded receipt; preserve the protected PR80 lifecycle validator/tests while porting the complete PR46 final-base-handshake verifier/tests and the two narrowly authorized PR46 repairs. Keep all three merge stages available until this composition is proven.
 7. Preserve all unrelated protected registry semantics and prove the normalized non-owned registry hash is unchanged.
 8. Produce RED evidence before implementation:
-   - the current state-coupled integration assertion fails when the exact final-ready projection is supplied;
+   - the current live-index-coupled integration test cannot remain green across staged, clean-head, and merged-main execution contexts;
    - activation evidence declaring PR80 fails against the hard-coded PR79 verifier rule.
 9. Implement the two minimal repairs.
 10. Stage exactly the three authorized paths: registry, verifier, and governance test.
@@ -154,21 +167,25 @@ The sequence is:
 12. Commit a new ordinary two-parent PR46 merge candidate whose first parent is `e24c635` and whose second parent is the exact PR80 protected-main commit.
 13. Push only the named PR46 branch while the PR remains Draft; pass its initial exact-head build/security checks and zero-annotation readback.
 14. Create one registry-only final-authorization metadata commit. It must record the exact preceding merge candidate and consume the metadata action while conditionally enabling only PR46 Ready/protected merge after the new final head's checks.
-15. Run the complete governance suite against the final-ready projection. The new state-aware assertion must make this a genuine 97/97 pass rather than an evidence composition.
+15. Run the complete governance suite against the final-ready projection. The isolated projection matrix must make this a genuine 97/97 pass and must remain green again after protected-main merge, rather than composing evidence from a transient staged index.
 16. Complete exact immutable review, final exact-head CI, zero annotations, Ready transition, and protected merge with exact-head lease.
 17. Verify post-main build/security, zero annotations, and commit-bound live audit.
 
 ## 6. Minimal implementation details
 
-### 6.1 State-aware integration expectation
+### 6.1 Deterministic conflict-intake integration fixture
 
-Add one small pure mapping used by the integration test or equivalent narrowly scoped test helper:
+Remove the aggregate test's direct reads of the live project index, worktree dirtiness, current branch, and mutable `refs/remotes/origin/main`. Those are operational inputs and cannot be a stable full-suite fixture.
 
-- `consumed-by-final-pr46-remerge-candidate-awaiting-ci` maps only to `final-base-handshake-remerge-consumed-awaiting-ci`.
-- `final-pr46-ready-authorization-pending-final-head-checks` maps only to `final-base-handshake-final-ready-pending-head-checks`.
-- Every missing, pending, arbitrary, or unknown status fails the test setup explicitly; it must not broaden into a regular expression that accepts either mode without inspecting the registry status.
+Use explicit protected-source and candidate snapshots with deterministic contexts to cover:
 
-The assertion continues to require status zero and the `SENA_CONFLICT_INTAKE pass` prefix, then requires the one exact mode derived from the stage-0 registry.
+- staged remerge projection -> `final-base-handshake-remerge-consumed-awaiting-ci`;
+- clean committed remerge head -> the same exact remerge-consumed mode;
+- staged registry-only final-ready projection -> `final-base-handshake-final-ready-pending-head-checks`;
+- clean committed final-ready head -> the same exact final-ready mode;
+- a simulated post-main test run that replays the preserved protected source plus final candidate snapshots without consulting the checkout's now-consumed `origin/main` registry.
+
+The fixture must still reject ambiguous/missing projection sources, missing stage-0 input, dirty head projections, arbitrary status, unknown nested true authorization, parent/path/blob drift, receipt drift, and stale activation evidence. Operational pre-commit and pre-push gates continue to run `conflict-intake` against the actual exact staged or clean candidate; the complete test file itself no longer assumes that a transient index exists.
 
 ### 6.2 Activation PR identity
 
@@ -209,11 +226,11 @@ Stop without advancing authority if any of the following occurs:
 - PR80 or PR46 has any failing required check or non-empty annotation array.
 - A reviewer reports any unresolved P0 or P1 finding.
 - The blocked PR46 snapshot, keep-around refs, or e24 blobs no longer match.
-- Merge-tree reports a conflict outside `active-work.json`.
+- Merge-tree's conflict set is anything other than the exact registry/verifier/governance-test triple, its candidate-only clean set is nonempty, or its protected-only clean set differs from the two PR80 documents.
 - The ordinary merge creates or references an unexpected autostash.
 - Non-branch-retirement protected registry semantics change.
 - The staged path set differs from the exact authorized set.
-- The state-aware integration assertion accepts more than the one mode implied by registry status.
+- The deterministic integration fixture consults the live project index/status/`origin/main`, accepts more than the one mode implied by its explicit projection, or does not remain valid in a simulated post-main run.
 - The activation PR number is missing, inferred, or mismatched.
 - The complete governance suite is not fully green in both the new remerge-consumed candidate and the later final-ready projection.
 - Any cleanup, retirement, ref, worktree, orphan, deployment, provider, reset, rebase, stash, force, or history-rewrite authorization becomes true.
@@ -227,6 +244,9 @@ If the ordinary merge itself must be abandoned, stop and obtain an exact protect
 - JSON parse and `git diff --check`
 - index-bound governance audit
 - write-policy and security gates
+- exact five-path source-to-index projection
+- fail-closed lifecycle validator GREEN after observed RED
+- negative cases for status, top-level/nested/sibling true-action closure, unchanged-lifecycle staged deltas, replay, receipt prefix count/hash/historical drift, missing/extra/reordered/scope-expanded receipts, direct-final bootstrap, protected-base/core/index-path/non-owned drift, `allowedPaths`/owner/disposition/historical-authorization drift, and final run/job/receipt/context evidence cardinality or mismatch
 - normalized non-owned registry equivalence
 - exact candidate hashes and receipt closure
 - independent spec and quality review
@@ -247,7 +267,7 @@ If the ordinary merge itself must be abandoned, stop and obtain an exact protect
 ### 9.3 PR46 repair candidate
 
 - exact frozen-state and live-head revalidation
-- merge-tree sole-conflict proof
+- merge-tree exact-three-conflict, empty-candidate-only, and two-protected-document proof
 - ordinary merge parent and autostash proof
 - RED evidence for both defects
 - focused GREEN tests for both repairs and their negative cases
@@ -264,7 +284,7 @@ If the ordinary merge itself must be abandoned, stop and obtain an exact protect
 - exact preceding candidate head/tree/registry/verifier/test blobs and ordered parents
 - both binary-diff hash domains
 - exact CI run/job/annotation identities
-- state-aware final-ready integration pass
+- deterministic final-ready and simulated post-main integration pass
 - complete governance suite 97/97
 - final immutable review
 - fresh final-head build/security/zero annotations
@@ -292,6 +312,7 @@ The repair design is complete only when:
 - PR46's repaired remerge-consumed candidate genuinely passes 97/97 and all local/CI/review gates;
 - PR46's registry-only final-ready projection also genuinely passes 97/97 and all final gates;
 - PR46 merges with the exact final head lease and passes post-main verification;
+- the unchanged complete governance test file passes again from the clean post-main checkout without a staged-index dependency;
 - no cleanup object was mutated before that point;
 - every evidence claim names its exact layer and does not infer later authority from an earlier green gate.
 

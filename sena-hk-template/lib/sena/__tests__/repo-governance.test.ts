@@ -91,6 +91,13 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
     ...template,
     updatedAt: now,
     repo: root,
+    releaseReceipts: (template.releaseReceipts ?? []).filter(
+      (entry: { receiptKind?: string }) =>
+        ![
+          "pr80-final-ready-test-repair-authorization-candidate",
+          "pr80-final-ready-test-repair-final-authorization"
+        ].includes(entry.receiptKind ?? "")
+    ),
     policy: {
       ...template.policy,
       hookCustodyPath: join(root, ".githooks"),
@@ -166,6 +173,27 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
   runGit(root, ["commit", "-q", "-m", "register governed writer"]);
   const head = runGit(root, ["rev-parse", "HEAD"]);
   return { root, script, registryPath, registry, base, head, ref: "refs/heads/topic" };
+}
+
+function selectPr80InitialRegistry(
+  currentRegistry: any,
+  loadRegistryFromCommit: (commit: string) => any
+) {
+  const currentItem = currentRegistry.workItems?.find(
+    (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+  );
+  const lifecycle = currentItem?.pr80FinalReadyTestRepairLifecycle;
+  if (lifecycle?.status === "pr80-repair-authorization-candidate-awaiting-initial-checks") {
+    return currentRegistry;
+  }
+  if (lifecycle?.status !== "pr80-ready-authorization-pending-final-head-checks") {
+    throw new Error("unsupported PR80 lifecycle status for initial-registry selection");
+  }
+  const initialHeadSha = lifecycle.initialCandidateCompletionEvidence?.headSha;
+  if (typeof initialHeadSha !== "string" || !/^[0-9a-f]{40}$/.test(initialHeadSha)) {
+    throw new Error("PR80 final snapshot lacks an exact initial completion head");
+  }
+  return loadRegistryFromCommit(initialHeadSha);
 }
 
 afterEach(() => {
@@ -2428,5 +2456,466 @@ describe("SENA repository governance", () => {
     expect(result.status).toBe(1);
     const report = JSON.parse(result.stdout);
     expect(report.errors).toContain("rescue bundle SHA-256 does not match registry");
+  });
+
+  it("fails closed across the exact PR80 repair authorization transition and receipt delta", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.pr80RepairLifecycleResolutionFromRegistries).toBe("function");
+    expect(typeof governance.pr80RepairLifecycleTrueAuthorizationPaths).toBe("function");
+    expect(typeof governance.assertPr80RepairLifecycleIndexPaths).toBe("function");
+    expect(typeof governance.assertPr80RepairA01ProjectionAdvanced).toBe("function");
+    expect(typeof governance.validatePr80RepairLifecycleSnapshot).toBe("function");
+
+    const currentRegistry = JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+    const initialRegistry = selectPr80InitialRegistry(currentRegistry, (commit) =>
+      JSON.parse(
+        runGit(projectRoot, [
+          "show",
+          `${commit}:coordination/repo-governance/active-work.json`
+        ])
+      )
+    );
+    const initialItem = initialRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    );
+    const initialLifecycle = initialItem.pr80FinalReadyTestRepairLifecycle;
+    expect(
+      selectPr80InitialRegistry(initialRegistry, () => {
+        throw new Error("initial selector must not load a commit for an initial snapshot");
+      })
+    ).toBe(initialRegistry);
+    const protectedRegistry = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${initialLifecycle.protectedBaseSha}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const protectedContext = {
+      sourceHeadSha: initialLifecycle.protectedBaseSha,
+      sourceTreeSha: initialLifecycle.protectedBaseTreeSha,
+      sourceRegistryBlobSha: initialLifecycle.protectedBaseRegistryBlobSha
+    };
+
+    expect(
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        protectedRegistry,
+        initialRegistry,
+        protectedContext
+      ).mode
+    ).toBe("pr80-repair-authorization-candidate-awaiting-initial-checks");
+    expect(governance.pr80RepairLifecycleTrueAuthorizationPaths(initialLifecycle)).toEqual([
+      "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks"
+    ]);
+
+    const initialCases: Array<[string, (candidate: typeof initialRegistry) => void]> = [
+      ["rule=pr80-repair-status-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.status = "arbitrary";
+      }],
+      ["rule=pr80-repair-initial-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.future = { nestedMutationAuthorized: true };
+      }],
+      ["rule=pr80-repair-initial-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.futureMutationAuthorized = true;
+      }],
+      ["rule=pr80-repair-initial-a01-authorization-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).futureCleanupAuthorized = true;
+      }],
+      ["rule=pr80-repair-initial-a01-authorization-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr79FinalAuthorization.readyForReviewAuthorizedAfterFinalHeadChecks = false;
+      }],
+      ["rule=pr80-repair-receipt-prefix-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.protectedBaseReceiptPrefix.count += 1;
+      }],
+      ["rule=pr80-repair-receipt-prefix-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.protectedBaseReceiptPrefix.sha256 = "0".repeat(64);
+      }],
+      ["rule=pr80-repair-receipt-prefix-invalid", (candidate) => {
+        candidate.releaseReceipts[0].status = "historical-prefix-drift";
+      }],
+      ["rule=pr80-repair-initial-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.pop();
+      }],
+      ["rule=pr80-repair-initial-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)));
+      }],
+      ["rule=pr80-repair-initial-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push({ receiptKind: "unrelated-extra-receipt" });
+      }],
+      ["rule=pr80-repair-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).scope.push("unexpected.ts");
+      }],
+      ["rule=pr80-repair-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).authorizationBoundary.futureMutationAuthorized = true;
+      }]
+    ];
+    for (const [expectedError, mutate] of initialCases) {
+      const candidate = structuredClone(initialRegistry);
+      mutate(candidate);
+      expect(() =>
+        governance.pr80RepairLifecycleResolutionFromRegistries(
+          protectedRegistry,
+          candidate,
+          protectedContext
+        )
+      ).toThrow(expectedError);
+    }
+    expect(() =>
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        protectedRegistry,
+        initialRegistry,
+        { ...protectedContext, sourceHeadSha: "0".repeat(40) }
+      )
+    ).toThrow("rule=pr80-repair-protected-base-mismatch");
+    expect(() =>
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        initialRegistry,
+        structuredClone(initialRegistry),
+        protectedContext
+      )
+    ).toThrow("rule=pr80-repair-transition-source-invalid");
+    expect(() =>
+      governance.assertPr80RepairA01ProjectionAdvanced(
+        initialRegistry,
+        structuredClone(initialRegistry)
+      )
+    ).toThrow("rule=pr80-repair-unchanged-lifecycle-staged-delta");
+    expect(() =>
+      governance.assertPr80RepairLifecycleIndexPaths(initialLifecycle, [
+        ...initialLifecycle.requiredCandidatePaths,
+        "unexpected.ts"
+      ])
+    ).toThrow("rule=pr80-repair-index-path-set-mismatch");
+
+    const initialCandidateHeadSha = "a".repeat(40);
+    const initialCandidateTreeSha = "b".repeat(40);
+    const initialCandidateRegistryBlobSha = "c".repeat(40);
+    const finalRegistry = structuredClone(initialRegistry);
+    const finalItem = finalRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    );
+    const finalLifecycle = finalItem.pr80FinalReadyTestRepairLifecycle;
+    finalLifecycle.status = "pr80-ready-authorization-pending-final-head-checks";
+    finalLifecycle.finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks = false;
+    finalLifecycle.pr80ReadyAndProtectedMergeAuthorizedAfterFinalChecks = true;
+    finalLifecycle.initialCandidateCompletionEvidence = {
+      headSha: initialCandidateHeadSha,
+      treeSha: initialCandidateTreeSha,
+      registryBlobSha: initialCandidateRegistryBlobSha,
+      buildRunId: 33460000001,
+      repositorySecurityRunIds: [33460000002, 33460000003],
+      checkJobIds: [99710000001, 99710000002, 99710000003],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+    finalItem.headSha = initialCandidateHeadSha;
+    finalItem.prNumber = 80;
+    finalItem.prIsDraft = true;
+    finalItem.prReadyForReview = false;
+    finalItem.mergeAuthorized = false;
+    const finalBranch = finalRegistry.branches.find(
+      (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+    );
+    finalBranch.headSha = initialCandidateHeadSha;
+    finalBranch.remoteHeadSha = initialCandidateHeadSha;
+    finalBranch.pr = 80;
+    finalBranch.prState = "OPEN";
+    finalBranch.prBase = "main";
+    finalBranch.prIsDraft = true;
+    finalBranch.prReadyForReview = false;
+    finalBranch.mergeAuthorized = false;
+    finalBranch.prHeadSha = initialCandidateHeadSha;
+    finalBranch.mergeable = "MERGEABLE";
+    finalBranch.mergeStateStatus = "CLEAN";
+    finalRegistry.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "pr80-final-ready-test-repair-final-authorization",
+      status: "authorized-for-pr80-ready-and-protected-merge-after-final-head-checks",
+      taskId: "SENA-A01-REPO-GOVERNANCE-20260827",
+      ownerKey: "Codex-primary-writer",
+      scope: ["coordination/repo-governance/active-work.json"],
+      authorizationSourceInitialHeadSha: initialCandidateHeadSha,
+      authorizationSourceInitialTreeSha: initialCandidateTreeSha,
+      authorizationSourceInitialRegistryBlobSha: initialCandidateRegistryBlobSha,
+      buildRunId: 33460000001,
+      repositorySecurityRunIds: [33460000002, 33460000003],
+      checkJobIds: [99710000001, 99710000002, 99710000003],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      specReviewApproved: true,
+      qualityReviewApproved: true,
+      authorizationBoundary: {
+        finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks: false,
+        pr80ReadyAndProtectedMergeAuthorizedAfterFinalChecks: true,
+        pr46ReadyAndProtectedMergeAuthorizedNow: false,
+        branchDeletionAuthorized: false
+      }
+    });
+    const initialContext = {
+      sourceHeadSha: initialCandidateHeadSha,
+      sourceTreeSha: initialCandidateTreeSha,
+      sourceRegistryBlobSha: initialCandidateRegistryBlobSha,
+      buildRunId: 33460000001,
+      repositorySecurityRunIds: [33460000002, 33460000003],
+      checkJobIds: [99710000001, 99710000002, 99710000003],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+
+    expect(
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        initialRegistry,
+        finalRegistry,
+        initialContext
+      ).mode
+    ).toBe("pr80-ready-authorization-pending-final-head-checks");
+    expect(governance.pr80RepairLifecycleTrueAuthorizationPaths(finalLifecycle)).toEqual([
+      "pr80ReadyAndProtectedMergeAuthorizedAfterFinalChecks"
+    ]);
+
+    const finalCases: Array<[string, (candidate: typeof finalRegistry) => void]> = [
+      ["rule=pr80-repair-final-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks = true;
+      }],
+      ["rule=pr80-repair-final-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.future = { nestedMutationAuthorized: true };
+      }],
+      ["rule=pr80-repair-final-a01-authorization-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).futureCleanupAuthorized = true;
+      }],
+      ["rule=pr80-repair-final-field-scope-drift", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).allowedPaths.push("unexpected/**");
+      }],
+      ["rule=pr80-repair-final-field-scope-drift", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).ownerKey = "drifted-owner";
+      }],
+      ["rule=pr80-repair-final-field-scope-drift", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).disposition = "integrated";
+      }],
+      ["rule=pr80-repair-final-a01-authorization-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr79FinalAuthorization.readyForReviewAuthorizedAfterFinalHeadChecks = false;
+      }],
+      ["rule=pr80-repair-lifecycle-core-drift", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.requiredExecution.push("unexpected-action");
+      }],
+      ["rule=pr80-repair-final-field-scope-drift", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.futurePolicy = "allow";
+      }],
+      ["rule=pr80-repair-final-field-scope-drift", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+        ).headSha = "0".repeat(40);
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).prIsDraft = false;
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).prReadyForReview = true;
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).mergeAuthorized = true;
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).prNumber = 81;
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        delete candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).pr;
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).prState = "MERGED";
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).headSha = "0".repeat(40);
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).remoteHeadSha = "0".repeat(40);
+      }],
+      ["rule=pr80-repair-final-pr-state-invalid", (candidate) => {
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+        ).prHeadSha = "0".repeat(40);
+      }],
+      ["rule=pr80-repair-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.pop();
+      }],
+      ["rule=pr80-repair-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)));
+      }],
+      ["rule=pr80-repair-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push({ receiptKind: "unrelated-extra-receipt" });
+      }],
+      ["rule=pr80-repair-final-receipt-delta-invalid", (candidate) => {
+        const [candidateReceipt] = candidate.releaseReceipts.splice(-2, 1);
+        candidate.releaseReceipts.push(candidateReceipt);
+      }],
+      ["rule=pr80-repair-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).scope.push("unexpected.ts");
+      }],
+      ["rule=pr80-repair-final-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.initialCandidateCompletionEvidence.requiredChecksPassed = false;
+      }],
+      ["rule=pr80-repair-final-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.initialCandidateCompletionEvidence.repositorySecurityRunIds = [33460000002];
+      }],
+      ["rule=pr80-repair-final-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+        ).pr80FinalReadyTestRepairLifecycle.initialCandidateCompletionEvidence.checkJobIds = [99710000001, 99710000001, 99710000003];
+      }],
+      ["rule=pr80-repair-final-evidence-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).buildRunId += 1;
+      }]
+    ];
+    for (const [expectedError, mutate] of finalCases) {
+      const candidate = structuredClone(finalRegistry);
+      mutate(candidate);
+      expect(() =>
+        governance.pr80RepairLifecycleResolutionFromRegistries(
+          initialRegistry,
+          candidate,
+          initialContext
+        )
+      ).toThrow(expectedError);
+    }
+
+    expect(() =>
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        initialRegistry,
+        finalRegistry,
+        { ...initialContext, checkJobIds: [99710000001, 99710000002, 99710000004] }
+      )
+    ).toThrow("rule=pr80-repair-final-evidence-invalid");
+    expect(() =>
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        protectedRegistry,
+        finalRegistry,
+        initialContext
+      )
+    ).toThrow("rule=pr80-repair-transition-source-invalid");
+
+    expect(() =>
+      governance.pr80RepairLifecycleResolutionFromRegistries(
+        finalRegistry,
+        structuredClone(finalRegistry),
+        initialContext
+      )
+    ).toThrow("rule=pr80-repair-transition-replay");
+
+    const postFinalRegistry = structuredClone(finalRegistry);
+    postFinalRegistry.releaseReceipts.push({ receiptKind: "later-separately-authorized-receipt" });
+    const postMainHeadSha = "d".repeat(40);
+    const postFinalItem = postFinalRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    );
+    postFinalItem.headSha = postMainHeadSha;
+    postFinalItem.prIsDraft = false;
+    postFinalItem.prReadyForReview = true;
+    postFinalItem.disposition = "integrated";
+    postFinalItem.dirtyState = "clean-pr80-merged-a01-terminal";
+    postFinalItem.lastMergedPullRequest = {
+      number: 80,
+      headSha: postMainHeadSha,
+      mergeCommitSha: "e".repeat(40),
+      postMainChecksPassed: true
+    };
+    const postFinalBranch = postFinalRegistry.branches.find(
+      (entry: { name?: string }) => entry.name === "codex/sena-a01-repo-governance-20260827"
+    );
+    postFinalBranch.headSha = postMainHeadSha;
+    postFinalBranch.remoteHeadSha = postMainHeadSha;
+    postFinalBranch.prHeadSha = postMainHeadSha;
+    postFinalBranch.prState = "MERGED";
+    postFinalBranch.prIsDraft = false;
+    postFinalBranch.prReadyForReview = true;
+    postFinalBranch.disposition = "integrated";
+    postFinalBranch.lastMergedPullRequest = structuredClone(postFinalItem.lastMergedPullRequest);
+    postFinalBranch.closeout = "PR80 merged; A01 terminal and awaiting non-A01 retirement";
+    expect(
+      governance.validatePr80RepairLifecycleSnapshot(postFinalRegistry).status
+    ).toBe("pr80-ready-authorization-pending-final-head-checks");
+    expect(
+      selectPr80InitialRegistry(finalRegistry, (commit) => {
+        expect(commit).toBe(initialCandidateHeadSha);
+        return initialRegistry;
+      })
+    ).toBe(initialRegistry);
+    expect(
+      selectPr80InitialRegistry(postFinalRegistry, () => initialRegistry)
+    ).toBe(initialRegistry);
+    const missingInitialHeadRegistry = structuredClone(finalRegistry);
+    missingInitialHeadRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    ).pr80FinalReadyTestRepairLifecycle.initialCandidateCompletionEvidence.headSha = null;
+    expect(() =>
+      selectPr80InitialRegistry(missingInitialHeadRegistry, () => initialRegistry)
+    ).toThrow("PR80 final snapshot lacks an exact initial completion head");
+    expect(() =>
+      selectPr80InitialRegistry(finalRegistry, () => {
+        throw new Error("initial registry commit unavailable");
+      })
+    ).toThrow("initial registry commit unavailable");
+    expect(() =>
+      governance.assertPr80RepairA01ProjectionAdvanced(
+        finalRegistry,
+        postFinalRegistry
+      )
+    ).toThrow("rule=pr80-repair-final-a01-writer-lane-sealed");
   });
 });
