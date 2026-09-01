@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-01T06:44:53Z",
+  "updatedAt": "2026-09-01T07:15:22Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -4838,34 +4838,35 @@
       "branch": "codex/sena-protected-currentness-activation-repair-20260901",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr80-post-main-closeout-20260901",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      "headSha": "cfbbf7f18b9d9fe89249cb095e3d1ed619d8aee6",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
-        "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md"
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
       ],
       "createdAt": "2026-09-01T06:44:53Z",
-      "lastHeartbeatAt": "2026-09-01T06:44:53Z",
-      "lastObservedAt": "2026-09-01T06:44:53Z",
-      "nextReviewAt": "2026-09-02T06:44:53Z",
-      "expectedCloseAt": "owner-gated:written-spec-review-before-implementation",
+      "lastHeartbeatAt": "2026-09-01T07:15:22Z",
+      "lastObservedAt": "2026-09-01T07:15:22Z",
+      "nextReviewAt": "2026-09-02T07:15:22Z",
+      "expectedCloseAt": "owner-gated:implementation-plan-execution-choice",
       "prNumber": null,
       "plannedPullRequestNumber": null,
       "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": "Owner-approved design lane is local-only pending written-spec review; no push or pull request is authorized.",
-      "dirtyState": "staged-design-spec-and-registry-only-awaiting-owner-written-spec-review",
+      "dirtyState": "staged-registry-design-status-and-implementation-plan-awaiting-execution-choice",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "protectedCurrentnessActivationRepairDesignLifecycle": {
-        "status": "design-spec-committed-awaiting-owner-written-spec-review",
+        "status": "written-spec-approved-implementation-plan-committed-awaiting-execution-choice",
         "oneShot": true,
         "protectedSourceMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
         "protectedSourceTreeSha": "c3d3d91ff7868939cb331a8c237349d6abbd9357",
@@ -4879,8 +4880,8 @@
           "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md"
         ],
         "approvedDecision": "one-self-closing-protected-repair-pr-without-pr46-self-authorization-or-remote-deletion",
-        "requiredNextSkill": "writing-plans-after-owner-written-spec-review",
-        "writtenSpecOwnerReviewPassed": false,
+        "requiredNextSkill": "subagent-driven-development-or-executing-plans-after-owner-execution-choice",
+        "writtenSpecOwnerReviewPassed": true,
         "implementationPlanAuthorizedNow": false,
         "implementationAuthorizedNow": false,
         "pushAuthorizedNow": false,
@@ -4903,14 +4904,36 @@
         "rebaseAuthorized": false,
         "stashAuthorized": false,
         "forceAuthorized": false,
-        "historyRewriteAuthorized": false
+        "historyRewriteAuthorized": false,
+        "requiredPlanPaths": [
+          "coordination/repo-governance/active-work.json",
+          "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
+          "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
+        ],
+        "writtenSpecReviewedAt": "2026-09-01T07:15:22Z",
+        "implementationPlanCommitApprovalRecorded": true,
+        "implementationPlanPath": "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md",
+        "designCommitEvidence": {
+          "headSha": "cfbbf7f18b9d9fe89249cb095e3d1ed619d8aee6",
+          "treeSha": "e0b73420f61b06d042f6370bf407d9af85ad215f",
+          "registryBlobSha": "32bd43192940dff93a8964ea3d2f29e1fe44b963",
+          "designBlobSha": "c68b79fb09c42e1ba0a21032bca28682e85d1fa3",
+          "registryValidationPassed": true,
+          "liveCommitBoundAuditPassed": true,
+          "auditErrors": [],
+          "auditOwnerBlockers": [],
+          "unreachableCommitCount": 0,
+          "governanceTestsPassed": 49,
+          "governanceTestsTotal": 49
+        },
+        "executionChoiceRecorded": false
       },
       "evidenceState": {
-        "local": "new local-only design branch starts at exact protected main 969a206; only active-work.json and the owner-approved written design are permitted for the design-spec commit",
-        "ci": "not run and not claimed; implementation, push, and PR creation remain unauthorized pending written-spec review and a writing-plans implementation plan",
-        "merged": "PR81 is protected-main active; the new repair design is not pushed, reviewed as a written spec, in a PR, Ready, or merged",
+        "local": "owner-reviewed design is committed at cfbbf7f; the implementation plan and design-status/registry update are staged as the only plan-commit paths",
+        "ci": "design commit passed registry, write-policy, security, 49/49 governance tests, and exact commit-bound live audit; no seed push, PR, or implementation CI is claimed",
+        "merged": "PR81 remains protected-main active; the repair design/plan branch is local-only, has no upstream or remote ref, and is not in a PR, Ready, or merged",
         "deployed": "not in scope and not authorized",
-        "live": "live and fetched main are exact 969a206; PR46 remains exact e24c635 Draft/CONFLICTING/DIRTY; all remote branches, EvidenceFlow, rescue custody, keep-around refs, invalid pointers, and retirement targets remain preserved"
+        "live": "live and fetched main remain exact 969a206; PR46 remains exact e24c635 Draft/CONFLICTING/DIRTY; all remote branches, EvidenceFlow, rescue custody, keep-around refs, invalid pointers, and retirement targets remain preserved"
       },
       "disposition": "active",
       "freezeException": null
@@ -5871,7 +5894,7 @@
       "owner": "Codex protected currentness and activation repair designer",
       "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      "headSha": "cfbbf7f18b9d9fe89249cb095e3d1ed619d8aee6",
       "upstream": null,
       "upstreamState": "not-applicable",
       "upstreamCacheState": "not-applicable",
@@ -5887,13 +5910,13 @@
       "prHeadSha": null,
       "prBase": "main",
       "noPrReason": "Local-only owner-approved written-spec lane; no push or pull request is authorized before written-spec review and an implementation plan.",
-      "lastOwnerHeartbeatAt": "2026-09-01T06:44:53Z",
-      "lastObservedAt": "2026-09-01T06:44:53Z",
-      "lastCommitAt": "2026-09-01T14:44:53+08:00",
-      "nextReviewAt": "2026-09-02T06:44:53Z",
-      "expectedCloseAt": "owner-gated:written-spec-review-before-implementation",
+      "lastOwnerHeartbeatAt": "2026-09-01T07:15:22Z",
+      "lastObservedAt": "2026-09-01T07:15:22Z",
+      "lastCommitAt": "2026-09-01T15:15:22+08:00",
+      "nextReviewAt": "2026-09-02T07:15:22Z",
+      "expectedCloseAt": "owner-gated:implementation-plan-execution-choice",
       "disposition": "active",
-      "closeout": "design specification only; implementation, push, Draft PR, Ready, merge, PR46, cleanup, deletion, target, provider, deployment, and history mutations remain unauthorized"
+      "closeout": "owner-reviewed design plus implementation plan are local-only; no push, Draft PR, implementation, Ready, merge, PR46, cleanup, deletion, target, provider, deployment, or history mutation is authorized before the execution choice"
     }
   ],
   "orphanWorktrees": [
@@ -8861,6 +8884,55 @@
       "designSpecCommitApprovalRecorded": true,
       "authorizationBoundary": {
         "implementationPlanAuthorizedNow": false,
+        "implementationAuthorizedNow": false,
+        "pushAuthorizedNow": false,
+        "draftPullRequestAuthorizedNow": false,
+        "readyAuthorizedNow": false,
+        "protectedMergeAuthorizedNow": false,
+        "pr46RemergeOrMutationAuthorizedNow": false,
+        "pr46ReadyAndProtectedMergeAuthorizedNow": false,
+        "localRefRetirementAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      }
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr82-protected-currentness-activation-repair-implementation-plan",
+      "status": "written-spec-approved-implementation-plan-committed-awaiting-execution-choice",
+      "taskId": "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901",
+      "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
+      "scope": [
+        "coordination/repo-governance/active-work.json",
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
+        "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
+      ],
+      "protectedSourceMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      "designCommitSha": "cfbbf7f18b9d9fe89249cb095e3d1ed619d8aee6",
+      "designCommitTreeSha": "e0b73420f61b06d042f6370bf407d9af85ad215f",
+      "designCommitRegistryBlobSha": "32bd43192940dff93a8964ea3d2f29e1fe44b963",
+      "designBlobSha": "c68b79fb09c42e1ba0a21032bca28682e85d1fa3",
+      "protectedSourceReceiptPrefix": {
+        "count": 36,
+        "sha256": "de704b827f30ea47898ac661b948791f16daa9312cf95f52351c9e6488b41d2a"
+      },
+      "authorizationBasis": "The owner approved the written protected-currentness repair specification and instructed Codex to continue the recommended strict protected convergence order.",
+      "writtenSpecOwnerReviewPassed": true,
+      "implementationPlanCommitApprovalRecorded": true,
+      "authorizationBoundary": {
+        "executionChoiceRecorded": false,
         "implementationAuthorizedNow": false,
         "pushAuthorizedNow": false,
         "draftPullRequestAuthorizedNow": false,

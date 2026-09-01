@@ -1,6 +1,6 @@
 # Protected Currentness and PR46 Activation Repair Design
 
-Status: owner-approved design; implementation remains blocked pending owner review of this written specification.
+Status: owner-reviewed written specification; implementation remains blocked pending the implementation-plan execution choice and its exact protected gates.
 
 Date: 2026-09-01
 
@@ -293,6 +293,11 @@ receipt inside the branch-retirement-owned projection. That evidence must bind:
 PR46 may not modify the binding, lifecycle receipt kinds, activation PR number,
 required path set, or any other authorization-core field.
 
+The binding keeps the PR46 source authorization status
+`pending-protected-activation`; a distinct
+`requiredActivationLifecycleStatus` names the repair's final protected-ready
+status. These two states must not be conflated.
+
 ## 11. PR46 re-entry topology
 
 After the repair is protected-main active, revalidate PR46 before touching its
@@ -312,9 +317,10 @@ Merge-tree against the new protected main must report exactly these conflicts:
 - `sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`.
 
 The candidate-only clean set must be empty. The protected-only clean set must be
-recomputed and frozen; it is expected to include the two PR80 design/plan files
-and this repair design, but execution must use the observed exact set rather
-than silently relying on that expectation.
+recomputed and frozen; it is expected to include the two PR80 design/plan files,
+this repair design, and the required repair implementation plan. Execution must
+use the observed exact four-path set rather than silently relying on that
+expectation.
 
 ## 12. Data flow
 
