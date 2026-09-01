@@ -36,6 +36,8 @@ const MAX_ACTIVE_INTEGRATION_RELEASE_LANES = 1;
 const MAX_ACTIVE_FEATURE_LANES = 2;
 const ACTIVE_WRITE_DISPOSITIONS = new Set(["active", "ready-for-pr"]);
 const REF_DELETION_AUTHORIZATION_STATUSES = new Set(["pending-provider-readback", "active", "consumed"]);
+const LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES = new Set(["pending-release", "active", "consumed"]);
+const LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,127}$/;
 const EXPECTED_REMOTE_IDENTITY = Object.freeze({
   name: "origin",
   provider: "github.com",
@@ -43,6 +45,30 @@ const EXPECTED_REMOTE_IDENTITY = Object.freeze({
   repository: "SENA"
 });
 const EXPECTED_REMOTE_HTTPS_URL = "https://github.com/HUDongpin/SENA.git";
+const QUARANTINED_LEDGER_BRANCH_REF = "refs/heads/docs/ledger-reconciliation-2026-08-19";
+const QUARANTINED_LEDGER_TIP = "18d542f707e56aa9d043dd497e0efe48b540db20";
+const ORDINARY_ARCHIVE_EXCLUDED_REF_NAMESPACES = [
+  "refs/heads/*",
+  "refs/remotes/*",
+  "refs/rescue/*",
+  "refs/quarantine/*",
+  "HEAD",
+  "main-worktree/HEAD",
+  "worktrees/*/HEAD"
+];
+const LOCAL_RETIREMENT_PRODUCTION_ROOT = "/Volumes/Starship/SENA";
+const LOCAL_RETIREMENT_DANGEROUS_GIT_ENV = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_NAMESPACE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_PREFIX",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_WORK_TREE"
+]);
 const WORK_ITEM_DISPOSITIONS = new Set([
   ...ACTIVE_WRITE_DISPOSITIONS,
   "integrated",
@@ -608,7 +634,10 @@ function addRemoteIdentityFindings(remoteName, remoteLocation, registry, finding
   }
 }
 
-function loadProtectedMainAuthorizationRegistry(flags, { required = false } = {}) {
+function loadProtectedMainAuthorizationRegistry(
+  flags,
+  { required = false, localRefRetirementAuthorizationId = null } = {}
+) {
   const commits = flagValues(flags, "authorization-registry-commit");
   if (commits.length === 0) {
     if (required) throw new Error("protected-main authorization registry commit is required");
@@ -623,11 +652,1493 @@ function loadProtectedMainAuthorizationRegistry(flags, { required = false } = {}
     throw new Error("protected-main authorization registry is not the fetched origin/main commit");
   }
   const loaded = loadRegistryFromCommit(commits[0]);
+  if (localRefRetirementAuthorizationId !== null) {
+    const requestedAuthorization = (
+      loaded.parsed.policy?.localRefRetirementAuthorizations ?? []
+    ).find((entry) => entry.id === localRefRetirementAuthorizationId);
+    if (!requestedAuthorization) {
+      throw new Error("rule=local-ref-retirement-authorization-missing");
+    }
+    if (requestedAuthorization.status === "pending-release") {
+      throw new Error("rule=local-ref-retirement-release-pending");
+    }
+    if (requestedAuthorization.status === "consumed") {
+      throw new Error("rule=local-ref-retirement-authorization-consumed");
+    }
+    if (
+      requestedAuthorization.status === "active" &&
+      isIsoTimestamp(requestedAuthorization.expiresAt) &&
+      Date.parse(requestedAuthorization.expiresAt) <= Date.now()
+    ) {
+      throw new Error("rule=local-ref-retirement-authorization-expired");
+    }
+  }
   const validation = validateRegistry(loaded.parsed);
   if (validation.errors.length > 0) {
     throw new Error("protected-main authorization registry snapshot is invalid");
   }
   return { ...loaded, commit: commits[0] };
+}
+
+const EXACT_CONFLICT_INTAKE_PATHS = [
+  "coordination/repo-governance/active-work.json",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+
+function sortedPathSet(paths) {
+  return [...new Set(paths)].sort();
+}
+
+function samePathSet(left, right) {
+  const expected = sortedPathSet(left);
+  const actual = sortedPathSet(right);
+  return expected.length === actual.length && expected.every((path, index) => path === actual[index]);
+}
+
+function exactTreeSha(commit) {
+  return gitText(["rev-parse", `${commit}^{tree}`]).trim();
+}
+
+function exactBlobSha(commit, path) {
+  return gitText(["rev-parse", `${commit}:${path}`]).trim();
+}
+
+function binaryDiffSha256(left, right) {
+  const result = git(
+    ["diff", "--binary", "--no-ext-diff", "--no-renames", left, right, "--", ...EXACT_CONFLICT_INTAKE_PATHS],
+    { binary: true }
+  );
+  return sha256Buffer(result.stdout ?? Buffer.alloc(0));
+}
+
+const CONFLICT_INTAKE_PENDING_STATUS = "pending-protected-activation";
+const CONFLICT_INTAKE_EVIDENCE_ONLY_STATUS =
+  "superseded-after-protected-activation-and-index-counterevidence";
+const CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS = "consumed-by-pr46-candidate-9a5234c";
+const CONFLICT_INTAKE_CONSUMED_REPAIR_MODE = "evidence-only-superseded-binding-consumed-repair";
+const CONFLICT_INTAKE_LIFECYCLE_CONSUMED_STATUS = "consumed-by-pr46-merge-candidate";
+const CONFLICT_INTAKE_ORDINARY_ACTIVE_STATUS = "activated-but-blocked-by-repair-lifecycle-state-red";
+const CONFLICT_INTAKE_ORDINARY_CONSUMED_STATUS =
+  "consumed-by-pr77-exact-abort-and-redo-reconciliation";
+const CONFLICT_INTAKE_THREE_PATH_ACTIVE_STATUS = "activated-but-blocked-by-full-governance-red";
+
+function allExplicitlyFalse(record, fields) {
+  return fields.every((field) => record?.[field] === false);
+}
+
+function trueAuthorizationPaths(value, path = []) {
+  if (!value || typeof value !== "object") return [];
+  const paths = [];
+  for (const [key, entry] of Object.entries(value)) {
+    const nextPath = [...path, key];
+    if (entry === true && key.includes("Authorized")) paths.push(nextPath.join("."));
+    if (entry && typeof entry === "object") paths.push(...trueAuthorizationPaths(entry, nextPath));
+  }
+  return paths;
+}
+
+function onlyAllowedTrueAuthorizations(record, allowedPaths) {
+  const allowed = new Set(allowedPaths);
+  return trueAuthorizationPaths(record).every((path) => allowed.has(path));
+}
+
+const FINAL_BASE_HANDSHAKE_PENDING_STATUS = "pending-protected-activation";
+const FINAL_BASE_HANDSHAKE_REMERGE_STATUS =
+  "consumed-by-final-pr46-remerge-candidate-awaiting-ci";
+const FINAL_BASE_HANDSHAKE_READY_STATUS =
+  "final-pr46-ready-authorization-pending-final-head-checks";
+const FINAL_BASE_HANDSHAKE_REMERGE_MODE =
+  "final-base-handshake-remerge-consumed-awaiting-ci";
+const FINAL_BASE_HANDSHAKE_READY_MODE =
+  "final-base-handshake-final-ready-pending-head-checks";
+const FINAL_BASE_HANDSHAKE_PENDING_MODE =
+  "final-base-handshake-pending-protected-remerge";
+const FINAL_BASE_HANDSHAKE_PENDING_ACTIONS = [
+  "finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation",
+  "finalResolverAndTestStageAuthorizedAfterProtectedActivation",
+  "finalMergeCommitPushAuthorizedAfterRequiredGates"
+];
+const FINAL_BASE_HANDSHAKE_REMERGE_ACTION =
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks";
+const FINAL_BASE_HANDSHAKE_READY_ACTION =
+  "pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks";
+const FINAL_BASE_HANDSHAKE_CLOSED_ACTIONS = [
+  "implementationAuthorizedNow",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized"
+];
+
+export function finalBaseHandshakeTrueAuthorizationPaths(value) {
+  return trueAuthorizationPaths(value).sort();
+}
+
+function finalBaseHandshakeWorkItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+}
+
+function hasReleaseReceipt(registry, receiptKind) {
+  return (registry?.releaseReceipts ?? []).some((entry) => entry?.receiptKind === receiptKind);
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function positiveIntegerArray(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((entry) => Number.isInteger(entry) && entry > 0);
+}
+
+function validSha256(value) {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+export function normalizedNonOwnedRegistrySha256(registry) {
+  const normalized = structuredClone(registry ?? {});
+  normalized.updatedAt = "<branch-retirement-owned>";
+  normalized.workItems = (normalized.workItems ?? []).map((entry) =>
+    entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+      ? { taskId: "SENA-BRANCH-RETIREMENT-20260829", owned: "<branch-retirement-owned>" }
+      : entry
+  );
+  normalized.branches = (normalized.branches ?? []).map((entry) =>
+    entry?.name === "codex/sena-branch-retirement-20260829"
+      ? { name: "codex/sena-branch-retirement-20260829", owned: "<branch-retirement-owned>" }
+      : entry
+  );
+  normalized.releaseReceipts = (normalized.releaseReceipts ?? []).filter(
+    (entry) => entry?.taskId !== "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(normalized)));
+}
+
+function branchRetirementReleaseReceipts(registry) {
+  return (registry?.releaseReceipts ?? []).filter(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+}
+
+function validateFinalBaseHandshakeTransitionReceipt(receipt, expectedKind, expectedScope, allowedActionPath) {
+  if (
+    !receipt ||
+    receipt.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    receipt.receiptKind !== expectedKind ||
+    receipt.taskId !== "SENA-BRANCH-RETIREMENT-20260829" ||
+    receipt.ownerKey !== "Codex-branch-retirement-01a04916" ||
+    !samePathSet(receipt.scope ?? [], expectedScope) ||
+    !receipt.authorizationBoundary ||
+    !samePathSet(finalBaseHandshakeTrueAuthorizationPaths(receipt), [allowedActionPath])
+  ) {
+    throw new Error("rule=final-base-handshake-transition-receipt-invalid");
+  }
+}
+
+function validateFinalBaseHandshakeReceiptDelta(protectedRegistry, candidateRegistry, status, context) {
+  const protectedReceipts = branchRetirementReleaseReceipts(protectedRegistry);
+  const candidateReceipts = branchRetirementReleaseReceipts(candidateRegistry);
+  if (status === FINAL_BASE_HANDSHAKE_REMERGE_STATUS) {
+    if (
+      candidateReceipts.length !== protectedReceipts.length + 1 ||
+      !protectedReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index]))
+    ) {
+      throw new Error("rule=final-base-handshake-remerge-receipt-delta-invalid");
+    }
+    validateFinalBaseHandshakeTransitionReceipt(
+      candidateReceipts.at(-1),
+      "pr46-final-base-handshake-remerge-candidate",
+      EXACT_CONFLICT_INTAKE_PATHS,
+      `authorizationBoundary.${FINAL_BASE_HANDSHAKE_REMERGE_ACTION}`
+    );
+    return;
+  }
+  const remergeRegistry = context?.remergeCandidateRegistry;
+  const remergeReceipts = branchRetirementReleaseReceipts(remergeRegistry);
+  if (
+    !remergeRegistry ||
+    candidateReceipts.length !== remergeReceipts.length + 1 ||
+    !remergeReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index]))
+  ) {
+    throw new Error("rule=final-base-handshake-final-receipt-delta-invalid");
+  }
+  validateFinalBaseHandshakeTransitionReceipt(
+    candidateReceipts.at(-1),
+    "pr46-final-base-handshake-final-authorization",
+    [REGISTRY_REPO_PATH],
+    `authorizationBoundary.${FINAL_BASE_HANDSHAKE_READY_ACTION}`
+  );
+}
+
+function validateFinalBaseHandshakeSource(protectedRegistry, context) {
+  const item = finalBaseHandshakeWorkItem(protectedRegistry);
+  const authorization = item?.finalBaseHandshakeAuthorization;
+  if (!authorization || authorization.status !== FINAL_BASE_HANDSHAKE_PENDING_STATUS) {
+    throw new Error("rule=final-base-handshake-source-missing");
+  }
+  if (
+    authorization.oneShot !== true ||
+    !isSha(authorization.candidateHeadSha) ||
+    !isSha(authorization.candidateTreeSha) ||
+    !isSha(authorization.candidateRegistryBlobSha) ||
+    !isSha(authorization.candidateVerifierBlobSha) ||
+    !isSha(authorization.candidateGovernanceTestBlobSha) ||
+    !isSha(authorization.mergeBaseSha) ||
+    authorization.protectedActivationBinding?.mode !==
+      "loaded-fetched-origin-main-authorization-registry-commit" ||
+    authorization.protectedActivationBinding?.requiredAuthorizationStatus !==
+      FINAL_BASE_HANDSHAKE_PENDING_STATUS ||
+    authorization.protectedActivationBinding?.mustEqualFetchedOriginMain !== true ||
+    authorization.protectedActivationBinding?.postMainBuildRequired !== true ||
+    authorization.protectedActivationBinding?.postMainSecurityRequired !== true ||
+    authorization.protectedActivationBinding?.postMainAnnotationsMustBeEmpty !== true ||
+    authorization.protectedActivationBinding?.commitBoundLiveAuditRequired !== true ||
+    !hasReleaseReceipt(
+      protectedRegistry,
+      authorization.protectedActivationBinding?.requiredReceiptKind
+    ) ||
+    !hasReleaseReceipt(
+      protectedRegistry,
+      authorization.protectedActivationBinding?.requiredFinalAuthorizationReceiptKind
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-source-invalid");
+  }
+  if (
+    !isSha(context?.authorizationCommitSha) ||
+    context.authorizationCommitSha !== context.fetchedOriginMainSha
+  ) {
+    throw new Error("rule=final-base-handshake-source-main-mismatch");
+  }
+  const transition = authorization.authorizedResolverTransition;
+  if (
+    !transition ||
+    !samePathSet(transition.allowedStatuses ?? [], [
+      FINAL_BASE_HANDSHAKE_PENDING_STATUS,
+      FINAL_BASE_HANDSHAKE_REMERGE_STATUS,
+      FINAL_BASE_HANDSHAKE_READY_STATUS
+    ]) ||
+    !samePathSet(transition.requiredResolverModes ?? [], [
+      FINAL_BASE_HANDSHAKE_REMERGE_MODE,
+      FINAL_BASE_HANDSHAKE_READY_MODE
+    ]) ||
+    transition.arbitraryStatusMustFailClosed !== true ||
+    transition.unknownTrueAuthorizationMustFailClosedRecursively !== true ||
+    !samePathSet(
+      transition.pendingState?.allowedTrueAuthorizationPaths ?? [],
+      FINAL_BASE_HANDSHAKE_PENDING_ACTIONS
+    ) ||
+    !samePathSet(
+      transition.remergeConsumedState?.allowedTrueAuthorizationPaths ?? [],
+      [FINAL_BASE_HANDSHAKE_REMERGE_ACTION]
+    ) ||
+    !samePathSet(
+      transition.finalReadyState?.allowedTrueAuthorizationPaths ?? [],
+      [FINAL_BASE_HANDSHAKE_READY_ACTION]
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-source-semantics-invalid");
+  }
+  if (
+    !FINAL_BASE_HANDSHAKE_PENDING_ACTIONS.every((field) => authorization[field] === true) ||
+    authorization[FINAL_BASE_HANDSHAKE_REMERGE_ACTION] !== false ||
+    authorization[FINAL_BASE_HANDSHAKE_READY_ACTION] !== false ||
+    !allExplicitlyFalse(authorization, FINAL_BASE_HANDSHAKE_CLOSED_ACTIONS) ||
+    !samePathSet(
+      finalBaseHandshakeTrueAuthorizationPaths(authorization),
+      FINAL_BASE_HANDSHAKE_PENDING_ACTIONS
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-source-action-set-invalid");
+  }
+  return { item, authorization, transition };
+}
+
+function validateCandidateAuthorizationCore(sourceAuthorization, candidateAuthorization) {
+  const fields = [
+    "oneShot",
+    "authorizationSourceMainSha",
+    "authorizationSourceMainTreeSha",
+    "authorizationSourceRegistryBlobSha",
+    "pullRequestNumber",
+    "candidateHeadSha",
+    "candidateTreeSha",
+    "candidateRegistryBlobSha",
+    "candidateVerifierBlobSha",
+    "candidateGovernanceTestBlobSha",
+    "mergeBaseSha"
+  ];
+  if (
+    !candidateAuthorization ||
+    !exactFieldsMatch(candidateAuthorization, sourceAuthorization, fields) ||
+    !sameJson(
+      candidateAuthorization.protectedActivationBinding,
+      sourceAuthorization.protectedActivationBinding
+    ) ||
+    !sameJson(candidateAuthorization.candidateParents, sourceAuthorization.candidateParents) ||
+    !sameJson(candidateAuthorization.requiredExecution, sourceAuthorization.requiredExecution) ||
+    !sameJson(
+      candidateAuthorization.authorizedResolverTransition,
+      sourceAuthorization.authorizedResolverTransition
+    ) ||
+    !allExplicitlyFalse(candidateAuthorization, FINAL_BASE_HANDSHAKE_CLOSED_ACTIONS)
+  ) {
+    throw new Error("rule=final-base-handshake-candidate-core-drift");
+  }
+}
+
+function validateProtectedActivationCompletionEvidence(candidateAuthorization, context) {
+  const evidence = candidateAuthorization?.protectedActivationCompletionEvidence;
+  const actual = context?.protectedActivationActual;
+  if (
+    !evidence ||
+    !actual ||
+    evidence.pullRequestNumber !== 79 ||
+    evidence.finalHeadSha !== actual.finalHeadSha ||
+    evidence.protectedMainSha !== context.authorizationCommitSha ||
+    evidence.protectedMainSha !== actual.protectedMainSha ||
+    evidence.protectedMainTreeSha !== actual.protectedMainTreeSha ||
+    evidence.protectedRegistryBlobSha !== actual.protectedRegistryBlobSha ||
+    !Number.isInteger(evidence.postMainBuildRunId) ||
+    evidence.postMainBuildRunId <= 0 ||
+    !Number.isInteger(evidence.postMainBuildCheckJobId) ||
+    evidence.postMainBuildCheckJobId <= 0 ||
+    !Number.isInteger(evidence.postMainRepositorySecurityRunId) ||
+    evidence.postMainRepositorySecurityRunId <= 0 ||
+    !Number.isInteger(evidence.postMainRepositorySecurityCheckJobId) ||
+    evidence.postMainRepositorySecurityCheckJobId <= 0 ||
+    evidence.requiredChecksPassed !== true ||
+    evidence.annotationsEmpty !== true ||
+    evidence.commitBoundLiveAuditStatus !== "pass" ||
+    !Array.isArray(evidence.auditErrors) ||
+    evidence.auditErrors.length !== 0 ||
+    !Array.isArray(evidence.auditOwnerBlockers) ||
+    evidence.auditOwnerBlockers.length !== 0 ||
+    evidence.unreachableCommitCount !== 0
+  ) {
+    throw new Error("rule=final-base-handshake-protected-activation-evidence-invalid");
+  }
+}
+
+function validateRemergeImplementationEvidence(evidence, context) {
+  if (
+    !evidence ||
+    !isSha(evidence.candidateVerifierBlobSha) ||
+    !isSha(evidence.candidateGovernanceTestBlobSha) ||
+    !validSha256(evidence.normalizedRegistrySha256) ||
+    evidence.candidateVerifierBlobSha !== context.currentVerifierBlobSha ||
+    evidence.candidateGovernanceTestBlobSha !== context.currentGovernanceTestBlobSha ||
+    evidence.normalizedRegistrySha256 !== context.normalizedNonOwnedRegistrySha256 ||
+    evidence.conflictIntakeMode !== FINAL_BASE_HANDSHAKE_REMERGE_MODE ||
+    ![
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "specReviewApproved",
+      "qualityReviewApproved"
+    ].every((field) => evidence[field] === true) ||
+    !Number.isInteger(evidence.fullRepoGovernanceTestsPassed) ||
+    evidence.fullRepoGovernanceTestsPassed <= 0 ||
+    evidence.fullRepoGovernanceTestsPassed !== evidence.fullRepoGovernanceTestsTotal
+  ) {
+    throw new Error("rule=final-base-handshake-remerge-evidence-incomplete");
+  }
+}
+
+function exactRemergeCandidateEvidence(candidateHeadSha, authorizationCommitSha) {
+  if (!isSha(candidateHeadSha) || !gitObjectExists(`${candidateHeadSha}^{commit}`)) return null;
+  const candidateRegistry = loadRegistryFromCommit(candidateHeadSha).parsed;
+  const parents = gitText(["rev-list", "--parents", "-n", "1", candidateHeadSha])
+    .trim()
+    .split(/\s+/)
+    .slice(1);
+  return {
+    candidateHeadSha,
+    candidateTreeSha: exactTreeSha(candidateHeadSha),
+    candidateRegistryBlobSha: exactBlobSha(candidateHeadSha, REGISTRY_REPO_PATH),
+    candidateVerifierBlobSha: exactBlobSha(
+      candidateHeadSha,
+      "scripts/verify-sena-repo-governance.mjs"
+    ),
+    candidateGovernanceTestBlobSha: exactBlobSha(
+      candidateHeadSha,
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ),
+    candidateParentShas: parents,
+    changedPathsAgainstProtectedMain: changedPathsAgainstParent(
+      authorizationCommitSha,
+      candidateHeadSha
+    ),
+    binaryDiffSha256AgainstFirstParent:
+      parents.length > 0 ? binaryDiffSha256(parents[0], candidateHeadSha) : null,
+    binaryDiffSha256AgainstProtectedMain: binaryDiffSha256(
+      authorizationCommitSha,
+      candidateHeadSha
+    ),
+    normalizedRegistrySha256: normalizedNonOwnedRegistrySha256(candidateRegistry),
+    candidateRegistry
+  };
+}
+
+function exactProtectedActivationEvidence(authorizationCommitSha) {
+  if (!isSha(authorizationCommitSha) || !gitObjectExists(`${authorizationCommitSha}^{commit}`)) return null;
+  const parents = gitText(["rev-list", "--parents", "-n", "1", authorizationCommitSha])
+    .trim()
+    .split(/\s+/)
+    .slice(1);
+  return {
+    protectedMainSha: authorizationCommitSha,
+    protectedMainTreeSha: exactTreeSha(authorizationCommitSha),
+    protectedRegistryBlobSha: exactBlobSha(authorizationCommitSha, REGISTRY_REPO_PATH),
+    finalHeadSha: parents.length === 2 ? parents[1] : null,
+    parentShas: parents
+  };
+}
+
+function validateRemergeCompletionEvidence(evidence, sourceAuthorization, context) {
+  const actual = context?.remergeCandidateActual;
+  if (
+    !evidence ||
+    !actual ||
+    ![
+      "candidateHeadSha",
+      "candidateTreeSha",
+      "candidateRegistryBlobSha",
+      "candidateVerifierBlobSha",
+      "candidateGovernanceTestBlobSha"
+    ].every((field) => isSha(evidence[field])) ||
+    !Array.isArray(evidence.candidateParentShas) ||
+    !sameJson(evidence.candidateParentShas, [
+      sourceAuthorization.candidateHeadSha,
+      context.authorizationCommitSha
+    ]) ||
+    !validSha256(evidence.binaryDiffSha256AgainstFirstParent) ||
+    !validSha256(evidence.binaryDiffSha256AgainstProtectedMain) ||
+    !validSha256(evidence.normalizedRegistrySha256) ||
+    evidence.normalizedRegistrySha256 !== context.normalizedNonOwnedRegistrySha256 ||
+    evidence.conflictIntakeMode !== FINAL_BASE_HANDSHAKE_REMERGE_MODE ||
+    ![
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "requiredChecksPassed",
+      "annotationsEmpty"
+    ].every((field) => evidence[field] === true) ||
+    !Number.isInteger(evidence.fullRepoGovernanceTestsPassed) ||
+    evidence.fullRepoGovernanceTestsPassed <= 0 ||
+    evidence.fullRepoGovernanceTestsPassed !== evidence.fullRepoGovernanceTestsTotal ||
+    !Number.isInteger(evidence.buildRunId) ||
+    evidence.buildRunId <= 0 ||
+    !positiveIntegerArray(evidence.repositorySecurityRunIds) ||
+    !positiveIntegerArray(evidence.checkJobIds) ||
+    !samePathSet(actual.changedPathsAgainstProtectedMain ?? [], EXACT_CONFLICT_INTAKE_PATHS) ||
+    ![
+      "candidateHeadSha",
+      "candidateTreeSha",
+      "candidateRegistryBlobSha",
+      "candidateVerifierBlobSha",
+      "candidateGovernanceTestBlobSha",
+      "binaryDiffSha256AgainstFirstParent",
+      "binaryDiffSha256AgainstProtectedMain",
+      "normalizedRegistrySha256"
+    ].every((field) => evidence[field] === actual[field]) ||
+    !sameJson(evidence.candidateParentShas, actual.candidateParentShas)
+  ) {
+    throw new Error("rule=final-base-handshake-final-evidence-incomplete");
+  }
+}
+
+function validateFinalBaseHandshakeRemergeParent(protectedRegistry, context) {
+  const actual = context?.remergeCandidateActual;
+  const remergeRegistry = context?.remergeCandidateRegistry;
+  if (
+    !actual ||
+    !remergeRegistry ||
+    !sameJson(actual.candidateRegistry, remergeRegistry)
+  ) {
+    throw new Error("rule=final-base-handshake-remerge-parent-projection-invalid");
+  }
+  const parentContext = {
+    authorizationCommitSha: context.authorizationCommitSha,
+    fetchedOriginMainSha: context.fetchedOriginMainSha,
+    protectedActivationActual: context.protectedActivationActual,
+    projectionMode: "head",
+    currentHeadSha: actual.candidateHeadSha,
+    currentParentShas: actual.candidateParentShas,
+    currentVerifierBlobSha: actual.candidateVerifierBlobSha,
+    currentGovernanceTestBlobSha: actual.candidateGovernanceTestBlobSha,
+    overallChangedPathsFromProtectedMain: actual.changedPathsAgainstProtectedMain,
+    changedPathsFromFirstParent: [],
+    nonOwnedRegistrySemanticEquivalent:
+      normalizedNonOwnedRegistrySha256(protectedRegistry) ===
+      normalizedNonOwnedRegistrySha256(remergeRegistry),
+    normalizedNonOwnedRegistrySha256: normalizedNonOwnedRegistrySha256(remergeRegistry),
+    candidateHeadMatchesLivePr46Head: true
+  };
+  const resolution = finalBaseHandshakeResolutionFromRegistries(
+    protectedRegistry,
+    remergeRegistry,
+    parentContext
+  );
+  if (resolution.mode !== FINAL_BASE_HANDSHAKE_REMERGE_MODE) {
+    throw new Error("rule=final-base-handshake-remerge-parent-projection-invalid");
+  }
+}
+
+export function finalBaseHandshakeResolutionFromRegistries(
+  protectedRegistry,
+  candidateRegistry,
+  context = {}
+) {
+  const { authorization: sourceAuthorization } = validateFinalBaseHandshakeSource(
+    protectedRegistry,
+    context
+  );
+  const candidateItem = finalBaseHandshakeWorkItem(candidateRegistry);
+  const candidateAuthorization = candidateItem?.finalBaseHandshakeAuthorization;
+
+  if (!candidateAuthorization) {
+    if (
+      context.projectionMode !== "pending-head" ||
+      context.currentHeadSha !== sourceAuthorization.candidateHeadSha ||
+      context.currentTreeSha !== sourceAuthorization.candidateTreeSha ||
+      context.currentRegistryBlobSha !== sourceAuthorization.candidateRegistryBlobSha ||
+      context.currentVerifierBlobSha !== sourceAuthorization.candidateVerifierBlobSha ||
+      context.currentGovernanceTestBlobSha !== sourceAuthorization.candidateGovernanceTestBlobSha
+    ) {
+      throw new Error("rule=final-base-handshake-pending-candidate-mismatch");
+    }
+    return {
+      mode: FINAL_BASE_HANDSHAKE_PENDING_MODE,
+      sourceAuthorization,
+      checkoutHeadSha: context.currentHeadSha
+    };
+  }
+
+  validateCandidateAuthorizationCore(sourceAuthorization, candidateAuthorization);
+  validateProtectedActivationCompletionEvidence(candidateAuthorization, context);
+  if (
+    candidateAuthorization.status !== FINAL_BASE_HANDSHAKE_REMERGE_STATUS &&
+    candidateAuthorization.status !== FINAL_BASE_HANDSHAKE_READY_STATUS
+  ) {
+    throw new Error("rule=final-base-handshake-status-invalid");
+  }
+  if (
+    context.nonOwnedRegistrySemanticEquivalent !== true ||
+    normalizedNonOwnedRegistrySha256(protectedRegistry) !==
+      normalizedNonOwnedRegistrySha256(candidateRegistry)
+  ) {
+    throw new Error("rule=final-base-handshake-non-owned-registry-drift");
+  }
+  if (
+    context.normalizedNonOwnedRegistrySha256 !==
+    normalizedNonOwnedRegistrySha256(candidateRegistry)
+  ) {
+    throw new Error("rule=final-base-handshake-final-non-owned-registry-drift");
+  }
+
+  if (candidateAuthorization.status === FINAL_BASE_HANDSHAKE_REMERGE_STATUS) {
+    validateFinalBaseHandshakeReceiptDelta(
+      protectedRegistry,
+      candidateRegistry,
+      candidateAuthorization.status,
+      context
+    );
+    if (
+      !allExplicitlyFalse(candidateAuthorization, FINAL_BASE_HANDSHAKE_PENDING_ACTIONS) ||
+      candidateAuthorization[FINAL_BASE_HANDSHAKE_REMERGE_ACTION] !== true ||
+      candidateAuthorization[FINAL_BASE_HANDSHAKE_READY_ACTION] !== false ||
+      !samePathSet(
+        finalBaseHandshakeTrueAuthorizationPaths(candidateAuthorization),
+        [FINAL_BASE_HANDSHAKE_REMERGE_ACTION]
+      )
+    ) {
+      throw new Error("rule=final-base-handshake-remerge-action-set-invalid");
+    }
+    if (context.projectionMode === "index") {
+      if (
+        context.currentHeadSha !== sourceAuthorization.candidateHeadSha ||
+        context.mergeHeadSha !== context.authorizationCommitSha ||
+        !samePathSet(context.stagedPaths ?? [], EXACT_CONFLICT_INTAKE_PATHS) ||
+        !sameJson(context.candidateParentShas, [
+          sourceAuthorization.candidateHeadSha,
+          context.authorizationCommitSha
+        ])
+      ) {
+        if (!samePathSet(context.stagedPaths ?? [], EXACT_CONFLICT_INTAKE_PATHS)) {
+          throw new Error("rule=final-base-handshake-index-path-set-mismatch");
+        }
+        throw new Error("rule=final-base-handshake-merge-head-mismatch");
+      }
+    } else if (context.projectionMode === "head") {
+      if (
+        !sameJson(context.currentParentShas, [
+          sourceAuthorization.candidateHeadSha,
+          context.authorizationCommitSha
+        ]) ||
+        !samePathSet(context.overallChangedPathsFromProtectedMain ?? [], EXACT_CONFLICT_INTAKE_PATHS)
+      ) {
+        throw new Error("rule=final-base-handshake-remerge-parent-or-path-mismatch");
+      }
+    } else {
+      throw new Error("rule=final-base-handshake-projection-source-invalid");
+    }
+    if (
+      candidateAuthorization.remergeCandidateImplementationEvidence?.candidateVerifierBlobSha !==
+        context.currentVerifierBlobSha ||
+      candidateAuthorization.remergeCandidateImplementationEvidence
+        ?.candidateGovernanceTestBlobSha !== context.currentGovernanceTestBlobSha
+    ) {
+      throw new Error("rule=final-base-handshake-code-blob-mismatch");
+    }
+    validateRemergeImplementationEvidence(
+      candidateAuthorization.remergeCandidateImplementationEvidence,
+      context
+    );
+    if (context.candidateHeadMatchesLivePr46Head !== true) {
+      throw new Error("rule=final-base-handshake-live-pr-head-mismatch");
+    }
+    return {
+      mode: FINAL_BASE_HANDSHAKE_REMERGE_MODE,
+      sourceAuthorization,
+      candidateAuthorization,
+      checkoutHeadSha: context.currentHeadSha
+    };
+  }
+
+  if (
+    !allExplicitlyFalse(candidateAuthorization, [
+      ...FINAL_BASE_HANDSHAKE_PENDING_ACTIONS,
+      FINAL_BASE_HANDSHAKE_REMERGE_ACTION
+    ]) ||
+    candidateAuthorization[FINAL_BASE_HANDSHAKE_READY_ACTION] !== true ||
+    !samePathSet(
+      finalBaseHandshakeTrueAuthorizationPaths(candidateAuthorization),
+      [FINAL_BASE_HANDSHAKE_READY_ACTION]
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-final-action-set-invalid");
+  }
+  const completion = candidateAuthorization.remergeCandidateCompletionEvidence;
+  validateRemergeCompletionEvidence(completion, sourceAuthorization, context);
+  validateFinalBaseHandshakeRemergeParent(protectedRegistry, context);
+  validateFinalBaseHandshakeReceiptDelta(
+    protectedRegistry,
+    candidateRegistry,
+    candidateAuthorization.status,
+    context
+  );
+  if (context.projectionMode === "index") {
+    if (
+      context.currentHeadSha !== completion.candidateHeadSha ||
+      !samePathSet(context.stagedPaths ?? [], [REGISTRY_REPO_PATH]) ||
+      context.mergeHeadSha
+    ) {
+      throw new Error("rule=final-base-handshake-final-path-set-mismatch");
+    }
+  } else if (context.projectionMode === "head") {
+    if (!sameJson(context.currentParentShas, [completion.candidateHeadSha])) {
+      throw new Error("rule=final-base-handshake-final-parent-mismatch");
+    }
+    if (
+      !samePathSet(context.changedPathsFromFirstParent ?? [], [REGISTRY_REPO_PATH]) ||
+      !samePathSet(context.overallChangedPathsFromProtectedMain ?? [], EXACT_CONFLICT_INTAKE_PATHS)
+    ) {
+      throw new Error("rule=final-base-handshake-final-path-set-mismatch");
+    }
+  } else {
+    throw new Error("rule=final-base-handshake-projection-source-invalid");
+  }
+  if (
+    completion.candidateVerifierBlobSha !== context.currentVerifierBlobSha ||
+    completion.candidateGovernanceTestBlobSha !== context.currentGovernanceTestBlobSha
+  ) {
+    throw new Error("rule=final-base-handshake-final-code-blob-mismatch");
+  }
+  if (context.candidateHeadMatchesLivePr46Head !== true) {
+    throw new Error("rule=final-base-handshake-live-pr-head-mismatch");
+  }
+  return {
+    mode: FINAL_BASE_HANDSHAKE_READY_MODE,
+    sourceAuthorization,
+    candidateAuthorization,
+    checkoutHeadSha: context.currentHeadSha
+  };
+}
+
+function exactFieldsMatch(actual, expected, fields) {
+  return fields.every((field) => actual?.[field] === expected?.[field]);
+}
+
+function presentFieldsMatch(actual, expected, fields) {
+  return fields.every(
+    (field) => !Object.prototype.hasOwnProperty.call(actual ?? {}, field) || actual[field] === expected?.[field]
+  );
+}
+
+export function conflictIntakeBindingResolutionFromRegistry(registry) {
+  const item = (registry.workItems ?? []).find(
+    (entry) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  const binding = item?.protectedConflictValidatorAuthorization;
+  if (!binding) {
+    throw new Error("rule=conflict-intake-authorization-missing");
+  }
+  if (binding.status === CONFLICT_INTAKE_PENDING_STATUS) {
+    return {
+      binding,
+      mode: "pending-protected-activation-binding",
+      checkoutHeadSha: binding.candidateHeadSha
+    };
+  }
+  if (binding.status !== CONFLICT_INTAKE_EVIDENCE_ONLY_STATUS) {
+    throw new Error("rule=conflict-intake-authorization-missing");
+  }
+  if (binding.supersededBy !== "threePathReconstructionAuthorization") {
+    throw new Error("rule=conflict-intake-superseded-link-mismatch");
+  }
+  if (
+    !allExplicitlyFalse(binding, [
+      "validatorCandidateStageCommitPushAuthorizedAfterProtectedActivation",
+      "implementationAuthorizedNow",
+      "pr46IntakeAuthorized",
+      "pr46ReadyAuthorized",
+      "pr46MergeAuthorized",
+      "casAuthorized",
+      "receiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "historyRewriteAuthorized"
+    ]) ||
+    !onlyAllowedTrueAuthorizations(binding, [])
+  ) {
+    throw new Error("rule=conflict-intake-superseded-binding-action-enabled");
+  }
+
+  const threePath = item?.threePathReconstructionAuthorization;
+  const threePathActionField = "threePathStageCommitPushAuthorizedAfterProtectedActivation";
+  const threePathActionStateValid =
+    (threePath?.status === CONFLICT_INTAKE_THREE_PATH_ACTIVE_STATUS &&
+      threePath?.[threePathActionField] === true &&
+      onlyAllowedTrueAuthorizations(threePath, [threePathActionField])) ||
+    (threePath?.status === CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS &&
+      threePath?.[threePathActionField] === false &&
+      onlyAllowedTrueAuthorizations(threePath, []));
+  if (
+    !threePath ||
+    !threePathActionStateValid ||
+    threePath.candidateHeadSha !== binding.candidateHeadSha ||
+    threePath.conflictIntakePassed !== true ||
+    !allExplicitlyFalse(threePath, [
+      "pr46ReadyAuthorized",
+      "pr46MergeAuthorized",
+      "casAuthorized",
+      "receiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-three-path-proof-missing");
+  }
+
+  const repair = item?.supersededBindingValidationRepairAuthorization;
+  const lifecycleStatus = item?.repairLifecycleStateResolutionAuthorization?.status;
+  const repairActionField = "repairStageCommitPushAuthorizedAfterProtectedActivation";
+  const repairActionStateValid =
+    (repair?.status === CONFLICT_INTAKE_PENDING_STATUS &&
+      repair?.[repairActionField] === true &&
+      onlyAllowedTrueAuthorizations(repair, [repairActionField])) ||
+    (repair?.status === CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS &&
+      lifecycleStatus === CONFLICT_INTAKE_PENDING_STATUS &&
+      repair?.[repairActionField] === true &&
+      onlyAllowedTrueAuthorizations(repair, [repairActionField])) ||
+    (repair?.status === CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS &&
+      lifecycleStatus === CONFLICT_INTAKE_LIFECYCLE_CONSUMED_STATUS &&
+      repair?.[repairActionField] === false &&
+      onlyAllowedTrueAuthorizations(repair, []));
+  if (
+    !repair ||
+    !repairActionStateValid ||
+    repair.candidateHeadSha !== binding.candidateHeadSha ||
+    repair.implementationAuthorizedNow !== false ||
+    !allExplicitlyFalse(repair, [
+      "pr46ReadyAuthorized",
+      "pr46MergeAuthorized",
+      "casAuthorized",
+      "receiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-repair-authorization-missing");
+  }
+
+  if (repair.status === CONFLICT_INTAKE_PENDING_STATUS) {
+    return {
+      binding,
+      mode: "evidence-only-superseded-binding",
+      checkoutHeadSha: binding.candidateHeadSha
+    };
+  }
+  if (repair.status !== CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS) {
+    throw new Error("rule=conflict-intake-repair-authorization-missing");
+  }
+
+  const lifecycle = item?.repairLifecycleStateResolutionAuthorization;
+  const semantics = lifecycle?.authorizedRepairSemantics;
+  const expectedCompletion = semantics?.consumedStatusRequiresExactCompletionEvidence;
+  const lifecycleActionFields = [
+    "exactMergeAbortAuthorizedAfterProtectedActivation",
+    "ordinaryMergeRedoAuthorizedAfterProtectedActivation",
+    "repairStageCommitPushAuthorizedAfterProtectedActivation"
+  ];
+  const lifecycleActionStateValid =
+    (lifecycle?.status === CONFLICT_INTAKE_PENDING_STATUS &&
+      lifecycleActionFields.every((field) => lifecycle?.[field] === true) &&
+      onlyAllowedTrueAuthorizations(lifecycle, lifecycleActionFields)) ||
+    (lifecycle?.status === CONFLICT_INTAKE_LIFECYCLE_CONSUMED_STATUS &&
+      allExplicitlyFalse(lifecycle, lifecycleActionFields) &&
+      onlyAllowedTrueAuthorizations(lifecycle, []));
+  const expectedCompletionStateValid =
+    expectedCompletion &&
+    [
+      "candidateCommitSha",
+      "candidateTreeSha",
+      "candidateRegistryBlobSha",
+      "candidateVerifierBlobSha",
+      "candidateGovernanceTestBlobSha"
+    ].every((field) => isSha(expectedCompletion[field])) &&
+    [
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "nonOwnedRegistrySemanticEquivalencePassed",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "pushAnnotationsEmpty"
+    ].every((field) => expectedCompletion[field] === true) &&
+    expectedCompletion.conflictIntakeMode === "evidence-only-superseded-binding" &&
+    expectedCompletion.focusedTestsPassed === 2 &&
+    expectedCompletion.focusedTestsTotal === 2 &&
+    expectedCompletion.fullRepoGovernanceTestsPassed === 94 &&
+    expectedCompletion.fullRepoGovernanceTestsTotal === 94 &&
+    Number.isInteger(expectedCompletion.pushRepositorySecurityRunId) &&
+    expectedCompletion.pushRepositorySecurityRunId > 0 &&
+    Number.isInteger(expectedCompletion.pushRepositorySecurityCheckJobId) &&
+    expectedCompletion.pushRepositorySecurityCheckJobId > 0;
+  if (
+    !lifecycle ||
+    !lifecycleActionStateValid ||
+    !expectedCompletionStateValid ||
+    !samePathSet(semantics?.allowedStatuses ?? [], [
+      CONFLICT_INTAKE_PENDING_STATUS,
+      CONFLICT_INTAKE_REPAIR_CONSUMED_STATUS
+    ]) ||
+    semantics?.arbitraryStatusMustFailClosed !== true ||
+    semantics?.unknownTrueAuthorizationMustFailClosed !== true ||
+    semantics?.pendingStatusMustPreserveAllExistingClosedSetChecks !== true ||
+    lifecycle.candidateHeadSha !== expectedCompletion?.candidateCommitSha ||
+    semantics?.consumedStatusCandidateHeadMustMatch !== expectedCompletion?.candidateCommitSha ||
+    lifecycle.candidateTreeSha !== expectedCompletion?.candidateTreeSha ||
+    lifecycle.candidateRegistryBlobSha !== expectedCompletion?.candidateRegistryBlobSha ||
+    lifecycle.candidateVerifierBlobSha !== expectedCompletion?.candidateVerifierBlobSha ||
+    lifecycle.candidateGovernanceTestBlobSha !== expectedCompletion?.candidateGovernanceTestBlobSha ||
+    lifecycle.frozenMergeState?.mergeAutostashPresent !== false ||
+    lifecycle.frozenMergeState?.mergeAutostashOid !== null ||
+    lifecycle.mergeAbortIsNotGeneralReset !== true ||
+    lifecycle.implementationAuthorizedNow !== false ||
+    !allExplicitlyFalse(lifecycle, [
+      "pr46ReadyAuthorized",
+      "pr46MainMergeAuthorized",
+      "casAuthorized",
+      "retirementReceiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-repair-lifecycle-authorization-missing");
+  }
+
+  const completion = repair.completionEvidence;
+  const completionRequiredFields = [
+    "candidateCommitSha",
+    "candidateTreeSha",
+    "candidateRegistryBlobSha",
+    "candidateVerifierBlobSha",
+    "candidateGovernanceTestBlobSha",
+    "focusedTestsPassed",
+    "focusedTestsTotal",
+    "fullRepoGovernanceTestsPassed",
+    "fullRepoGovernanceTestsTotal",
+    "specReviewApproved",
+    "qualityReviewApproved",
+    "pushRepositorySecurityRunId",
+    "pushRepositorySecurityCheckJobId",
+    "pushAnnotationsEmpty"
+  ];
+  const completionGateFields = [
+    "candidateIndexAuditPassed",
+    "writePolicyPassed",
+    "securityPassed",
+    "exactConflictIntakePassed",
+    "conflictIntakeMode",
+    "nonOwnedRegistrySemanticEquivalencePassed",
+    "normalizedRegistrySha256"
+  ];
+  const ordinary = item?.ordinaryMergeReconciliationAuthorization;
+  const verification = ordinary?.candidateVerification;
+  const ordinaryActionFields = [
+    "ordinaryMergeNoCommitAuthorizedAfterProtectedActivation",
+    "activeWorkConflictResolutionAuthorizedAfterProtectedActivation",
+    "mergeReconciliationReceiptAuthorizedAfterProtectedActivation",
+    "mergeCommitPushAuthorizedAfterRequiredGates"
+  ];
+  const ordinaryActionStateValid =
+    (ordinary?.status === CONFLICT_INTAKE_ORDINARY_ACTIVE_STATUS &&
+      ordinaryActionFields.every((field) => ordinary?.[field] === true) &&
+      onlyAllowedTrueAuthorizations(ordinary, ordinaryActionFields)) ||
+    (ordinary?.status === CONFLICT_INTAKE_ORDINARY_CONSUMED_STATUS &&
+      allExplicitlyFalse(ordinary, ordinaryActionFields) &&
+      onlyAllowedTrueAuthorizations(ordinary, []));
+  if (
+    !ordinary ||
+    !ordinaryActionStateValid ||
+    ordinary.implementationAuthorizedNow !== false ||
+    !allExplicitlyFalse(ordinary, [
+      "pr46ReadyAuthorized",
+      "pr46MainMergeAuthorized",
+      "casAuthorized",
+      "retirementReceiptMintingAuthorized",
+      "targetRefMutationAuthorized",
+      "targetTagMutationAuthorized",
+      "quarantineMutationAuthorized",
+      "orphanWorktreeMutationAuthorized",
+      "deploymentAuthorized",
+      "providerMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "historyRewriteAuthorized"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-ordinary-merge-proof-missing");
+  }
+  if (
+    !completion ||
+    !exactFieldsMatch(completion, expectedCompletion, completionRequiredFields) ||
+    !presentFieldsMatch(completion, expectedCompletion, completionGateFields) ||
+    ordinary?.candidateHeadSha !== expectedCompletion?.candidateCommitSha ||
+    ordinary?.candidateTreeSha !== expectedCompletion?.candidateTreeSha ||
+    ordinary?.candidateRegistryBlobSha !== expectedCompletion?.candidateRegistryBlobSha ||
+    ordinary?.candidateVerifierBlobSha !== expectedCompletion?.candidateVerifierBlobSha ||
+    ordinary?.candidateGovernanceTestBlobSha !== expectedCompletion?.candidateGovernanceTestBlobSha ||
+    ordinary?.nonOwnedRegistrySemanticEquivalencePassed !==
+      expectedCompletion?.nonOwnedRegistrySemanticEquivalencePassed ||
+    ordinary?.normalizedRegistrySha256 !== expectedCompletion?.normalizedRegistrySha256 ||
+    !exactFieldsMatch(verification, expectedCompletion, [
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "conflictIntakeMode",
+      "focusedTestsPassed",
+      "focusedTestsTotal",
+      "fullRepoGovernanceTestsPassed",
+      "fullRepoGovernanceTestsTotal",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "pushRepositorySecurityRunId",
+      "pushRepositorySecurityCheckJobId",
+      "pushAnnotationsEmpty"
+    ])
+  ) {
+    throw new Error("rule=conflict-intake-repair-completion-evidence-mismatch");
+  }
+
+  return {
+    binding,
+    mode: CONFLICT_INTAKE_CONSUMED_REPAIR_MODE,
+    checkoutHeadSha: expectedCompletion.candidateCommitSha,
+    checkoutTreeSha: expectedCompletion.candidateTreeSha,
+    checkoutRegistryBlobSha: expectedCompletion.candidateRegistryBlobSha,
+    checkoutVerifierBlobSha: expectedCompletion.candidateVerifierBlobSha,
+    checkoutGovernanceTestBlobSha: expectedCompletion.candidateGovernanceTestBlobSha
+  };
+}
+
+export function exactConsumedCheckoutMismatchRules(resolution, observed) {
+  if (resolution?.mode !== CONFLICT_INTAKE_CONSUMED_REPAIR_MODE) return [];
+  const errors = [];
+  const fields = [
+    ["checkoutHeadSha", "conflict-intake-checkout-head-mismatch"],
+    ["checkoutTreeSha", "conflict-intake-checkout-tree-mismatch"],
+    ["checkoutRegistryBlobSha", "conflict-intake-checkout-registry-blob-mismatch"],
+    ["checkoutVerifierBlobSha", "conflict-intake-checkout-verifier-blob-mismatch"],
+    ["checkoutGovernanceTestBlobSha", "conflict-intake-checkout-governance-test-blob-mismatch"]
+  ];
+  for (const [field, rule] of fields) {
+    if (resolution[field] !== observed?.[field]) errors.push(`rule=${rule}`);
+  }
+  return errors;
+}
+
+function addConflictIntakeMismatch(errors, rule, expected, actual) {
+  if (expected !== actual) errors.push(`rule=${rule}`);
+}
+
+export function exactConflictIntakeMismatchRules(binding, observed) {
+  const errors = [];
+  const scalarRules = [
+    ["protectedMainSha", "conflict-intake-protected-main-mismatch"],
+    ["protectedMainTreeSha", "conflict-intake-protected-tree-mismatch"],
+    ["candidateHeadSha", "conflict-intake-candidate-head-mismatch"],
+    ["candidateTreeSha", "conflict-intake-candidate-tree-mismatch"],
+    ["mergeBaseSha", "conflict-intake-merge-base-mismatch"],
+    ["mergeBaseTreeSha", "conflict-intake-merge-base-tree-mismatch"],
+    ["protectedRegistryBlobSha", "conflict-intake-protected-registry-blob-mismatch"],
+    ["candidateRegistryBlobSha", "conflict-intake-candidate-registry-blob-mismatch"],
+    ["candidateVerifierBlobSha", "conflict-intake-candidate-verifier-blob-mismatch"],
+    ["candidateGovernanceTestBlobSha", "conflict-intake-candidate-governance-test-blob-mismatch"],
+    ["protectedMainDiffSha256", "conflict-intake-protected-diff-mismatch"],
+    ["candidateDiffSha256", "conflict-intake-candidate-diff-mismatch"],
+    ["protectedToCandidateDiffSha256", "conflict-intake-protected-to-candidate-diff-mismatch"]
+  ];
+  for (const [field, rule] of scalarRules) {
+    if (binding[field] !== observed[field]) errors.push(`rule=${rule}`);
+  }
+  const pathRules = [
+    ["protectedMainChangedPaths", "conflict-intake-protected-path-set-mismatch"],
+    ["candidateChangedPaths", "conflict-intake-candidate-path-set-mismatch"],
+    ["conflictingPaths", "conflict-intake-conflict-path-set-mismatch"],
+    ["cleanCandidateOnlyPaths", "conflict-intake-clean-candidate-path-set-mismatch"]
+  ];
+  for (const [field, rule] of pathRules) {
+    if (!samePathSet(binding[field] ?? [], observed[field] ?? [])) errors.push(`rule=${rule}`);
+  }
+  return errors;
+}
+
+function exactIndexBlobSha(path) {
+  return gitText(["rev-parse", `:${path}`]).trim();
+}
+
+function currentMergeHeadSha() {
+  const result = git(["rev-parse", "--verify", "MERGE_HEAD"], { allowFailure: true });
+  return result.status === 0 ? String(result.stdout).trim() : null;
+}
+
+function currentBranchLiveRemoteSha() {
+  const branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+  if (branch.status !== 0) return null;
+  const branchName = String(branch.stdout).trim();
+  const remote = git(["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], {
+    allowFailure: true
+  });
+  if (remote.status !== 0) return null;
+  const lines = String(remote.stdout ?? "")
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  if (lines.length !== 1) return null;
+  const [sha, ref] = lines[0].trim().split(/\s+/);
+  return isSha(sha) && ref === `refs/heads/${branchName}` ? sha : null;
+}
+
+function indexChangedPathsAgainst(commit) {
+  return gitText(["diff", "--cached", "--name-only", "-z", "--no-renames", commit])
+    .split("\0")
+    .filter(Boolean);
+}
+
+function finalBaseHandshakeCandidateProjection(flags, authorization, currentHead) {
+  const fromIndex = flags.has("candidate-registry-from-index");
+  const fromHead = flags.has("candidate-registry-from-head");
+  if (fromIndex && fromHead) {
+    throw new Error("rule=final-base-handshake-projection-source-ambiguous");
+  }
+  const mergeHeadSha = currentMergeHeadSha();
+  const liveRemoteSha = currentBranchLiveRemoteSha();
+  if (fromIndex) {
+    if (!flags.has("staged")) {
+      throw new Error("rule=final-base-handshake-index-staged-flag-missing");
+    }
+    const loaded = loadRegistryFromIndex();
+    const stagedPaths = stagedChangedPaths();
+    const context = {
+      authorizationCommitSha: authorization.commit,
+      fetchedOriginMainSha: authorization.commit,
+      protectedActivationActual: exactProtectedActivationEvidence(authorization.commit),
+      projectionMode: "index",
+      currentHeadSha: currentHead,
+      mergeHeadSha,
+      stagedPaths,
+      candidateParentShas: mergeHeadSha ? [currentHead, mergeHeadSha] : [currentHead],
+      currentVerifierBlobSha: exactIndexBlobSha("scripts/verify-sena-repo-governance.mjs"),
+      currentGovernanceTestBlobSha: exactIndexBlobSha(
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ),
+      overallChangedPathsFromProtectedMain: indexChangedPathsAgainst(authorization.commit),
+      changedPathsFromFirstParent: stagedPaths,
+      nonOwnedRegistrySemanticEquivalent:
+        normalizedNonOwnedRegistrySha256(authorization.parsed) ===
+        normalizedNonOwnedRegistrySha256(loaded.parsed),
+      normalizedNonOwnedRegistrySha256: normalizedNonOwnedRegistrySha256(loaded.parsed),
+      candidateHeadMatchesLivePr46Head: liveRemoteSha === currentHead
+    };
+    const completion = finalBaseHandshakeWorkItem(loaded.parsed)?.finalBaseHandshakeAuthorization
+      ?.remergeCandidateCompletionEvidence;
+    if (isSha(completion?.candidateHeadSha)) {
+      context.remergeCandidateActual = exactRemergeCandidateEvidence(
+        completion.candidateHeadSha,
+        authorization.commit
+      );
+      context.remergeCandidateRegistry = context.remergeCandidateActual?.candidateRegistry ?? null;
+    }
+    return { parsed: loaded.parsed, context };
+  }
+  if (fromHead) {
+    const status = gitText(["status", "--porcelain=v1"]);
+    if (status.trim()) throw new Error("rule=final-base-handshake-head-projection-dirty");
+    const loaded = loadRegistryFromCommit(currentHead);
+    const parents = gitText(["rev-list", "--parents", "-n", "1", currentHead])
+      .trim()
+      .split(/\s+/)
+      .slice(1);
+    const context = {
+      authorizationCommitSha: authorization.commit,
+      fetchedOriginMainSha: authorization.commit,
+      protectedActivationActual: exactProtectedActivationEvidence(authorization.commit),
+      projectionMode: "head",
+      currentHeadSha: currentHead,
+      currentParentShas: parents,
+      currentVerifierBlobSha: exactBlobSha(currentHead, "scripts/verify-sena-repo-governance.mjs"),
+      currentGovernanceTestBlobSha: exactBlobSha(
+        currentHead,
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ),
+      overallChangedPathsFromProtectedMain: changedPathsAgainstParent(
+        authorization.commit,
+        currentHead
+      ),
+      changedPathsFromFirstParent:
+        parents.length > 0 ? changedPathsAgainstParent(parents[0], currentHead) : [],
+      nonOwnedRegistrySemanticEquivalent:
+        normalizedNonOwnedRegistrySha256(authorization.parsed) ===
+        normalizedNonOwnedRegistrySha256(loaded.parsed),
+      normalizedNonOwnedRegistrySha256: normalizedNonOwnedRegistrySha256(loaded.parsed),
+      candidateHeadMatchesLivePr46Head: liveRemoteSha === currentHead
+    };
+    const completion = finalBaseHandshakeWorkItem(loaded.parsed)?.finalBaseHandshakeAuthorization
+      ?.remergeCandidateCompletionEvidence;
+    if (isSha(completion?.candidateHeadSha)) {
+      context.remergeCandidateActual = exactRemergeCandidateEvidence(
+        completion.candidateHeadSha,
+        authorization.commit
+      );
+      context.remergeCandidateRegistry = context.remergeCandidateActual?.candidateRegistry ?? null;
+    }
+    return { parsed: loaded.parsed, context };
+  }
+  if (mergeHeadSha || gitText(["status", "--porcelain=v1"]).trim()) {
+    throw new Error("rule=final-base-handshake-projection-source-required");
+  }
+  const loaded = loadRegistryFromCommit(currentHead);
+  return {
+    parsed: loaded.parsed,
+    context: {
+      authorizationCommitSha: authorization.commit,
+      fetchedOriginMainSha: authorization.commit,
+      projectionMode: "pending-head",
+      currentHeadSha: currentHead,
+      currentTreeSha: exactTreeSha(currentHead),
+      currentRegistryBlobSha: exactBlobSha(currentHead, REGISTRY_REPO_PATH),
+      currentVerifierBlobSha: exactBlobSha(currentHead, "scripts/verify-sena-repo-governance.mjs"),
+      currentGovernanceTestBlobSha: exactBlobSha(
+        currentHead,
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      )
+    }
+  };
+}
+
+function finalBaseHandshakePendingTopologyErrors(sourceAuthorization, authorizationCommit) {
+  const errors = [];
+  const candidate = sourceAuthorization.candidateHeadSha;
+  const mergeBase = gitText(["merge-base", authorizationCommit, candidate]).trim();
+  if (mergeBase !== sourceAuthorization.mergeBaseSha) {
+    errors.push("rule=final-base-handshake-pending-merge-base-mismatch");
+    return errors;
+  }
+  const protectedPaths = changedPathsAgainstParent(mergeBase, authorizationCommit);
+  const candidatePaths = changedPathsAgainstParent(mergeBase, candidate);
+  const conflicts = sortedPathSet(protectedPaths.filter((path) => candidatePaths.includes(path)));
+  const cleanCandidateOnly = sortedPathSet(candidatePaths.filter((path) => !protectedPaths.includes(path)));
+  if (!samePathSet(conflicts, [REGISTRY_REPO_PATH])) {
+    errors.push("rule=final-base-handshake-pending-conflict-path-set-mismatch");
+  }
+  if (
+    !samePathSet(cleanCandidateOnly, [
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ])
+  ) {
+    errors.push("rule=final-base-handshake-pending-clean-path-set-mismatch");
+  }
+  return errors;
+}
+
+function runFinalBaseHandshakeConflictIntake(flags, authorization) {
+  const sourceItem = finalBaseHandshakeWorkItem(authorization.parsed);
+  if (!sourceItem?.finalBaseHandshakeAuthorization) return false;
+  const currentHead = gitText(["rev-parse", "HEAD"]).trim();
+  const projection = finalBaseHandshakeCandidateProjection(flags, authorization, currentHead);
+  const resolution = finalBaseHandshakeResolutionFromRegistries(
+    authorization.parsed,
+    projection.parsed,
+    projection.context
+  );
+  const errors = [];
+  if (resolution.mode === FINAL_BASE_HANDSHAKE_PENDING_MODE) {
+    errors.push(
+      ...finalBaseHandshakePendingTopologyErrors(
+        resolution.sourceAuthorization,
+        authorization.commit
+      )
+    );
+  } else if (
+    !samePathSet(
+      projection.context.overallChangedPathsFromProtectedMain ?? [],
+      EXACT_CONFLICT_INTAKE_PATHS
+    )
+  ) {
+    errors.push("rule=final-base-handshake-overall-path-set-mismatch");
+  }
+  if (errors.length > 0) {
+    for (const error of [...new Set(errors)].sort()) {
+      process.stderr.write(`SENA_CONFLICT_INTAKE blocked ${error}\n`);
+    }
+    process.exitCode = 1;
+    return true;
+  }
+  process.stdout.write(
+    `SENA_CONFLICT_INTAKE pass mode=${resolution.mode} authorizationRegistryCommit=${authorization.commit} checkout=${currentHead}\n`
+  );
+  return true;
+}
+
+function runConflictIntake(flags) {
+  const authorization = loadProtectedMainAuthorizationRegistry(flags, { required: true });
+  if (runFinalBaseHandshakeConflictIntake(flags, authorization)) return;
+  const resolution = conflictIntakeBindingResolutionFromRegistry(authorization.parsed);
+  const binding = resolution.binding;
+  const errors = [];
+  const protectedMain = binding.protectedMainSha;
+  const candidate = binding.candidateHeadSha;
+  const mergeBase = binding.mergeBaseSha;
+
+  for (const commit of [protectedMain, candidate, mergeBase]) {
+    if (!isSha(commit) || !gitObjectExists(`${commit}^{commit}`)) {
+      errors.push("rule=conflict-intake-commit-missing");
+      break;
+    }
+  }
+  const currentHead = gitText(["rev-parse", "HEAD"]).trim();
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-head-mismatch",
+    resolution.checkoutHeadSha ?? candidate,
+    currentHead
+  );
+  if (resolution.mode === CONFLICT_INTAKE_CONSUMED_REPAIR_MODE) {
+    const checkout = resolution.checkoutHeadSha;
+    if (!isSha(checkout) || !gitObjectExists(`${checkout}^{commit}`)) {
+      errors.push("rule=conflict-intake-checkout-commit-missing");
+    } else {
+      errors.push(
+        ...exactConsumedCheckoutMismatchRules(resolution, {
+          checkoutHeadSha: checkout,
+          checkoutTreeSha: exactTreeSha(checkout),
+          checkoutRegistryBlobSha: exactBlobSha(
+            checkout,
+            "coordination/repo-governance/active-work.json"
+          ),
+          checkoutVerifierBlobSha: exactBlobSha(checkout, "scripts/verify-sena-repo-governance.mjs"),
+          checkoutGovernanceTestBlobSha: exactBlobSha(
+            checkout,
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          )
+        })
+      );
+    }
+  }
+  if (git(["merge-base", "--is-ancestor", protectedMain, authorization.commit], { allowFailure: true }).status !== 0) {
+    errors.push("rule=conflict-intake-protected-main-not-authorized-history");
+  }
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-merge-base-mismatch",
+    mergeBase,
+    gitText(["merge-base", protectedMain, candidate]).trim()
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-tree-mismatch",
+    binding.protectedMainTreeSha,
+    exactTreeSha(protectedMain)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-tree-mismatch",
+    binding.candidateTreeSha,
+    exactTreeSha(candidate)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-merge-base-tree-mismatch",
+    binding.mergeBaseTreeSha,
+    exactTreeSha(mergeBase)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-registry-blob-mismatch",
+    binding.protectedRegistryBlobSha,
+    exactBlobSha(protectedMain, "coordination/repo-governance/active-work.json")
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-registry-blob-mismatch",
+    binding.candidateRegistryBlobSha,
+    exactBlobSha(candidate, "coordination/repo-governance/active-work.json")
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-verifier-blob-mismatch",
+    binding.candidateVerifierBlobSha,
+    exactBlobSha(candidate, "scripts/verify-sena-repo-governance.mjs")
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-governance-test-blob-mismatch",
+    binding.candidateGovernanceTestBlobSha,
+    exactBlobSha(candidate, "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts")
+  );
+
+  const protectedPaths = changedPathsAgainstParent(mergeBase, protectedMain);
+  const candidatePaths = changedPathsAgainstParent(mergeBase, candidate);
+  const conflicts = sortedPathSet(protectedPaths.filter((path) => candidatePaths.includes(path)));
+  const cleanCandidateOnly = sortedPathSet(candidatePaths.filter((path) => !protectedPaths.includes(path)));
+  if (!samePathSet(binding.protectedMainChangedPaths ?? [], protectedPaths)) {
+    errors.push("rule=conflict-intake-protected-path-set-mismatch");
+  }
+  if (!samePathSet(binding.candidateChangedPaths ?? [], candidatePaths)) {
+    errors.push("rule=conflict-intake-candidate-path-set-mismatch");
+  }
+  if (!samePathSet(binding.conflictingPaths ?? [], conflicts)) {
+    errors.push("rule=conflict-intake-conflict-path-set-mismatch");
+  }
+  if (!samePathSet(binding.cleanCandidateOnlyPaths ?? [], cleanCandidateOnly)) {
+    errors.push("rule=conflict-intake-clean-candidate-path-set-mismatch");
+  }
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-diff-mismatch",
+    binding.protectedMainDiffSha256,
+    binaryDiffSha256(mergeBase, protectedMain)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-candidate-diff-mismatch",
+    binding.candidateDiffSha256,
+    binaryDiffSha256(mergeBase, candidate)
+  );
+  addConflictIntakeMismatch(
+    errors,
+    "conflict-intake-protected-to-candidate-diff-mismatch",
+    binding.protectedToCandidateDiffSha256,
+    binaryDiffSha256(protectedMain, candidate)
+  );
+
+  errors.push(
+    ...exactConflictIntakeMismatchRules(binding, {
+      protectedMainSha: protectedMain,
+      protectedMainTreeSha: exactTreeSha(protectedMain),
+      candidateHeadSha: candidate,
+      candidateTreeSha: exactTreeSha(candidate),
+      mergeBaseSha: gitText(["merge-base", protectedMain, candidate]).trim(),
+      mergeBaseTreeSha: exactTreeSha(mergeBase),
+      protectedRegistryBlobSha: exactBlobSha(protectedMain, "coordination/repo-governance/active-work.json"),
+      candidateRegistryBlobSha: exactBlobSha(candidate, "coordination/repo-governance/active-work.json"),
+      candidateVerifierBlobSha: exactBlobSha(candidate, "scripts/verify-sena-repo-governance.mjs"),
+      candidateGovernanceTestBlobSha: exactBlobSha(
+        candidate,
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ),
+      protectedMainChangedPaths: protectedPaths,
+      candidateChangedPaths: candidatePaths,
+      conflictingPaths: conflicts,
+      cleanCandidateOnlyPaths: cleanCandidateOnly,
+      protectedMainDiffSha256: binaryDiffSha256(mergeBase, protectedMain),
+      candidateDiffSha256: binaryDiffSha256(mergeBase, candidate),
+      protectedToCandidateDiffSha256: binaryDiffSha256(protectedMain, candidate)
+    })
+  );
+
+  if (errors.length > 0) {
+    for (const error of [...new Set(errors)].sort()) process.stderr.write(`SENA_CONFLICT_INTAKE blocked ${error}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(
+    `SENA_CONFLICT_INTAKE pass mode=${resolution.mode} authorizationRegistryCommit=${authorization.commit} protectedMain=${protectedMain} candidate=${candidate} mergeBase=${mergeBase}\n`
+  );
 }
 
 function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry, findings) {
@@ -942,6 +2453,690 @@ function runDeletionBoundary(flags) {
   }
   process.stdout.write(
     `SENA_DELETION_BOUNDARY pass cleanup=${safePathForLog(authorization.targetTaskId)} ref=${safePathForLog(update.remoteRef)}\n`
+  );
+}
+
+function exactLiveRemoteHead(ref) {
+  const result = git(["ls-remote", "--heads", EXPECTED_REMOTE_HTTPS_URL, ref], { allowFailure: true });
+  if (result.status !== 0) {
+    throw new Error("rule=local-ref-retirement-canonical-remote-readback-failed");
+  }
+  const lines = String(result.stdout ?? "")
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  const matches = lines.map((line) => line.trim().split(/\s+/));
+  if (
+    matches.length > 1 ||
+    matches.some((fields) => fields.length !== 2 || fields[1] !== ref || !isSha(fields[0]))
+  ) {
+    throw new Error("rule=local-ref-retirement-canonical-remote-ambiguous");
+  }
+  return matches.length === 1 ? matches[0][0] : null;
+}
+
+function exactOwnerOnlyMode(path, expectedMode) {
+  return (statSync(path).mode & 0o777) === expectedMode;
+}
+
+function pathEntryExists(path) {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function parseBundleHeads(bundlePath) {
+  const result = git(["bundle", "list-heads", bundlePath], { allowFailure: true });
+  if (result.status !== 0) throw new Error("local retirement archive bundle heads cannot be read");
+  return String(result.stdout ?? "")
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, ref] = line.trim().split(/\s+/, 2);
+      return { sha, ref };
+    });
+}
+
+function localRefRetirementDeletionReleaseIsStructurallyValid(authorization) {
+  const release = authorization.deletionRelease;
+  if (!release || typeof release !== "object" || Array.isArray(release)) return false;
+  const releasedAtMs = Date.parse(release.releasedAt);
+  const releaseExpiresAtMs = Date.parse(release.expiresAt);
+  const authorizedAtMs = Date.parse(authorization.authorizedAt);
+  const authorizationExpiresAtMs = Date.parse(authorization.expiresAt);
+  return Boolean(
+    LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN.test(release.id ?? "") &&
+      typeof release.releasedBy === "string" &&
+      release.releasedBy.length > 0 &&
+      typeof release.releaseBasis === "string" &&
+      release.releaseBasis.length > 0 &&
+      isIsoTimestamp(release.releasedAt) &&
+      isIsoTimestamp(release.expiresAt) &&
+      Number.isFinite(releasedAtMs) &&
+      Number.isFinite(releaseExpiresAtMs) &&
+      releaseExpiresAtMs > releasedAtMs &&
+      releaseExpiresAtMs - releasedAtMs <= 72 * 60 * 60 * 1000 &&
+      releasedAtMs >= authorizedAtMs &&
+      releaseExpiresAtMs <= authorizationExpiresAtMs &&
+      isSha(release.pendingAuthorizationCommit) &&
+      release.exactTargetRef === authorization.ref &&
+      release.exactExpectedOldSha === authorization.expectedOldSha &&
+      release.operatorTaskId === authorization.operatorTaskId &&
+      release.operatorOwnerKey === authorization.operatorOwnerKey &&
+      release.effectiveOnlyAfterReleaseReachesProtectedMain === true
+  );
+}
+
+function assertLocalRefRetirementDeletionReleaseWindow(
+  authorization,
+  validationNow = Date.now()
+) {
+  const release = authorization.deletionRelease;
+  if (Date.parse(release.releasedAt) > validationNow) {
+    throw new Error("rule=local-ref-retirement-release-not-effective");
+  }
+  if (Date.parse(release.expiresAt) <= validationNow) {
+    throw new Error("rule=local-ref-retirement-release-expired");
+  }
+}
+
+function assertLocalRefRetirementDeletionRelease(
+  authorization,
+  authorizationCommit,
+  validationNow = Date.now()
+) {
+  if (!localRefRetirementDeletionReleaseIsStructurallyValid(authorization)) {
+    throw new Error("rule=local-ref-retirement-release-invalid");
+  }
+  assertLocalRefRetirementDeletionReleaseWindow(authorization, validationNow);
+  const release = authorization.deletionRelease;
+  const firstParentHistory = git(["rev-list", "--first-parent", authorizationCommit], {
+    allowFailure: true
+  });
+  const firstParentCommits = new Set(
+    String(firstParentHistory.stdout ?? "")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+  );
+  if (
+    firstParentHistory.status !== 0 ||
+    release.pendingAuthorizationCommit === authorizationCommit ||
+    !firstParentCommits.has(release.pendingAuthorizationCommit)
+  ) {
+    throw new Error("rule=local-ref-retirement-release-not-protected-main");
+  }
+  let pendingAuthorization;
+  try {
+    const pendingRegistry = loadRegistryFromCommit(release.pendingAuthorizationCommit).parsed;
+    const pendingValidation = validateRegistry(pendingRegistry, { now: validationNow });
+    if (pendingValidation.errors.length > 0) {
+      throw new Error("pending registry invalid");
+    }
+    pendingAuthorization = (pendingRegistry.policy?.localRefRetirementAuthorizations ?? []).find(
+      (entry) => entry.id === authorization.id
+    );
+  } catch {
+    throw new Error("rule=local-ref-retirement-release-pending-custody-mismatch");
+  }
+  if (
+    !pendingAuthorization ||
+    pendingAuthorization.status !== "pending-release" ||
+    pendingAuthorization.deletionRelease !== null ||
+    JSON.stringify(localRetirementAuthorizationCoreContract(pendingAuthorization)) !==
+      JSON.stringify(localRetirementAuthorizationCoreContract(authorization))
+  ) {
+    throw new Error("rule=local-ref-retirement-release-pending-custody-mismatch");
+  }
+}
+
+function localRefRetirementAuthorization(registry, authorizationId, authorizationCommit) {
+  const authorization = (registry.policy?.localRefRetirementAuthorizations ?? []).find(
+    (entry) => entry.id === authorizationId
+  );
+  if (!authorization) {
+    throw new Error("rule=local-ref-retirement-authorization-missing");
+  }
+  if (authorization.status === "pending-release") {
+    throw new Error("rule=local-ref-retirement-release-pending");
+  }
+  if (authorization.status === "consumed") {
+    throw new Error("rule=local-ref-retirement-authorization-consumed");
+  }
+  if (isIsoTimestamp(authorization.expiresAt) && Date.parse(authorization.expiresAt) <= Date.now()) {
+    throw new Error("rule=local-ref-retirement-authorization-expired");
+  }
+  if (
+    !LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES.has(authorization.status) ||
+    authorization.status !== "active" ||
+    authorization.purpose !== "archive-ref-retirement" ||
+    !authorization.ref?.startsWith("refs/heads/") ||
+    authorization.ref === "refs/heads/main" ||
+    !isSha(authorization.expectedOldSha) ||
+    authorization.expectedOldSha === ZERO_SHA ||
+    authorization.effectiveOnlyAfterAuthorizationReachesProtectedMain !== true ||
+    authorization.exactCasRequired !== true ||
+    authorization.ordinaryBranchDAllowed !== false ||
+    authorization.forceBranchDAllowed !== false ||
+    authorization.oneShot !== true ||
+    authorization.registeredWorktreeOccupancyRequired !== "none" ||
+    authorization.remoteHeadRequiredAbsent !== true ||
+    !isIsoTimestamp(authorization.authorizedAt) ||
+    !isIsoTimestamp(authorization.expiresAt) ||
+    Date.parse(authorization.expiresAt) <= Date.now()
+  ) {
+    throw new Error("local archive-ref retirement authorization is absent or inactive");
+  }
+  assertLocalRefRetirementDeletionRelease(authorization, authorizationCommit);
+
+  const branchName = authorization.ref.slice("refs/heads/".length);
+  const branchRecord = (registry.branches ?? []).find((entry) => entry.name === branchName);
+  if (
+    !branchRecord ||
+    branchRecord.headSha !== authorization.expectedOldSha ||
+    branchRecord.disposition !== authorization.targetDispositionBeforeRetirement ||
+    branchRecord.remotePresent !== false
+  ) {
+    throw new Error("local archive-ref retirement target registry does not match");
+  }
+  if (
+    authorization.ref === QUARANTINED_LEDGER_BRANCH_REF ||
+    authorization.expectedOldSha === QUARANTINED_LEDGER_TIP ||
+    branchRecord.disposition === "security-quarantine"
+  ) {
+    throw new Error("rule=local-ref-retirement-ordinary-quarantine-isolation");
+  }
+
+  const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+  const operatorBranch = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
+  const operatorItem = (registry.workItems ?? []).find(
+    (item) => sameExistingPath(item.worktreePath, REPO_ROOT) && item.branch === operatorBranch
+  );
+  const registryRepoResolution = existingPathResolution(registry.repo);
+  if (
+    !operatorItem ||
+    !ACTIVE_WRITE_DISPOSITIONS.has(operatorItem.disposition) ||
+    authorization.operatorBranch !== operatorBranch ||
+    authorization.operatorTaskId !== operatorItem.taskId ||
+    authorization.operatorOwnerKey !== operatorItem.ownerKey
+  ) {
+    throw new Error("local archive-ref retirement operator is not authorized");
+  }
+  if (!registryRepoResolution.ok) {
+    throw new Error("local archive-ref retirement registry repository cannot be resolved");
+  }
+  const operatorCustodyError = physicalWorkItemCustodyError(registryRepoResolution, operatorItem);
+  if (operatorCustodyError) throw new Error(operatorCustodyError);
+  if (worktreeStatusPaths(REPO_ROOT).length !== 0) {
+    throw new Error("rule=local-ref-retirement-operator-dirty");
+  }
+  const operatorHead = git(["rev-parse", "--verify", "HEAD"], { allowFailure: true });
+  if (
+    !isSha(authorizationCommit) ||
+    operatorHead.status !== 0 ||
+    String(operatorHead.stdout).trim() !== authorizationCommit
+  ) {
+    throw new Error("rule=local-ref-retirement-operator-head-mismatch");
+  }
+
+  const observedTarget = git(["rev-parse", "--verify", authorization.ref], { allowFailure: true });
+  const observedTargetType = git(["cat-file", "-t", authorization.ref], { allowFailure: true });
+  const symbolicTarget = git(["symbolic-ref", "--quiet", authorization.ref], { allowFailure: true });
+  if (
+    observedTarget.status !== 0 ||
+    String(observedTarget.stdout).trim() !== authorization.expectedOldSha ||
+    observedTargetType.status !== 0 ||
+    String(observedTargetType.stdout).trim() !== "commit" ||
+    symbolicTarget.status === 0
+  ) {
+    throw new Error("rule=local-ref-retirement-target-sha-mismatch");
+  }
+  if (parseWorktreeList().some((entry) => entry.branch === branchName)) {
+    throw new Error("rule=local-ref-retirement-target-worktree-occupied");
+  }
+  if (exactLiveRemoteHead(authorization.ref) !== null) {
+    throw new Error("rule=local-ref-retirement-target-remote-present");
+  }
+
+  const custody = authorization.custody;
+  if (
+    !custody ||
+    custody.kind !== "ordinary-archive" ||
+    typeof custody.root !== "string" ||
+    typeof custody.bundlePath !== "string" ||
+    typeof custody.manifestPath !== "string" ||
+    typeof custody.bundleRef !== "string" ||
+    custody.bundleRef !== custody.tagRef ||
+    !isSha(custody.tagObjectSha) ||
+    custody.peeledCommitSha !== authorization.expectedOldSha ||
+    custody.bundleSha256?.length !== 64 ||
+    custody.manifestSha256?.length !== 64 ||
+    !Number.isInteger(custody.bundleBytes) ||
+    custody.bundleBytes <= 0
+  ) {
+    throw new Error("local archive-ref retirement custody contract is invalid");
+  }
+  const rootResolution = existingPathResolution(custody.root);
+  const bundleResolution = existingPathResolution(custody.bundlePath);
+  const manifestResolution = existingPathResolution(custody.manifestPath);
+  if (
+    !rootResolution.ok ||
+    !bundleResolution.ok ||
+    !manifestResolution.ok ||
+    !pathIsWithin(rootResolution.path, bundleResolution.path) ||
+    !pathIsWithin(rootResolution.path, manifestResolution.path)
+  ) {
+    throw new Error("local archive-ref retirement custody escapes its owner-only root");
+  }
+  const bundleInfo = lstatSync(custody.bundlePath);
+  const manifestInfo = lstatSync(custody.manifestPath);
+  const rootInfo = lstatSync(custody.root);
+  if (
+    !rootInfo.isDirectory() ||
+    rootInfo.isSymbolicLink() ||
+    !bundleInfo.isFile() ||
+    bundleInfo.isSymbolicLink() ||
+    !manifestInfo.isFile() ||
+    manifestInfo.isSymbolicLink() ||
+    !exactOwnerOnlyMode(custody.root, 0o700) ||
+    !exactOwnerOnlyMode(custody.bundlePath, 0o600) ||
+    !exactOwnerOnlyMode(custody.manifestPath, 0o600) ||
+    rootInfo.uid !== process.geteuid() ||
+    bundleInfo.uid !== process.geteuid() ||
+    manifestInfo.uid !== process.geteuid() ||
+    bundleInfo.nlink !== 1 ||
+    manifestInfo.nlink !== 1 ||
+    dirname(bundleResolution.path) !== rootResolution.path ||
+    dirname(manifestResolution.path) !== rootResolution.path
+  ) {
+    throw new Error("rule=local-ref-retirement-bundle-mode-mismatch");
+  }
+  if (
+    bundleInfo.size !== custody.bundleBytes ||
+    sha256File(custody.bundlePath) !== custody.bundleSha256
+  ) {
+    throw new Error("rule=local-ref-retirement-bundle-sha256-mismatch");
+  }
+  if (sha256File(custody.manifestPath) !== custody.manifestSha256) {
+    throw new Error("rule=local-ref-retirement-manifest-sha256-mismatch");
+  }
+  const bundleVerify = git(["bundle", "verify", custody.bundlePath], { allowFailure: true });
+  const bundleVerifyOutput = `${String(bundleVerify.stdout ?? "")}\n${String(bundleVerify.stderr ?? "")}`;
+  if (bundleVerify.status !== 0 || !bundleVerifyOutput.includes("The bundle records a complete history.")) {
+    throw new Error("local archive-ref retirement bundle verification failed");
+  }
+  const bundleHeads = parseBundleHeads(custody.bundlePath);
+  const matchingBundleHeads = bundleHeads.filter(
+    (entry) => entry.ref === custody.bundleRef && entry.sha === custody.tagObjectSha
+  );
+  if (matchingBundleHeads.length !== 1) {
+    throw new Error("rule=local-ref-retirement-bundle-ref-mismatch");
+  }
+  const tagObject = git(["rev-parse", "--verify", custody.tagRef], { allowFailure: true });
+  const tagPeel = git(["rev-parse", "--verify", `${custody.tagRef}^{}`], { allowFailure: true });
+  const tagType = git(["cat-file", "-t", custody.tagRef], { allowFailure: true });
+  if (
+    tagObject.status !== 0 ||
+    tagPeel.status !== 0 ||
+    tagType.status !== 0 ||
+    String(tagType.stdout).trim() !== "tag" ||
+    String(tagObject.stdout).trim() !== custody.tagObjectSha ||
+    String(tagPeel.stdout).trim() !== custody.peeledCommitSha
+  ) {
+    throw new Error("rule=local-ref-retirement-tag-peel-mismatch");
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(custody.manifestPath, "utf8"));
+  } catch {
+    throw new Error("local archive-ref retirement manifest is not valid JSON");
+  }
+  const manifestRef = (manifest.archiveRefs ?? []).find((entry) => entry.ref === custody.tagRef);
+  const manifestRefs = Array.isArray(manifest.archiveRefs) ? manifest.archiveRefs : [];
+  const bundleRefMap = new Map(bundleHeads.map((entry) => [entry.ref, entry.sha]));
+  const manifestBundleRefSetMatches =
+    manifestRefs.length === bundleHeads.length &&
+    new Set(manifestRefs.map((entry) => entry.ref)).size === manifestRefs.length &&
+    bundleRefMap.size === bundleHeads.length &&
+    manifestRefs.every(
+      (entry) =>
+        typeof entry.ref === "string" &&
+        entry.ref.startsWith("refs/tags/archive/") &&
+        bundleRefMap.get(entry.ref) === entry.tagObjectSha &&
+        git(["cat-file", "-t", entry.ref], { allowFailure: true }).status === 0 &&
+        gitText(["cat-file", "-t", entry.ref]).trim() === "tag" &&
+        gitText(["rev-parse", "--verify", entry.ref]).trim() === entry.tagObjectSha &&
+        gitText(["rev-parse", "--verify", `${entry.ref}^{}`]).trim() === entry.peeledCommitSha
+    );
+  if (!manifestBundleRefSetMatches) {
+    throw new Error("rule=local-ref-retirement-bundle-ref-mismatch");
+  }
+  const ordinaryReachability = git(
+    ["rev-list", "--objects", ...manifestRefs.map((entry) => entry.peeledCommitSha)],
+    { allowFailure: true }
+  );
+  const ordinaryReachableObjectIds = new Set(
+    String(ordinaryReachability.stdout ?? "")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.trim().split(/\s+/, 1)[0])
+  );
+  if (
+    manifest.knownQuarantinedBlobReachableCommitCount !== 0 ||
+    !sameStringSet(manifest.excludedRefNamespaces, ORDINARY_ARCHIVE_EXCLUDED_REF_NAMESPACES) ||
+    manifest.remoteTagPublicationAuthorized !== false ||
+    manifest.deploymentAuthorized !== false ||
+    ordinaryReachability.status !== 0 ||
+    ordinaryReachableObjectIds.has(QUARANTINED_LEDGER_TIP) ||
+    [...KNOWN_SENSITIVE_BLOB_OIDS].some((oid) => ordinaryReachableObjectIds.has(oid))
+  ) {
+    throw new Error("rule=local-ref-retirement-ordinary-quarantine-isolation");
+  }
+  if (
+    manifest.schemaVersion !== "sena-local-archive-bundle-custody/v1" ||
+    manifest.bundle?.path !== custody.bundlePath ||
+    manifest.bundle?.sha256 !== custody.bundleSha256 ||
+    manifest.bundle?.bytes !== custody.bundleBytes ||
+    manifest.bundle?.fileMode !== "0600" ||
+    manifest.bundle?.parentMode !== "0700" ||
+    manifest.bundle?.bundleVerify !== "pass" ||
+    manifest.bundle?.completeHistory !== true ||
+    !Array.isArray(manifest.bundle?.prerequisites) ||
+    manifest.bundle.prerequisites.length !== 0 ||
+    !manifestBundleRefSetMatches ||
+    manifestRef?.tagObjectSha !== custody.tagObjectSha ||
+    manifestRef?.peeledCommitSha !== custody.peeledCommitSha ||
+    manifest.credentialContentsRead !== false ||
+    manifest.targetBranchRefsRetainedAtReceipt !== true
+  ) {
+    throw new Error("local archive-ref retirement manifest contract does not match");
+  }
+  return authorization;
+}
+
+function runLocalRefRetirementBoundary(flags) {
+  const authorizationIds = flagValues(flags, "authorization-id");
+  if (authorizationIds.length !== 1) {
+    throw new Error("rule=local-ref-retirement-authorization-id-ambiguous");
+  }
+  const authorizationId = authorizationIds[0];
+  const loaded = loadProtectedMainAuthorizationRegistry(flags, {
+    required: true,
+    localRefRetirementAuthorizationId: authorizationId
+  });
+  if (exactLiveRemoteHead("refs/heads/main") !== loaded.commit) {
+    throw new Error("rule=local-ref-retirement-live-main-mismatch");
+  }
+  const authorization = localRefRetirementAuthorization(loaded.parsed, authorizationId, loaded.commit);
+  process.stdout.write(
+    `SENA_LOCAL_REF_RETIREMENT_BOUNDARY pass authorization=${safePathForLog(authorization.id)} ref=${safePathForLog(authorization.ref)}\n`
+  );
+}
+
+function writeOwnerOnlyExclusive(outputPath, content) {
+  const resolvedOutput = resolve(outputPath);
+  if (existsSync(resolvedOutput)) throw new Error("rule=local-ref-retirement-replay");
+  let descriptor = null;
+  let directoryDescriptor = null;
+  try {
+    descriptor = openSync(resolvedOutput, "wx", 0o600);
+    writeFileSync(descriptor, content);
+    fsyncSync(descriptor);
+    closeSync(descriptor);
+    descriptor = null;
+    chmodSync(resolvedOutput, 0o600);
+    const outputInfo = lstatSync(resolvedOutput);
+    if (
+      !outputInfo.isFile() ||
+      outputInfo.isSymbolicLink() ||
+      outputInfo.uid !== process.geteuid() ||
+      outputInfo.nlink !== 1 ||
+      !exactOwnerOnlyMode(resolvedOutput, 0o600)
+    ) {
+      throw new Error("rule=local-ref-retirement-receipt-mode-mismatch");
+    }
+    directoryDescriptor = openSync(dirname(resolvedOutput), "r");
+    fsyncSync(directoryDescriptor);
+    closeSync(directoryDescriptor);
+    directoryDescriptor = null;
+  } finally {
+    if (descriptor !== null) closeSync(descriptor);
+    if (directoryDescriptor !== null) closeSync(directoryDescriptor);
+  }
+  return resolvedOutput;
+}
+
+function retirementReceiptPaths(authorization) {
+  const directoryResolution = existingPathResolution(authorization.receiptDirectory);
+  const custodyRootResolution = existingPathResolution(authorization.custody.root);
+  if (
+    !directoryResolution.ok ||
+    !custodyRootResolution.ok ||
+    !pathIsWithin(custodyRootResolution.path, directoryResolution.path) ||
+    !lstatSync(authorization.receiptDirectory).isDirectory() ||
+    lstatSync(authorization.receiptDirectory).isSymbolicLink() ||
+    !exactOwnerOnlyMode(authorization.receiptDirectory, 0o700) ||
+    statSync(authorization.receiptDirectory).uid !== process.geteuid()
+  ) {
+    throw new Error("rule=local-ref-retirement-receipt-directory-mismatch");
+  }
+  if (!LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN.test(authorization.id)) {
+    throw new Error("rule=local-ref-retirement-authorization-id-invalid");
+  }
+  const prepared = resolve(directoryResolution.path, `${authorization.id}.prepared.json`);
+  const completed = resolve(directoryResolution.path, `${authorization.id}.completed.json`);
+  if (
+    dirname(prepared) !== directoryResolution.path ||
+    dirname(completed) !== directoryResolution.path ||
+    !pathIsWithin(directoryResolution.path, prepared) ||
+    !pathIsWithin(directoryResolution.path, completed)
+  ) {
+    throw new Error("rule=local-ref-retirement-receipt-directory-mismatch");
+  }
+  return { prepared, completed };
+}
+
+function assertLocalRefRetirementProcessEnvironment() {
+  if (process.env.SENA_GOVERNANCE_TARGET_ROOT) {
+    throw new Error("rule=local-ref-retirement-target-root-override");
+  }
+  const dangerousNames = Object.keys(process.env).filter(
+    (name) =>
+      LOCAL_RETIREMENT_DANGEROUS_GIT_ENV.has(name) ||
+      name === "GIT_CONFIG_PARAMETERS" ||
+      name.startsWith("GIT_CONFIG_")
+  );
+  if (dangerousNames.length > 0) {
+    throw new Error("rule=local-ref-retirement-dangerous-git-environment");
+  }
+  process.env.GIT_NO_REPLACE_OBJECTS = "1";
+  process.env.LC_ALL = "C";
+}
+
+function assertLocalRefRetirementRuntimeCustody(registry, authorizationCommit) {
+  const registryRoot = existingPathResolution(registry.repo);
+  const commonDir = existingPathResolution(
+    gitText(["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim()
+  );
+  const expectedCommonDir = registryRoot.ok
+    ? existingPathResolution(join(registryRoot.path, ".git"))
+    : { ok: false, path: null };
+  if (
+    !registryRoot.ok ||
+    !commonDir.ok ||
+    !expectedCommonDir.ok ||
+    commonDir.path !== expectedCommonDir.path ||
+    realpathSync(CONTROL_ROOT) !== registryRoot.path
+  ) {
+    throw new Error("rule=local-ref-retirement-common-dir-mismatch");
+  }
+
+  if (registryRoot.path === LOCAL_RETIREMENT_PRODUCTION_ROOT) {
+    const whichGit = spawnSync("/usr/bin/which", ["git"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      env: process.env
+    });
+    const gitPath = whichGit.status === 0 ? existingPathResolution(String(whichGit.stdout).trim()) : null;
+    if (!gitPath?.ok || gitPath.path !== "/usr/bin/git") {
+      throw new Error("rule=local-ref-retirement-git-binary-mismatch");
+    }
+  }
+  const urlRewrite = git(["config", "--get-regexp", "^url\\..*\\.insteadof$"], {
+    allowFailure: true
+  });
+  if (urlRewrite.status === 0 || ![0, 1].includes(urlRewrite.status)) {
+    throw new Error("rule=local-ref-retirement-canonical-url-rewrite-configured");
+  }
+
+  const hookErrors = [];
+  verifyHookCustody(registry, hookErrors);
+  const configuredHooksPath = gitText(["config", "--get", "core.hooksPath"], {
+    allowFailure: true
+  }).trim();
+  const hookCustody = resolveHookCustodyDirectory(
+    CONTROL_ROOT,
+    REPO_ROOT,
+    registry.policy?.hookCustodyPath,
+    configuredHooksPath
+  );
+  if (
+    hookErrors.length > 0 ||
+    hookCustody.error ||
+    pathEntryExists(join(hookCustody.path, "reference-transaction"))
+  ) {
+    throw new Error("rule=local-ref-retirement-hook-custody-mismatch");
+  }
+
+  const scriptInfo = lstatSync(SCRIPT_PATH);
+  const scriptRelativePath = normalizeRepoPath(relative(REPO_ROOT, SCRIPT_PATH));
+  const authorizedScript = git(
+    ["rev-parse", "--verify", `${authorizationCommit}:${scriptRelativePath}`],
+    { allowFailure: true }
+  );
+  const currentScript = git(["hash-object", SCRIPT_PATH], { allowFailure: true });
+  if (
+    !scriptInfo.isFile() ||
+    scriptInfo.isSymbolicLink() ||
+    scriptRelativePath.startsWith("../") ||
+    authorizedScript.status !== 0 ||
+    currentScript.status !== 0 ||
+    String(authorizedScript.stdout).trim() !== String(currentScript.stdout).trim()
+  ) {
+    throw new Error("rule=local-ref-retirement-script-custody-mismatch");
+  }
+}
+
+function runLocalRefRetirement(flags) {
+  assertLocalRefRetirementProcessEnvironment();
+  const authorizationIds = flagValues(flags, "authorization-id");
+  if (authorizationIds.length !== 1) {
+    throw new Error("rule=local-ref-retirement-authorization-id-ambiguous");
+  }
+  const authorizationId = authorizationIds[0];
+  const loaded = loadProtectedMainAuthorizationRegistry(flags, {
+    required: true,
+    localRefRetirementAuthorizationId: authorizationId
+  });
+  assertLocalRefRetirementRuntimeCustody(loaded.parsed, loaded.commit);
+  if (exactLiveRemoteHead("refs/heads/main") !== loaded.commit) {
+    throw new Error("rule=local-ref-retirement-live-main-mismatch");
+  }
+  const candidate = (loaded.parsed.policy?.localRefRetirementAuthorizations ?? []).find(
+    (entry) => entry.id === authorizationId
+  );
+  if (!candidate) throw new Error("rule=local-ref-retirement-authorization-missing");
+  const receiptPaths = retirementReceiptPaths(candidate);
+  if (existsSync(receiptPaths.prepared) || existsSync(receiptPaths.completed)) {
+    throw new Error("rule=local-ref-retirement-replay");
+  }
+  const authorization = localRefRetirementAuthorization(loaded.parsed, authorizationId, loaded.commit);
+  const eventId = sha256Buffer(Buffer.from(`${loaded.commit}\0${authorization.id}\0${authorization.ref}`, "utf8"));
+  const preparedAt = new Date().toISOString();
+  const preparedReceipt = {
+    schemaVersion: "sena-local-ref-retirement-prepared/v1",
+    eventId,
+    authorizationId: authorization.id,
+    authorizationRegistryCommit: loaded.commit,
+    ref: authorization.ref,
+    expectedOldSha: authorization.expectedOldSha,
+    operatorTaskId: authorization.operatorTaskId,
+    operatorOwnerKey: authorization.operatorOwnerKey,
+    preparedAt,
+    result: "prepared",
+    credentialContentsRead: false
+  };
+  writeOwnerOnlyExclusive(receiptPaths.prepared, `${JSON.stringify(preparedReceipt, null, 2)}\n`);
+
+  assertLocalRefRetirementRuntimeCustody(loaded.parsed, loaded.commit);
+  localRefRetirementAuthorization(loaded.parsed, authorizationId, loaded.commit);
+  if (exactLiveRemoteHead("refs/heads/main") !== loaded.commit) {
+    throw new Error("rule=local-ref-retirement-live-main-mismatch");
+  }
+  const mutationNow = Date.now();
+  if (Date.parse(authorization.expiresAt) <= mutationNow) {
+    throw new Error("rule=local-ref-retirement-authorization-expired");
+  }
+  assertLocalRefRetirementDeletionReleaseWindow(authorization, mutationNow);
+  const mutation = git(["update-ref", "--no-deref", "-d", authorization.ref, authorization.expectedOldSha], {
+    unsetEnv: [
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_COMMON_DIR",
+      "GIT_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_PREFIX",
+      "GIT_WORK_TREE"
+    ],
+    allowFailure: true
+  });
+  if (mutation.status !== 0) throw new Error("rule=local-ref-retirement-exact-cas-failed");
+  if (git(["show-ref", "--verify", "--quiet", authorization.ref], { allowFailure: true }).status === 0) {
+    throw new Error("rule=local-ref-retirement-post-delete-readback-failed");
+  }
+
+  const localRefAbsenceReadbackAt = new Date().toISOString();
+  const liveMainSha = exactLiveRemoteHead("refs/heads/main");
+  const liveTargetHeadSha = exactLiveRemoteHead(authorization.ref);
+  const liveRemoteReadbackAt = new Date().toISOString();
+  if (liveMainSha !== loaded.commit) {
+    throw new Error("rule=local-ref-retirement-post-action-live-main-mismatch");
+  }
+  if (liveTargetHeadSha !== null) {
+    throw new Error("rule=local-ref-retirement-post-action-target-remote-present");
+  }
+  const completedReceipt = {
+    schemaVersion: "sena-local-ref-retirement-receipt/v1",
+    eventId,
+    authorizationId: authorization.id,
+    authorizationRegistryCommit: loaded.commit,
+    ref: authorization.ref,
+    expectedOldSha: authorization.expectedOldSha,
+    afterSha: ZERO_SHA,
+    preparedReceiptSha256: sha256File(receiptPaths.prepared),
+    executedBy: authorization.operatorOwnerKey,
+    executedAt: localRefAbsenceReadbackAt,
+    localRefAbsenceReadbackAt,
+    liveMainSha,
+    liveMainReadbackAt: liveRemoteReadbackAt,
+    liveTargetHeadSha,
+    liveTargetAbsenceReadbackAt: liveRemoteReadbackAt,
+    result: "deleted",
+    exactCasUsed: true,
+    branchDUsed: false,
+    forceUsed: false,
+    resetUsed: false,
+    rebaseUsed: false,
+    historyRewriteUsed: false,
+    credentialContentsRead: false
+  };
+  writeOwnerOnlyExclusive(receiptPaths.completed, `${JSON.stringify(completedReceipt, null, 2)}\n`);
+  process.stdout.write(
+    `SENA_LOCAL_REF_RETIREMENT pass authorization=${safePathForLog(authorization.id)} ref=${safePathForLog(authorization.ref)}\n`
   );
 }
 
@@ -1434,7 +3629,7 @@ function sameStringSet(left, right) {
   return leftSet.size === left.length && right.every((value) => leftSet.has(value));
 }
 
-function validateRegistry(registry) {
+function validateRegistry(registry, { now = Date.now() } = {}) {
   const errors = [];
   const warnings = [];
   if (registry.schemaVersion !== "sena-repo-governance/v1") errors.push("unsupported schemaVersion");
@@ -1571,10 +3766,10 @@ function validateRegistry(registry) {
       errors.push(`ref-deletion authorization is not bound to the quarantine ruleset: ${authorization.id ?? "<unknown>"}`);
     }
     if (
-      timestampIsInFuture(authorization.authorizedAt) ||
-      timestampIsInFuture(authorization.providerReadbackAt) ||
-      timestampIsInFuture(authorization.consumedAt) ||
-      timestampIsInFuture(authorization.remoteRefAbsenceReadbackAt) ||
+      timestampIsInFuture(authorization.authorizedAt, now) ||
+      timestampIsInFuture(authorization.providerReadbackAt, now) ||
+      timestampIsInFuture(authorization.consumedAt, now) ||
+      timestampIsInFuture(authorization.remoteRefAbsenceReadbackAt, now) ||
       (Number.isFinite(authorizedAtMs) && Number.isFinite(expiresAtMs) && expiresAtMs - authorizedAtMs > 72 * 60 * 60 * 1000)
     ) {
       errors.push(`ref-deletion authorization timestamps exceed policy: ${authorization.id ?? "<unknown>"}`);
@@ -1582,7 +3777,7 @@ function validateRegistry(registry) {
     if (authorization.status === "active" && !isIsoTimestamp(authorization.providerReadbackAt)) {
       errors.push(`active ref-deletion authorization lacks provider readback: ${authorization.id ?? "<unknown>"}`);
     }
-    if (authorization.status === "active" && (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now())) {
+    if (authorization.status === "active" && (!Number.isFinite(expiresAtMs) || expiresAtMs <= now)) {
       errors.push(`active ref-deletion authorization is expired: ${authorization.id ?? "<unknown>"}`);
     }
     if (
@@ -1652,6 +3847,239 @@ function validateRegistry(registry) {
       activeRefDeletionTargets.add(target);
     }
   }
+  const localRefRetirementAuthorizations = registry.policy?.localRefRetirementAuthorizations ?? [];
+  if (!Array.isArray(localRefRetirementAuthorizations)) {
+    errors.push("policy.localRefRetirementAuthorizations must be an array");
+  }
+  const localRetirementAuthorizationIds = new Set();
+  const activeLocalRetirementTargets = new Set();
+  let activeLocalRetirementCount = 0;
+  for (const authorization of Array.isArray(localRefRetirementAuthorizations)
+    ? localRefRetirementAuthorizations
+    : []) {
+    if (!LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN.test(authorization.id ?? "")) {
+      errors.push("rule=local-ref-retirement-authorization-id-invalid");
+    }
+    const custody = authorization.custody;
+    const deletionRelease = authorization.deletionRelease;
+    const operatorItem = (registry.workItems ?? []).find(
+      (item) =>
+        item.branch === authorization.operatorBranch &&
+        item.taskId === authorization.operatorTaskId &&
+        item.ownerKey === authorization.operatorOwnerKey
+    );
+    const targetBranchName = authorization.ref?.startsWith("refs/heads/")
+      ? authorization.ref.slice("refs/heads/".length)
+      : null;
+    const targetBranchRecord = (registry.branches ?? []).find(
+      (branch) => branch.name === targetBranchName
+    );
+    const commonInvalid =
+      typeof authorization.id !== "string" ||
+      authorization.id.length === 0 ||
+      !LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES.has(authorization.status) ||
+      authorization.purpose !== "archive-ref-retirement" ||
+      !(
+        authorization.predecessorAuthorizationId === null ||
+        (typeof authorization.predecessorAuthorizationId === "string" &&
+          authorization.predecessorAuthorizationId.length > 0)
+      ) ||
+      typeof authorization.ref !== "string" ||
+      !authorization.ref.startsWith("refs/heads/") ||
+      authorization.ref === "refs/heads/main" ||
+      !isSha(authorization.expectedOldSha) ||
+      authorization.expectedOldSha === ZERO_SHA ||
+      !BRANCH_DISPOSITIONS.has(authorization.targetDispositionBeforeRetirement) ||
+      !BRANCH_DISPOSITIONS.has(authorization.targetDispositionAfterRetirement) ||
+      authorization.effectiveOnlyAfterAuthorizationReachesProtectedMain !== true ||
+      authorization.exactCasRequired !== true ||
+      authorization.ordinaryBranchDAllowed !== false ||
+      authorization.forceBranchDAllowed !== false ||
+      authorization.historyRewriteAllowed !== false ||
+      authorization.oneShot !== true ||
+      typeof authorization.operatorBranch !== "string" ||
+      typeof authorization.operatorTaskId !== "string" ||
+      typeof authorization.operatorOwnerKey !== "string" ||
+      typeof authorization.authorizedBy !== "string" ||
+      authorization.authorizedBy.length === 0 ||
+      typeof authorization.authorizationBasis !== "string" ||
+      authorization.authorizationBasis.length === 0 ||
+      !isIsoTimestamp(authorization.authorizedAt) ||
+      !isIsoTimestamp(authorization.expiresAt) ||
+      Date.parse(authorization.expiresAt) <= Date.parse(authorization.authorizedAt) ||
+      authorization.registeredWorktreeOccupancyRequired !== "none" ||
+      authorization.remoteHeadRequiredAbsent !== true ||
+      !custody ||
+      typeof custody.kind !== "string" ||
+      typeof custody.root !== "string" ||
+      typeof custody.manifestPath !== "string" ||
+      !/^[0-9a-f]{64}$/.test(custody.manifestSha256 ?? "") ||
+      typeof custody.bundlePath !== "string" ||
+      !/^[0-9a-f]{64}$/.test(custody.bundleSha256 ?? "") ||
+      !Number.isInteger(custody.bundleBytes) ||
+      custody.bundleBytes <= 0 ||
+      typeof custody.bundleRef !== "string" ||
+      typeof authorization.receiptDirectory !== "string" ||
+      authorization.receiptDirectory.length === 0 ||
+      !Object.hasOwn(authorization, "deletionRelease") ||
+      !(
+        deletionRelease === null ||
+        (typeof deletionRelease === "object" && !Array.isArray(deletionRelease))
+      ) ||
+      !Object.hasOwn(authorization, "authorizationRegistryCommit") ||
+      !(
+        authorization.authorizationRegistryCommit === null ||
+        isSha(authorization.authorizationRegistryCommit)
+      ) ||
+      !Object.hasOwn(authorization, "eventId") ||
+      !(
+        authorization.eventId === null ||
+        /^[0-9a-f]{64}$/.test(authorization.eventId)
+      ) ||
+      !Object.hasOwn(authorization, "consumedAt") ||
+      !isNullableIsoTimestamp(authorization.consumedAt) ||
+      !Object.hasOwn(authorization, "executedBy") ||
+      ![null, "string"].includes(authorization.executedBy === null ? null : typeof authorization.executedBy) ||
+      !Object.hasOwn(authorization, "localRefAbsenceReadbackAt") ||
+      !isNullableIsoTimestamp(authorization.localRefAbsenceReadbackAt) ||
+      !Object.hasOwn(authorization, "result") ||
+      ![null, "string"].includes(authorization.result === null ? null : typeof authorization.result) ||
+      !Object.hasOwn(authorization, "preparedReceiptPath") ||
+      ![null, "string"].includes(
+        authorization.preparedReceiptPath === null ? null : typeof authorization.preparedReceiptPath
+      ) ||
+      !Object.hasOwn(authorization, "preparedReceiptSha256") ||
+      ![null, "string"].includes(
+        authorization.preparedReceiptSha256 === null ? null : typeof authorization.preparedReceiptSha256
+      ) ||
+      !Object.hasOwn(authorization, "completedReceiptPath") ||
+      ![null, "string"].includes(
+        authorization.completedReceiptPath === null ? null : typeof authorization.completedReceiptPath
+      ) ||
+      !Object.hasOwn(authorization, "completedReceiptSha256") ||
+      ![null, "string"].includes(
+        authorization.completedReceiptSha256 === null ? null : typeof authorization.completedReceiptSha256
+      );
+    const ordinaryCustodyInvalid =
+      authorization.purpose === "archive-ref-retirement" &&
+      (custody?.kind !== "ordinary-archive" ||
+        authorization.targetDispositionAfterRetirement !== "archived" ||
+        typeof custody.tagRef !== "string" ||
+        !custody.tagRef.startsWith("refs/tags/archive/") ||
+        custody.bundleRef !== custody.tagRef ||
+        !isSha(custody.tagObjectSha) ||
+        custody.peeledCommitSha !== authorization.expectedOldSha);
+    const deletionReleaseInvalid =
+      (authorization.status === "pending-release" && deletionRelease !== null) ||
+      (new Set(["active", "consumed"]).has(authorization.status) &&
+        !localRefRetirementDeletionReleaseIsStructurallyValid(authorization));
+    if (commonInvalid || ordinaryCustodyInvalid) {
+      errors.push(`invalid local-ref retirement authorization: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (deletionReleaseInvalid) {
+      errors.push(
+        `${authorization.status === "pending-release" ? "pending" : "active"} local-ref retirement authorization lacks deletion release: ${authorization.id ?? "<unknown>"}`
+      );
+    }
+    if (!operatorItem) {
+      errors.push(
+        `local-ref retirement authorization operator is not a registered workItem: ${authorization.id ?? "<unknown>"}`
+      );
+    }
+    if (
+      !targetBranchRecord ||
+      targetBranchRecord.headSha !== authorization.expectedOldSha ||
+      targetBranchRecord.retirementAuthorizationId !== authorization.id ||
+      (new Set(["pending-release", "active"]).has(authorization.status) &&
+        (targetBranchRecord.localRefState !== "present" ||
+          targetBranchRecord.disposition !== authorization.targetDispositionBeforeRetirement)) ||
+      (authorization.status === "consumed" &&
+        (targetBranchRecord.localRefState !== "retired" ||
+          targetBranchRecord.disposition !== authorization.targetDispositionAfterRetirement))
+    ) {
+      errors.push(`local-ref retirement authorization target state is invalid: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      timestampIsInFuture(authorization.authorizedAt, now) ||
+      timestampIsInFuture(authorization.consumedAt, now) ||
+      timestampIsInFuture(authorization.localRefAbsenceReadbackAt, now) ||
+      timestampIsInFuture(deletionRelease?.releasedAt, now) ||
+      Date.parse(authorization.expiresAt) - Date.parse(authorization.authorizedAt) > 72 * 60 * 60 * 1000
+    ) {
+      errors.push(`local-ref retirement authorization timestamps exceed policy: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      authorization.status === "active" &&
+      localRefRetirementDeletionReleaseIsStructurallyValid(authorization) &&
+      Date.parse(deletionRelease.expiresAt) <= now
+    ) {
+      errors.push(`active local-ref retirement deletion release expired: ${authorization.id}`);
+    }
+    if (
+      new Set(["pending-release", "active"]).has(authorization.status) &&
+      (Date.parse(authorization.expiresAt) <= now ||
+        authorization.authorizationRegistryCommit !== null ||
+        authorization.eventId !== null ||
+        authorization.consumedAt !== null ||
+        authorization.executedBy !== null ||
+        authorization.localRefAbsenceReadbackAt !== null ||
+        authorization.result !== null ||
+        authorization.preparedReceiptPath !== null ||
+        authorization.preparedReceiptSha256 !== null ||
+        authorization.completedReceiptPath !== null ||
+        authorization.completedReceiptSha256 !== null)
+    ) {
+      errors.push(`active local-ref retirement authorization contains completion evidence: ${authorization.id}`);
+    }
+    if (
+      authorization.status === "consumed" &&
+      (!isSha(authorization.authorizationRegistryCommit) ||
+        !/^[0-9a-f]{64}$/.test(authorization.eventId ?? "") ||
+        !isIsoTimestamp(authorization.consumedAt) ||
+        typeof authorization.executedBy !== "string" ||
+        authorization.executedBy.length === 0 ||
+        !isIsoTimestamp(authorization.localRefAbsenceReadbackAt) ||
+        authorization.result !== "deleted" ||
+        typeof authorization.preparedReceiptPath !== "string" ||
+        authorization.preparedReceiptPath.length === 0 ||
+        !/^[0-9a-f]{64}$/.test(authorization.preparedReceiptSha256 ?? "") ||
+        typeof authorization.completedReceiptPath !== "string" ||
+        authorization.completedReceiptPath.length === 0 ||
+        !/^[0-9a-f]{64}$/.test(authorization.completedReceiptSha256 ?? ""))
+    ) {
+      errors.push(`consumed local-ref retirement authorization lacks custody: ${authorization.id}`);
+    }
+    if (localRetirementAuthorizationIds.has(authorization.id)) {
+      errors.push(`duplicate local-ref retirement authorization: ${authorization.id}`);
+    }
+    localRetirementAuthorizationIds.add(authorization.id);
+    if (authorization.status === "active") {
+      activeLocalRetirementCount += 1;
+      if (activeLocalRetirementTargets.has(authorization.ref)) {
+        errors.push(`duplicate active local-ref retirement target: ${authorization.ref}`);
+      }
+      activeLocalRetirementTargets.add(authorization.ref);
+    }
+  }
+  if (Array.isArray(localRefRetirementAuthorizations)) {
+    for (const [index, authorization] of localRefRetirementAuthorizations.entries()) {
+      const predecessor =
+        typeof authorization.predecessorAuthorizationId === "string"
+          ? localRefRetirementAuthorizations
+              .slice(0, index)
+              .find((entry) => entry.id === authorization.predecessorAuthorizationId)
+          : null;
+      if (
+        (index === 0 && authorization.predecessorAuthorizationId !== null) ||
+        (index > 0 && (!predecessor || predecessor.status !== "consumed"))
+      ) {
+        errors.push("rule=local-ref-retirement-predecessor-not-consumed");
+      }
+    }
+  }
+  if (activeLocalRetirementCount > 1) {
+    errors.push("rule=local-ref-retirement-multiple-active");
+  }
   if (!Array.isArray(registry.workItems)) errors.push("workItems must be an array");
   if (!Array.isArray(registry.branches)) errors.push("branches must be an array");
   if (!Array.isArray(registry.orphanWorktrees)) errors.push("orphanWorktrees must be an array");
@@ -1703,7 +4131,7 @@ function validateRegistry(registry) {
       ["lastObservedAt", item.lastObservedAt],
       ["lastHeartbeatAt", item.lastHeartbeatAt]
     ]) {
-      if (timestampIsInFuture(value)) errors.push(`workItem ${item.taskId ?? "<unknown>"} has future ${field}`);
+      if (timestampIsInFuture(value, now)) errors.push(`workItem ${item.taskId ?? "<unknown>"} has future ${field}`);
     }
     if (!isExpectedClose(item.expectedCloseAt)) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} must declare ISO or owner-gated expectedCloseAt`);
@@ -1772,14 +4200,16 @@ function validateRegistry(registry) {
         errors.push(`branch ${item.branch} has multiple active writers`);
       }
       branchOwners.set(item.branch, item.owner);
-      const heartbeatAge = isIsoTimestamp(item.lastHeartbeatAt) ? ageHours(item.lastHeartbeatAt) : Number.POSITIVE_INFINITY;
+      const heartbeatAge = isIsoTimestamp(item.lastHeartbeatAt)
+        ? ageHours(item.lastHeartbeatAt, now)
+        : Number.POSITIVE_INFINITY;
       if (heartbeatAge > 72) {
         errors.push(`active workItem ${item.taskId} has no heartbeat for more than 72 hours and must be frozen`);
       } else if (heartbeatAge > 24) {
         warnings.push(`active workItem ${item.taskId} has no heartbeat for more than 24 hours`);
       }
     }
-    if (Date.parse(item.nextReviewAt) < Date.now()) {
+    if (Date.parse(item.nextReviewAt) < now) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) {
         errors.push(`active workItem ${item.taskId} has an overdue nextReviewAt`);
       } else {
@@ -1813,7 +4243,7 @@ function validateRegistry(registry) {
         cleanup.oneShot !== true ||
         !isIsoTimestamp(cleanup.authorizedAt) ||
         !isIsoTimestamp(cleanup.expiresAt) ||
-        Date.parse(cleanup.expiresAt) <= Date.now() ||
+        Date.parse(cleanup.expiresAt) <= now ||
         Date.parse(cleanup.expiresAt) - Date.parse(cleanup.authorizedAt) > 72 * 60 * 60 * 1000 ||
         typeof cleanup.githubActor !== "string" ||
         cleanup.githubActor.length === 0 ||
@@ -1868,7 +4298,10 @@ function validateRegistry(registry) {
         `branch ${branch.name ?? "<unknown>"} requires observed/commit/review timestamps, nullable owner heartbeat, and expectedCloseAt`
       );
     }
-    if (timestampIsInFuture(branch.lastObservedAt) || timestampIsInFuture(branch.lastOwnerHeartbeatAt)) {
+    if (
+      timestampIsInFuture(branch.lastObservedAt, now) ||
+      timestampIsInFuture(branch.lastOwnerHeartbeatAt, now)
+    ) {
       errors.push(`branch ${branch.name ?? "<unknown>"} has a future observation or owner heartbeat`);
     }
     if (!new Set(["live", "gone", "base-only", "not-applicable"]).has(branch.upstreamState)) {
@@ -1897,12 +4330,12 @@ function validateRegistry(registry) {
     }
     if (
       !branch.pr &&
-      ageHours(branch.lastCommitAt) > 7 * 24 &&
+      ageHours(branch.lastCommitAt, now) > 7 * 24 &&
       !MANUAL_REVIEW_BRANCH_DISPOSITIONS.has(branch.disposition)
     ) {
       errors.push(`branch ${branch.name ?? "<unknown>"} is older than seven days without a PR and must enter manual preservation review`);
     }
-    if (Date.parse(branch.nextReviewAt) < Date.now()) {
+    if (Date.parse(branch.nextReviewAt) < now) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(branch.disposition)) {
         errors.push(`active branch ${branch.name ?? "<unknown>"} has an overdue nextReviewAt`);
       } else {
@@ -1935,7 +4368,7 @@ function validateRegistry(registry) {
     if (!ORPHAN_DISPOSITIONS.has(orphan.disposition)) {
       errors.push(`orphan worktree has unsupported disposition: ${orphan.path ?? "<unknown>"}`);
     }
-    if (Date.parse(orphan.nextReviewAt) < Date.now()) {
+    if (Date.parse(orphan.nextReviewAt) < now) {
       warnings.push(`orphan worktree requires scheduled preservation review: ${orphan.path ?? "<unknown>"}`);
     }
     if (orphanPaths.has(orphan.path)) errors.push(`duplicate orphan path: ${orphan.path}`);
@@ -2370,6 +4803,223 @@ function remotePullRequests() {
   }
 }
 
+function localRetirementAuthorizationCoreContract(authorization) {
+  return {
+    id: authorization.id,
+    purpose: authorization.purpose,
+    predecessorAuthorizationId: authorization.predecessorAuthorizationId,
+    ref: authorization.ref,
+    expectedOldSha: authorization.expectedOldSha,
+    targetDispositionBeforeRetirement: authorization.targetDispositionBeforeRetirement,
+    targetDispositionAfterRetirement: authorization.targetDispositionAfterRetirement,
+    effectiveOnlyAfterAuthorizationReachesProtectedMain:
+      authorization.effectiveOnlyAfterAuthorizationReachesProtectedMain,
+    exactCasRequired: authorization.exactCasRequired,
+    ordinaryBranchDAllowed: authorization.ordinaryBranchDAllowed,
+    forceBranchDAllowed: authorization.forceBranchDAllowed,
+    historyRewriteAllowed: authorization.historyRewriteAllowed,
+    oneShot: authorization.oneShot,
+    operatorBranch: authorization.operatorBranch,
+    operatorTaskId: authorization.operatorTaskId,
+    operatorOwnerKey: authorization.operatorOwnerKey,
+    authorizedBy: authorization.authorizedBy,
+    authorizationBasis: authorization.authorizationBasis,
+    authorizedAt: authorization.authorizedAt,
+    expiresAt: authorization.expiresAt,
+    registeredWorktreeOccupancyRequired: authorization.registeredWorktreeOccupancyRequired,
+    remoteHeadRequiredAbsent: authorization.remoteHeadRequiredAbsent,
+    custody: authorization.custody,
+    receiptDirectory: authorization.receiptDirectory
+  };
+}
+
+function localRetirementExecutionContract(authorization) {
+  return {
+    ...localRetirementAuthorizationCoreContract(authorization),
+    deletionRelease: authorization.deletionRelease
+  };
+}
+
+function completedLocalRetirementReceipt(registry, branchRecord, currentRegistryCommit) {
+  const ref = `refs/heads/${branchRecord.name}`;
+  const authorization = (registry.policy?.localRefRetirementAuthorizations ?? []).find(
+    (entry) =>
+      new Set(["active", "consumed"]).has(entry.status) &&
+      entry.ref === ref &&
+      entry.expectedOldSha === branchRecord.headSha
+  );
+  if (!authorization) return null;
+  let receiptPaths;
+  try {
+    receiptPaths = retirementReceiptPaths(authorization);
+  } catch {
+    return null;
+  }
+  if (!existsSync(receiptPaths.prepared) || !existsSync(receiptPaths.completed)) return null;
+  const preparedInfo = lstatSync(receiptPaths.prepared);
+  const completedInfo = lstatSync(receiptPaths.completed);
+  if (
+    !preparedInfo.isFile() ||
+    preparedInfo.isSymbolicLink() ||
+    !completedInfo.isFile() ||
+    completedInfo.isSymbolicLink() ||
+    preparedInfo.nlink !== 1 ||
+    completedInfo.nlink !== 1 ||
+    preparedInfo.uid !== process.geteuid() ||
+    completedInfo.uid !== process.geteuid() ||
+    !exactOwnerOnlyMode(receiptPaths.prepared, 0o600) ||
+    !exactOwnerOnlyMode(receiptPaths.completed, 0o600)
+  ) {
+    return null;
+  }
+  let prepared;
+  let completed;
+  try {
+    prepared = JSON.parse(readFileSync(receiptPaths.prepared, "utf8"));
+    completed = JSON.parse(readFileSync(receiptPaths.completed, "utf8"));
+  } catch {
+    return null;
+  }
+  const executedAtMs = Date.parse(completed.executedAt);
+  if (!Number.isFinite(executedAtMs)) return null;
+  if (!isSha(currentRegistryCommit)) return null;
+  const closeoutFirstParentHistory = git(
+    ["rev-list", "--first-parent", currentRegistryCommit],
+    { allowFailure: true }
+  );
+  const closeoutFirstParentCommits = new Set(
+    String(closeoutFirstParentHistory.stdout ?? "")
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+  );
+  if (
+    closeoutFirstParentHistory.status !== 0 ||
+    !closeoutFirstParentCommits.has(prepared.authorizationRegistryCommit)
+  ) {
+    return null;
+  }
+  let protectedAuthorization;
+  try {
+    const protectedRegistry = loadRegistryFromCommit(prepared.authorizationRegistryCommit).parsed;
+    const protectedValidation = validateRegistry(protectedRegistry, { now: executedAtMs });
+    if (protectedValidation.errors.length > 0) return null;
+    protectedAuthorization = (protectedRegistry.policy?.localRefRetirementAuthorizations ?? []).find(
+      (entry) => entry.id === authorization.id
+    );
+    assertLocalRefRetirementDeletionRelease(
+      protectedAuthorization,
+      prepared.authorizationRegistryCommit,
+      executedAtMs
+    );
+  } catch {
+    return null;
+  }
+  const expectedEventId = sha256Buffer(
+    Buffer.from(
+      `${prepared.authorizationRegistryCommit}\0${authorization.id}\0${authorization.ref}`,
+      "utf8"
+    )
+  );
+  const authorizedAtMs = Date.parse(authorization.authorizedAt);
+  const authorizationExpiresAtMs = Date.parse(authorization.expiresAt);
+  const releaseAtMs = Date.parse(authorization.deletionRelease?.releasedAt);
+  const releaseExpiresAtMs = Date.parse(authorization.deletionRelease?.expiresAt);
+  const preparedAtMs = Date.parse(prepared.preparedAt);
+  const absenceAtMs = Date.parse(completed.localRefAbsenceReadbackAt);
+  const liveMainAtMs = Date.parse(completed.liveMainReadbackAt);
+  const liveTargetAtMs = Date.parse(completed.liveTargetAbsenceReadbackAt);
+  const consumedAtMs = Date.parse(authorization.consumedAt);
+  const consumedReceiptMismatch =
+    authorization.status === "consumed" &&
+    (authorization.authorizationRegistryCommit !== prepared.authorizationRegistryCommit ||
+      authorization.eventId !== prepared.eventId ||
+      authorization.executedBy !== completed.executedBy ||
+      authorization.localRefAbsenceReadbackAt !== completed.localRefAbsenceReadbackAt ||
+      authorization.result !== "deleted" ||
+      authorization.preparedReceiptPath !== receiptPaths.prepared ||
+      authorization.preparedReceiptSha256 !== sha256File(receiptPaths.prepared) ||
+      authorization.completedReceiptPath !== receiptPaths.completed ||
+      authorization.completedReceiptSha256 !== sha256File(receiptPaths.completed) ||
+      !isIsoTimestamp(authorization.consumedAt) ||
+      consumedAtMs < absenceAtMs ||
+      consumedAtMs < liveMainAtMs ||
+      consumedAtMs < liveTargetAtMs ||
+      branchRecord.localRefState !== "retired" ||
+      branchRecord.disposition !== authorization.targetDispositionAfterRetirement);
+  if (
+    !protectedAuthorization ||
+    protectedAuthorization.status !== "active" ||
+    JSON.stringify(localRetirementExecutionContract(protectedAuthorization)) !==
+      JSON.stringify(localRetirementExecutionContract(authorization)) ||
+    (authorization.status === "active" &&
+      (branchRecord.localRefState !== "present" ||
+        branchRecord.disposition !== authorization.targetDispositionBeforeRetirement)) ||
+    consumedReceiptMismatch ||
+    prepared.schemaVersion !== "sena-local-ref-retirement-prepared/v1" ||
+    !isSha(prepared.authorizationRegistryCommit) ||
+    prepared.authorizationId !== authorization.id ||
+    prepared.eventId !== expectedEventId ||
+    prepared.ref !== authorization.ref ||
+    prepared.expectedOldSha !== authorization.expectedOldSha ||
+    prepared.operatorTaskId !== authorization.operatorTaskId ||
+    prepared.operatorOwnerKey !== authorization.operatorOwnerKey ||
+    !isIsoTimestamp(prepared.preparedAt) ||
+    prepared.result !== "prepared" ||
+    prepared.credentialContentsRead !== false ||
+    completed.schemaVersion !== "sena-local-ref-retirement-receipt/v1" ||
+    completed.eventId !== prepared.eventId ||
+    completed.authorizationRegistryCommit !== prepared.authorizationRegistryCommit ||
+    completed.authorizationId !== authorization.id ||
+    completed.ref !== authorization.ref ||
+    completed.expectedOldSha !== authorization.expectedOldSha ||
+    completed.afterSha !== ZERO_SHA ||
+    completed.preparedReceiptSha256 !== sha256File(receiptPaths.prepared) ||
+    completed.executedBy !== authorization.operatorOwnerKey ||
+    !isIsoTimestamp(completed.executedAt) ||
+    !isIsoTimestamp(completed.localRefAbsenceReadbackAt) ||
+    completed.liveMainSha !== prepared.authorizationRegistryCommit ||
+    !isIsoTimestamp(completed.liveMainReadbackAt) ||
+    completed.liveTargetHeadSha !== null ||
+    !isIsoTimestamp(completed.liveTargetAbsenceReadbackAt) ||
+    completed.result !== "deleted" ||
+    completed.exactCasUsed !== true ||
+    completed.branchDUsed !== false ||
+    completed.forceUsed !== false ||
+    completed.resetUsed !== false ||
+    completed.rebaseUsed !== false ||
+    completed.historyRewriteUsed !== false ||
+    completed.credentialContentsRead !== false ||
+    !Number.isFinite(authorizedAtMs) ||
+    !Number.isFinite(authorizationExpiresAtMs) ||
+    !Number.isFinite(releaseAtMs) ||
+    !Number.isFinite(releaseExpiresAtMs) ||
+    !Number.isFinite(preparedAtMs) ||
+    !Number.isFinite(executedAtMs) ||
+    !Number.isFinite(absenceAtMs) ||
+    !Number.isFinite(liveMainAtMs) ||
+    !Number.isFinite(liveTargetAtMs) ||
+    timestampIsInFuture(prepared.preparedAt) ||
+    timestampIsInFuture(completed.executedAt) ||
+    timestampIsInFuture(completed.localRefAbsenceReadbackAt) ||
+    timestampIsInFuture(completed.liveMainReadbackAt) ||
+    timestampIsInFuture(completed.liveTargetAbsenceReadbackAt) ||
+    authorizedAtMs > preparedAtMs ||
+    releaseAtMs > preparedAtMs ||
+    preparedAtMs > executedAtMs ||
+    executedAtMs > absenceAtMs ||
+    absenceAtMs > liveMainAtMs ||
+    absenceAtMs > liveTargetAtMs ||
+    preparedAtMs >= releaseExpiresAtMs ||
+    executedAtMs >= releaseExpiresAtMs ||
+    absenceAtMs >= releaseExpiresAtMs ||
+    executedAtMs > authorizationExpiresAtMs
+  ) {
+    return null;
+  }
+  return { authorization, prepared, completed, receiptPaths };
+}
+
 function runRegistry(flags) {
   const { parsed } = loadRegistryForFlags(flags);
   const validation = validateRegistry(parsed);
@@ -2585,7 +5235,19 @@ export function shouldRunPortableAudit(flags, controlRoot, registryRepo) {
 }
 
 function runAudit(flags) {
-  const { parsed: registry } = loadRegistryForFlags(flags);
+  const loadedRegistry = loadRegistryForFlags(flags);
+  const registry = loadedRegistry.parsed;
+  let currentRegistryCommit = null;
+  if (loadedRegistry.registryPath.startsWith("commit:")) {
+    currentRegistryCommit = loadedRegistry.registryPath.slice("commit:".length);
+  } else if (
+    loadedRegistry.registryPath === "index" ||
+    flagValues(flags, "registry").length === 0
+  ) {
+    const head = git(["rev-parse", "--verify", "HEAD"], { allowFailure: true });
+    const headSha = head.status === 0 ? String(head.stdout).trim() : null;
+    if (isSha(headSha)) currentRegistryCommit = headSha;
+  }
   const validation = validateRegistry(registry);
   if (shouldRunPortableAudit(flags, CONTROL_ROOT, registry.repo)) {
     runPortableAudit(registry, validation);
@@ -2653,7 +5315,28 @@ function runAudit(flags) {
   for (const branchRecord of registry.branches ?? []) {
     const actual = actualBranches.get(branchRecord.name);
     if (!actual) {
+      const retirementReceipt = completedLocalRetirementReceipt(
+        registry,
+        branchRecord,
+        currentRegistryCommit
+      );
+      if (retirementReceipt) {
+        if (retirementReceipt.authorization.status === "active") {
+          warnings.push(`local ref retirement executed pending protected closeout: refs/heads/${branchRecord.name}`);
+        }
+        continue;
+      }
       errors.push(`governed local branch is absent: ${branchRecord.name}`);
+      continue;
+    }
+    const consumedRetirement = (registry.policy?.localRefRetirementAuthorizations ?? []).find(
+      (entry) =>
+        entry.status === "consumed" &&
+        entry.ref === `refs/heads/${branchRecord.name}` &&
+        entry.expectedOldSha === branchRecord.headSha
+    );
+    if (consumedRetirement || branchRecord.localRefState === "retired") {
+      errors.push(`rule=local-ref-retirement-ref-reappeared ref=refs/heads/${branchRecord.name}`);
       continue;
     }
     const branchItem = (registry.workItems ?? []).find((item) => item.branch === branchRecord.name);
@@ -3207,6 +5890,9 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs write-policy --registry-from-index --staged\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs conflict-intake --authorization-registry-commit SHA [--candidate-registry-from-index --staged|--candidate-registry-from-head]\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs local-ref-retirement-boundary --authorization-registry-commit SHA --authorization-id ID\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs local-ref-retirement --authorization-registry-commit SHA --authorization-id ID\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs registry [--registry PATH]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs audit [--live] [--registry-from-index|--registry-from-commit SHA] [--output PATH]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs inventory --output PATH\n`);
@@ -3219,6 +5905,9 @@ function main() {
     if (command === "write-policy") return runWritePolicy(flags);
     if (command === "push-policy") return runPushPolicy(flags);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);
+    if (command === "conflict-intake") return runConflictIntake(flags);
+    if (command === "local-ref-retirement-boundary") return runLocalRefRetirementBoundary(flags);
+    if (command === "local-ref-retirement") return runLocalRefRetirement(flags);
     if (command === "registry") return runRegistry(flags);
     if (command === "audit") return runAudit(flags);
     if (command === "inventory") return runInventory(flags);

@@ -9,6 +9,7 @@ import {
   symlinkSync,
   chmodSync,
   existsSync,
+  statSync,
   realpathSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -95,6 +96,7 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
       ...template.policy,
       hookCustodyPath: join(root, ".githooks"),
       refDeletionAuthorizations: [],
+      localRefRetirementAuthorizations: [],
       freezeExceptionBindings: [
         {
           exception: "governance-preservation",
@@ -166,6 +168,419 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
   runGit(root, ["commit", "-q", "-m", "register governed writer"]);
   const head = runGit(root, ["rev-parse", "HEAD"]);
   return { root, script, registryPath, registry, base, head, ref: "refs/heads/topic" };
+}
+
+function createLocalArchiveRetirementFixture(label: string) {
+  const fixture = createGovernedFixture(label, [
+    "README.md",
+    "coordination/repo-governance/**",
+    ".githooks/**",
+    "scripts/**"
+  ]);
+  const hookDirectory = join(fixture.root, ".githooks");
+  mkdirSync(hookDirectory, { recursive: true });
+  for (const hookName of ["pre-commit", "pre-push"]) {
+    const hookPath = join(hookDirectory, hookName);
+    copyFileSync(join(projectRoot, ".githooks", hookName), hookPath);
+    chmodSync(hookPath, 0o700);
+  }
+  runGit(fixture.root, ["add", ".githooks", "scripts/verify-sena-repo-governance.mjs"]);
+  runGit(fixture.root, ["commit", "-q", "-m", "track governance verifier"]);
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  const targetBranchName = "retire-me";
+  const targetRef = `refs/heads/${targetBranchName}`;
+  const tagName = "archive/test-retire-me";
+  const tagRef = `refs/tags/${tagName}`;
+  const companionTagNames = ["archive/test-retire-companion-one", "archive/test-retire-companion-two"];
+  const companionTagRefs = companionTagNames.map((name) => `refs/tags/${name}`);
+  runGit(fixture.root, ["branch", targetBranchName, fixture.base]);
+  runGit(fixture.root, ["tag", "-a", tagName, fixture.base, "-m", "test-only archive custody"]);
+  for (const companionTagName of companionTagNames) {
+    runGit(fixture.root, [
+      "tag",
+      "-a",
+      companionTagName,
+      fixture.base,
+      "-m",
+      `test-only companion custody ${companionTagName}`
+    ]);
+  }
+
+  const custodyRoot = temporaryRoot(`${label}-custody`);
+  const bundlePath = join(custodyRoot, "retire-me.bundle");
+  const manifestPath = join(custodyRoot, "retire-me.manifest.json");
+  const receiptDirectory = join(custodyRoot, "receipts");
+  mkdirSync(receiptDirectory, { recursive: true, mode: 0o700 });
+  chmodSync(receiptDirectory, 0o700);
+  runGit(fixture.root, ["bundle", "create", bundlePath, tagRef, ...companionTagRefs]);
+  chmodSync(bundlePath, 0o600);
+  const tagObjectSha = runGit(fixture.root, ["rev-parse", tagRef]);
+  const peeledCommitSha = runGit(fixture.root, ["rev-parse", `${tagRef}^{}`]);
+  const bundleSha256 = sha256File(bundlePath);
+  const bundleBytes = statSync(bundlePath).size;
+  const archiveRefs = [tagRef, ...companionTagRefs].map((ref) => ({
+    ref,
+    tagObjectSha: runGit(fixture.root, ["rev-parse", ref]),
+    peeledCommitSha: runGit(fixture.root, ["rev-parse", `${ref}^{}`])
+  }));
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify({
+      schemaVersion: "sena-local-archive-bundle-custody/v1",
+      bundle: {
+        path: bundlePath,
+        sha256: bundleSha256,
+        bytes: bundleBytes,
+        fileMode: "0600",
+        parentMode: "0700",
+        regularFile: true,
+        symlink: false,
+        linkCount: 1,
+        bundleVerify: "pass",
+        completeHistory: true,
+        prerequisites: []
+      },
+      archiveRefs,
+      excludedRefNamespaces: [
+        "refs/heads/*",
+        "refs/remotes/*",
+        "refs/rescue/*",
+        "refs/quarantine/*",
+        "HEAD",
+        "main-worktree/HEAD",
+        "worktrees/*/HEAD"
+      ],
+      knownQuarantinedBlobReachableCommitCount: 0,
+      credentialContentsRead: false,
+      targetBranchRefsRetainedAtReceipt: true,
+      remoteTagPublicationAuthorized: false,
+      deploymentAuthorized: false
+    }, null, 2)}\n`,
+    { mode: 0o600 }
+  );
+
+  const operator = fixture.registry.workItems[0];
+  const templateBranch = fixture.registry.branches[0];
+  const authorization: Record<string, any> = {
+    id: `TEST-LOCAL-ARCHIVE-RETIREMENT-${label.toUpperCase().replaceAll(/[^A-Z0-9]+/g, "-")}`,
+    status: "pending-release",
+    purpose: "archive-ref-retirement",
+    predecessorAuthorizationId: null,
+    ref: targetRef,
+    expectedOldSha: fixture.base,
+    targetDispositionBeforeRetirement: "preservation-review",
+    targetDispositionAfterRetirement: "archived",
+    effectiveOnlyAfterAuthorizationReachesProtectedMain: true,
+    exactCasRequired: true,
+    ordinaryBranchDAllowed: false,
+    forceBranchDAllowed: false,
+    historyRewriteAllowed: false,
+    oneShot: true,
+    operatorBranch: operator.branch,
+    operatorTaskId: operator.taskId,
+    operatorOwnerKey: operator.ownerKey,
+    authorizedBy: "SENA test owner",
+    authorizationBasis: "Explicit test-only archive retirement authorization.",
+    authorizedAt: now,
+    expiresAt,
+    registeredWorktreeOccupancyRequired: "none",
+    remoteHeadRequiredAbsent: true,
+    custody: {
+      kind: "ordinary-archive",
+      root: custodyRoot,
+      manifestPath,
+      manifestSha256: sha256File(manifestPath),
+      bundlePath,
+      bundleSha256,
+      bundleBytes,
+      bundleRef: tagRef,
+      tagRef,
+      tagObjectSha,
+      peeledCommitSha
+    },
+    receiptDirectory,
+    deletionRelease: null,
+    authorizationRegistryCommit: null,
+    eventId: null,
+    consumedAt: null,
+    executedBy: null,
+    localRefAbsenceReadbackAt: null,
+    result: null,
+    preparedReceiptPath: null,
+    preparedReceiptSha256: null,
+    completedReceiptPath: null,
+    completedReceiptSha256: null
+  };
+  fixture.registry.policy.localRefRetirementAuthorizations = [authorization];
+  fixture.registry.branches.push({
+    ...templateBranch,
+    name: targetBranchName,
+    owner: "test archive owner",
+    ownerKey: "test-archive-owner",
+    baseSha: fixture.base,
+    headSha: fixture.base,
+    upstream: null,
+    upstreamState: "gone",
+    upstreamCacheState: "absent",
+    remotePresent: false,
+    remoteHeadSha: null,
+    remoteObservedAt: now,
+    pr: null,
+    noPrReason: "test-only archived local ref",
+    lastOwnerHeartbeatAt: null,
+    lastObservedAt: now,
+    lastCommitAt: now,
+    nextReviewAt: expiresAt,
+    expectedCloseAt: expiresAt,
+    localRefState: "present",
+    retirementAuthorizationId: authorization.id,
+    disposition: "preservation-review",
+    closeout: "test-only retirement candidate"
+  });
+  writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+  runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+  runGit(fixture.root, ["commit", "-q", "-m", "register pending local archive retirement"]);
+  const pendingAuthorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+  authorization.status = "active";
+  authorization.deletionRelease = {
+    id: `TEST-LOCAL-REF-RELEASE-${createHash("sha256").update(label).digest("hex").slice(0, 16).toUpperCase()}`,
+    releasedBy: "SENA test owner",
+    releaseBasis: "Explicit test-only protected deletion release.",
+    releasedAt: now,
+    expiresAt,
+    pendingAuthorizationCommit,
+    exactTargetRef: targetRef,
+    exactExpectedOldSha: fixture.base,
+    operatorTaskId: operator.taskId,
+    operatorOwnerKey: operator.ownerKey,
+    effectiveOnlyAfterReleaseReachesProtectedMain: true
+  };
+  writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+  runGit(fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+  runGit(fixture.root, ["commit", "-q", "-m", "release local archive retirement"]);
+  const authorizationCommit = runGit(fixture.root, ["rev-parse", "HEAD"]);
+  runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", authorizationCommit]);
+  runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
+
+  const helperDirectory = temporaryRoot(`${label}-helper`);
+  const gitHelperPath = join(helperDirectory, "git");
+  const realGit = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+  writeFileSync(gitHelperPath, [
+    "#!/bin/sh",
+    "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"https://github.com/HUDongpin/SENA.git\" ] && [ -n \"$SENA_TEST_CANONICAL_REMOTE_FAILURE\" ]; then",
+    "  exit 73",
+    "fi",
+    "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"origin\" ] && [ -n \"$SENA_TEST_SPOOFED_ORIGIN_SUCCEEDS\" ]; then",
+    "  if [ \"$4\" = \"refs/heads/main\" ]; then",
+    "    printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+    "  fi",
+    "  exit 0",
+    "fi",
+    "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"https://github.com/HUDongpin/SENA.git\" ]; then",
+    "  if [ \"$4\" = \"refs/heads/main\" ]; then",
+    "    printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
+    "  elif [ \"$4\" = \"$SENA_TEST_TARGET_REF\" ] && [ -n \"$SENA_TEST_REMOTE_TARGET_SHA\" ]; then",
+    "    printf '%s\\t%s\\n' \"$SENA_TEST_REMOTE_TARGET_SHA\" \"$SENA_TEST_TARGET_REF\"",
+    "  fi",
+    "  exit 0",
+    "fi",
+    "if [ \"$1\" = \"update-ref\" ] && [ \"$2\" = \"--no-deref\" ] && [ \"$3\" = \"-d\" ] && [ \"$4\" = \"$SENA_TEST_TARGET_REF\" ] && [ -n \"$SENA_TEST_CAS_DRIFT_SHA\" ]; then",
+    "  \"$SENA_TEST_REAL_GIT\" update-ref \"$SENA_TEST_TARGET_REF\" \"$SENA_TEST_CAS_DRIFT_SHA\"",
+    "fi",
+    "exec \"$SENA_TEST_REAL_GIT\" \"$@\"",
+    ""
+  ].join("\n"));
+  chmodSync(gitHelperPath, 0o700);
+  const env: Partial<NodeJS.ProcessEnv> = {
+    PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
+    SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
+    SENA_TEST_TARGET_REF: targetRef,
+    SENA_TEST_REAL_GIT: realGit
+  };
+  return {
+    fixture,
+    authorization,
+    pendingAuthorizationCommit,
+    authorizationCommit,
+    targetRef,
+    tagRef,
+    bundlePath,
+    manifestPath,
+    receiptDirectory,
+    env
+  };
+}
+
+function runLocalRefRetirementCli(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  command: "local-ref-retirement-boundary" | "local-ref-retirement"
+) {
+  return runNode(
+    context.fixture.script,
+    [
+      command,
+      "--authorization-registry-commit",
+      context.authorizationCommit,
+      "--authorization-id",
+      context.authorization.id
+    ],
+    { cwd: context.fixture.root, env: context.env }
+  );
+}
+
+function recommitLocalRefRetirementRegistry(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  message: string
+) {
+  writeFileSync(
+    context.fixture.registryPath,
+    `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+  );
+  runGit(context.fixture.root, ["config", "--unset", "core.hooksPath"]);
+  runGit(context.fixture.root, ["add", "coordination/repo-governance/active-work.json"]);
+  runGit(context.fixture.root, ["commit", "-q", "-m", message]);
+  context.authorizationCommit = runGit(context.fixture.root, ["rev-parse", "HEAD"]);
+  runGit(context.fixture.root, [
+    "update-ref",
+    "refs/remotes/origin/main",
+    context.authorizationCommit
+  ]);
+  runGit(context.fixture.root, ["config", "core.hooksPath", ".githooks"]);
+  context.env.SENA_TEST_AUTHORIZATION_SHA = context.authorizationCommit;
+}
+
+function rebindLocalRefRetirementAuthorization(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  message: string
+) {
+  const deletionRelease = { ...context.authorization.deletionRelease };
+  context.authorization.status = "pending-release";
+  context.authorization.deletionRelease = null;
+  recommitLocalRefRetirementRegistry(context, `register pending authorization: ${message}`);
+  context.pendingAuthorizationCommit = context.authorizationCommit;
+  context.authorization.status = "active";
+  context.authorization.deletionRelease = {
+    ...deletionRelease,
+    pendingAuthorizationCommit: context.pendingAuthorizationCommit
+  };
+  recommitLocalRefRetirementRegistry(context, message);
+}
+
+function applyConsumedLocalRefRetirementCloseout(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>
+) {
+  const preparedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.prepared.json`
+  );
+  const completedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.completed.json`
+  );
+  const prepared = JSON.parse(readFileSync(preparedPath, "utf8"));
+  const completed = JSON.parse(readFileSync(completedPath, "utf8"));
+  const consumedAt = new Date(
+    Math.max(
+      Date.parse(completed.executedAt),
+      Date.parse(completed.localRefAbsenceReadbackAt),
+      Date.parse(completed.liveMainReadbackAt),
+      Date.parse(completed.liveTargetAbsenceReadbackAt)
+    )
+  ).toISOString();
+  context.authorization.status = "consumed";
+  context.authorization.authorizationRegistryCommit = prepared.authorizationRegistryCommit;
+  context.authorization.eventId = completed.eventId;
+  context.authorization.consumedAt = consumedAt;
+  context.authorization.executedBy = completed.executedBy;
+  context.authorization.localRefAbsenceReadbackAt = completed.localRefAbsenceReadbackAt;
+  context.authorization.result = "deleted";
+  context.authorization.preparedReceiptPath = realpathSync(preparedPath);
+  context.authorization.preparedReceiptSha256 = sha256File(preparedPath);
+  context.authorization.completedReceiptPath = realpathSync(completedPath);
+  context.authorization.completedReceiptSha256 = sha256File(completedPath);
+  const targetBranch = context.fixture.registry.branches.find(
+    (entry: { name: string }) => `refs/heads/${entry.name}` === context.targetRef
+  );
+  targetBranch.disposition = "archived";
+  targetBranch.localRefState = "retired";
+  return { preparedPath, completedPath, prepared, completed };
+}
+
+function closeOutLocalRefRetirementRegistry(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  message: string
+) {
+  const receipt = applyConsumedLocalRefRetirementCloseout(context);
+  recommitLocalRefRetirementRegistry(context, message);
+  return receipt;
+}
+
+function writeSyntheticLocalRefRetirementReceipts(
+  context: ReturnType<typeof createLocalArchiveRetirementFixture>,
+  times: { preparedAt: string; executedAt: string; liveReadbackAt: string }
+) {
+  const eventId = createHash("sha256")
+    .update(
+      `${context.authorizationCommit}\0${context.authorization.id}\0${context.authorization.ref}`
+    )
+    .digest("hex");
+  const preparedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.prepared.json`
+  );
+  const completedPath = join(
+    context.receiptDirectory,
+    `${context.authorization.id}.completed.json`
+  );
+  const prepared = {
+    schemaVersion: "sena-local-ref-retirement-prepared/v1",
+    eventId,
+    authorizationId: context.authorization.id,
+    authorizationRegistryCommit: context.authorizationCommit,
+    ref: context.authorization.ref,
+    expectedOldSha: context.authorization.expectedOldSha,
+    operatorTaskId: context.authorization.operatorTaskId,
+    operatorOwnerKey: context.authorization.operatorOwnerKey,
+    preparedAt: times.preparedAt,
+    result: "prepared",
+    credentialContentsRead: false
+  };
+  writeFileSync(preparedPath, `${JSON.stringify(prepared, null, 2)}\n`, { mode: 0o600 });
+  const completed = {
+    schemaVersion: "sena-local-ref-retirement-receipt/v1",
+    eventId,
+    authorizationId: context.authorization.id,
+    authorizationRegistryCommit: context.authorizationCommit,
+    ref: context.authorization.ref,
+    expectedOldSha: context.authorization.expectedOldSha,
+    afterSha: "0".repeat(40),
+    preparedReceiptSha256: sha256File(preparedPath),
+    executedBy: context.authorization.operatorOwnerKey,
+    executedAt: times.executedAt,
+    localRefAbsenceReadbackAt: times.executedAt,
+    liveMainSha: context.authorizationCommit,
+    liveMainReadbackAt: times.liveReadbackAt,
+    liveTargetHeadSha: null,
+    liveTargetAbsenceReadbackAt: times.liveReadbackAt,
+    result: "deleted",
+    exactCasUsed: true,
+    branchDUsed: false,
+    forceUsed: false,
+    resetUsed: false,
+    rebaseUsed: false,
+    historyRewriteUsed: false,
+    credentialContentsRead: false
+  };
+  writeFileSync(completedPath, `${JSON.stringify(completed, null, 2)}\n`, { mode: 0o600 });
+  runGit(context.fixture.root, [
+    "update-ref",
+    "--no-deref",
+    "-d",
+    context.targetRef,
+    context.authorization.expectedOldSha
+  ]);
+  return { preparedPath, completedPath, prepared, completed };
 }
 
 afterEach(() => {
@@ -402,19 +817,55 @@ describe("SENA repository governance", () => {
   it("lets the integrated read-only root absorb only protected-main registry-only commits", () => {
     const fixture = createGovernedFixture("integrated-root-registry-only-advance");
     runGit(fixture.root, ["branch", "-M", "main"]);
-    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", fixture.head]);
     runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "main"]);
+
+    const hookDirectory = join(fixture.root, ".githooks");
+    mkdirSync(hookDirectory, { recursive: true });
+    for (const hookName of ["pre-commit", "pre-push"]) {
+      const hookPath = join(hookDirectory, hookName);
+      copyFileSync(join(projectRoot, ".githooks", hookName), hookPath);
+      chmodSync(hookPath, 0o700);
+    }
+    runGit(fixture.root, ["add", ".githooks", "scripts/verify-sena-repo-governance.mjs"]);
+    runGit(fixture.root, ["commit", "-q", "-m", "track governance fixture custody"]);
+    const integratedBaseline = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", integratedBaseline]);
+
+    const rescueRef = "refs/rescue/test-integrated-root/fixture";
+    runGit(fixture.root, ["update-ref", rescueRef, integratedBaseline]);
+    const rescueRoot = temporaryRoot("integrated-root-rescue");
+    const rescueBundlePath = join(rescueRoot, "rescue.bundle");
+    const rescueInventoryPath = join(rescueRoot, "orphan-inventory.json");
+    runGit(fixture.root, ["bundle", "create", rescueBundlePath, rescueRef]);
+    chmodSync(rescueBundlePath, 0o600);
+    writeFileSync(rescueInventoryPath, `${JSON.stringify({ roots: [] }, null, 2)}\n`);
+    chmodSync(rescueInventoryPath, 0o600);
 
     const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
     const item = registry.workItems[0];
     const branch = registry.branches[0];
+    registry.rescue = {
+      ...registry.rescue,
+      namespace: "refs/rescue/test-integrated-root",
+      expectedRefCount: 1,
+      refListSha256: createHash("sha256")
+        .update(`${rescueRef} ${integratedBaseline}\n`)
+        .digest("hex"),
+      bundlePath: rescueBundlePath,
+      bundleSha256: sha256File(rescueBundlePath),
+      orphanInventory: {
+        path: rescueInventoryPath,
+        sha256: sha256File(rescueInventoryPath)
+      },
+      diskOnlySourceCopies: []
+    };
     item.taskId = "SENA-A01-ROOT-CONTROL-PLANE-20260828";
     item.owner = "SENA-A01 root control plane";
     item.ownerKey = "SENA-A01";
     item.ownerLane = "A01 read-only coordination";
     item.laneType = "read-only";
     item.branch = "main";
-    item.headSha = fixture.head;
+    item.headSha = integratedBaseline;
     item.aheadBehind = { baseRef: "origin/main", ahead: 0, behind: 0 };
     item.allowedPaths = ["<read-only coordination and synchronization only>"];
     item.prNumber = null;
@@ -430,12 +881,12 @@ describe("SENA repository governance", () => {
     branch.name = "main";
     branch.owner = "SENA-A01";
     branch.ownerKey = "SENA-A01";
-    branch.headSha = fixture.head;
+    branch.headSha = integratedBaseline;
     branch.upstream = "origin/main";
     branch.upstreamState = "live";
     branch.upstreamCacheState = "present";
     branch.remotePresent = true;
-    branch.remoteHeadSha = fixture.head;
+    branch.remoteHeadSha = integratedBaseline;
     branch.remoteObservationMode = "lower-bound";
     branch.pr = null;
     branch.noPrReason = "Control-plane main branch.";
@@ -456,12 +907,15 @@ describe("SENA repository governance", () => {
     runGit(fixture.root, ["commit", "-q", "-m", "protected main registry-only heartbeat"]);
     const registryOnlyMain = runGit(fixture.root, ["rev-parse", "HEAD"]);
     runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", registryOnlyMain]);
+    runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
 
     const registryOnlyAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
       cwd: fixture.root,
       env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
     });
     const registryOnlyReport = JSON.parse(registryOnlyAudit.stdout);
+    expect(registryOnlyAudit.status, JSON.stringify(registryOnlyReport, null, 2)).toBe(0);
+    expect(registryOnlyReport.status).toBe("pass");
     expect(registryOnlyReport.errors).not.toContain("branch head differs from registry: main");
     expect(registryOnlyReport.errors).not.toContain(
       "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828"
@@ -471,13 +925,16 @@ describe("SENA repository governance", () => {
     );
 
     runGit(fixture.root, ["checkout", "-q", "--detach", registryOnlyMain]);
-    runGit(fixture.root, ["branch", "-f", "main", fixture.head]);
+    runGit(fixture.root, ["branch", "-f", "main", integratedBaseline]);
     runGit(fixture.root, ["checkout", "-q", "main"]);
     const remoteOnlyAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
       cwd: fixture.root,
       env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
     });
+    expect(remoteOnlyAudit.stdout, remoteOnlyAudit.stderr).not.toBe("");
     const remoteOnlyReport = JSON.parse(remoteOnlyAudit.stdout);
+    expect(remoteOnlyAudit.status, JSON.stringify(remoteOnlyReport, null, 2)).toBe(0);
+    expect(remoteOnlyReport.status).toBe("pass");
     expect(remoteOnlyReport.errors).not.toContain(
       "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828"
     );
@@ -485,6 +942,7 @@ describe("SENA repository governance", () => {
       "integrated read-only root observed a protected-main registry-only remote advance without advancing local main: SENA-A01-ROOT-CONTROL-PLANE-20260828"
     );
 
+    runGit(fixture.root, ["config", "--unset", "core.hooksPath"]);
     runGit(fixture.root, ["checkout", "-q", "--detach", registryOnlyMain]);
     writeFileSync(join(fixture.root, "README.md"), "unauthorized protected-main product change\n");
     runGit(fixture.root, ["add", "README.md"]);
@@ -492,6 +950,7 @@ describe("SENA repository governance", () => {
     const productMain = runGit(fixture.root, ["rev-parse", "HEAD"]);
     runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", productMain]);
     runGit(fixture.root, ["checkout", "-q", "main"]);
+    runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
 
     const productAudit = runNode(fixture.script, ["audit", "--registry", registrySnapshot], {
       cwd: fixture.root,
@@ -501,6 +960,9 @@ describe("SENA repository governance", () => {
     expect(productAudit.status).toBe(1);
     expect(productReport.errors).toContain(
       "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+    expect(productReport.warnings).not.toContain(
+      "integrated read-only root observed a protected-main registry-only remote advance without advancing local main: SENA-A01-ROOT-CONTROL-PLANE-20260828"
     );
   });
 
@@ -2390,6 +2852,828 @@ describe("SENA repository governance", () => {
     );
   });
 
+  it("rejects malformed local-ref retirement authorization records", () => {
+    const fixture = createGovernedFixture("malformed-local-ref-retirement-authorization");
+    fixture.registry.policy.localRefRetirementAuthorizations = [
+      {
+        id: "TEST-MALFORMED-LOCAL-RETIREMENT",
+        status: "active"
+      }
+    ];
+    writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+
+    const result = runNode(fixture.script, ["registry", "--registry", fixture.registryPath], {
+      cwd: fixture.root
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "invalid local-ref retirement authorization: TEST-MALFORMED-LOCAL-RETIREMENT"
+    );
+  });
+
+  it("rejects a security-quarantine retirement purpose until its dedicated runtime is implemented", () => {
+    const context = createLocalArchiveRetirementFixture("unimplemented-quarantine-retirement-purpose");
+    context.authorization.purpose = "security-quarantine-local-ref-retirement";
+    context.authorization.custody.kind = "security-quarantine";
+    writeFileSync(
+      context.fixture.registryPath,
+      `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+    );
+
+    const result = runNode(
+      context.fixture.script,
+      ["registry", "--registry", context.fixture.registryPath],
+      { cwd: context.fixture.root }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      `invalid local-ref retirement authorization: ${context.authorization.id}`
+    );
+  });
+
+  it("rejects more than one active local-ref retirement authorization in one protected snapshot", () => {
+    const context = createLocalArchiveRetirementFixture("multiple-active-local-retirement");
+    context.fixture.registry.policy.localRefRetirementAuthorizations.push({
+      ...context.authorization,
+      id: `${context.authorization.id}-SECOND`,
+      ref: "refs/heads/second-retire-me"
+    });
+    writeFileSync(
+      context.fixture.registryPath,
+      `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+    );
+
+    const result = runNode(
+      context.fixture.script,
+      ["registry", "--registry", context.fixture.registryPath],
+      { cwd: context.fixture.root }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-multiple-active");
+  });
+
+  it("rejects a local-ref retirement authorization ID that could escape its receipt directory", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-id-traversal");
+    context.authorization.id = "../ESCAPE";
+    writeFileSync(
+      context.fixture.registryPath,
+      `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+    );
+
+    const result = runNode(
+      context.fixture.script,
+      ["registry", "--registry", context.fixture.registryPath],
+      { cwd: context.fixture.root }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-authorization-id-invalid");
+  });
+
+  it("rejects a successor local-ref retirement authorization without a consumed predecessor", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-predecessor-chain");
+    const successor = JSON.parse(JSON.stringify(context.authorization));
+    const consumedAt = new Date().toISOString();
+    context.authorization.status = "consumed";
+    context.authorization.authorizationRegistryCommit = context.authorizationCommit;
+    context.authorization.eventId = "a".repeat(64);
+    context.authorization.consumedAt = consumedAt;
+    context.authorization.executedBy = context.authorization.operatorOwnerKey;
+    context.authorization.localRefAbsenceReadbackAt = consumedAt;
+    context.authorization.result = "deleted";
+    context.authorization.preparedReceiptPath = join(context.receiptDirectory, "prepared.json");
+    context.authorization.preparedReceiptSha256 = "b".repeat(64);
+    context.authorization.completedReceiptPath = join(context.receiptDirectory, "completed.json");
+    context.authorization.completedReceiptSha256 = "c".repeat(64);
+    successor.id = `${successor.id}-SUCCESSOR`;
+    successor.ref = "refs/heads/successor-retire-me";
+    successor.predecessorAuthorizationId = "MISSING-CONSUMED-PREDECESSOR";
+    context.fixture.registry.policy.localRefRetirementAuthorizations.push(successor);
+    writeFileSync(
+      context.fixture.registryPath,
+      `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+    );
+
+    const result = runNode(
+      context.fixture.script,
+      ["registry", "--registry", context.fixture.registryPath],
+      { cwd: context.fixture.root }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-predecessor-not-consumed");
+  });
+
+  it("accepts an exact protected-main local archive-ref retirement boundary without deleting the ref", () => {
+    const context = createLocalArchiveRetirementFixture("local-archive-retirement-boundary");
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status, `${boundary.stdout}${boundary.stderr}`).toBe(0);
+    expect(boundary.stdout).toContain(
+      `SENA_LOCAL_REF_RETIREMENT_BOUNDARY pass authorization=${context.authorization.id} ref=${context.targetRef}`
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects a missing protected-main local-ref retirement authorization", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-authorization-missing");
+    context.fixture.registry.policy.localRefRetirementAuthorizations = [];
+    recommitLocalRefRetirementRegistry(context, "remove local retirement authorization");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-authorization-missing");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("keeps a pending-release local-ref retirement authorization non-executable", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-pending");
+    context.authorization.status = "pending-release";
+    context.authorization.deletionRelease = null;
+    recommitLocalRefRetirementRegistry(context, "hold local retirement pending release");
+
+    const registry = runNode(
+      context.fixture.script,
+      ["registry", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root }
+    );
+    expect(registry.status, `${registry.stdout}${registry.stderr}`).toBe(0);
+
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status).toBe(1);
+    expect(boundary.stderr).toContain("rule=local-ref-retirement-release-pending");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an active local-ref retirement authorization without machine-readable release custody", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-missing");
+    context.authorization.deletionRelease = null;
+    recommitLocalRefRetirementRegistry(context, "remove local retirement release custody");
+
+    const registry = runNode(
+      context.fixture.script,
+      ["registry", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root }
+    );
+    expect(registry.status).toBe(1);
+    expect(registry.stderr).toContain(
+      `active local-ref retirement authorization lacks deletion release: ${context.authorization.id}`
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an expired machine-readable local-ref deletion release", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-expired");
+    context.authorization.authorizedAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    context.authorization.deletionRelease.releasedAt = new Date(
+      Date.now() - 2 * 60 * 60 * 1000
+    ).toISOString();
+    context.authorization.deletionRelease.expiresAt = new Date(
+      Date.now() - 60 * 60 * 1000
+    ).toISOString();
+    recommitLocalRefRetirementRegistry(context, "expire local retirement deletion release");
+
+    const registry = runNode(
+      context.fixture.script,
+      ["registry", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root }
+    );
+    expect(registry.status).toBe(1);
+    expect(registry.stderr).toContain(
+      `active local-ref retirement deletion release expired: ${context.authorization.id}`
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects a deletion release whose pending authorization was never protected main", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-not-main");
+    const unrelatedCommit = runGit(context.fixture.root, [
+      "commit-tree",
+      `${context.fixture.base}^{tree}`,
+      "-m",
+      "unrelated pending authorization"
+    ]);
+    context.authorization.deletionRelease.pendingAuthorizationCommit = unrelatedCommit;
+    recommitLocalRefRetirementRegistry(context, "bind unrelated pending authorization");
+
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status).toBe(1);
+    expect(boundary.stderr).toContain("rule=local-ref-retirement-release-not-protected-main");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an active release that rewrites the protected pending authorization core", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-core-drift");
+    context.authorization.authorizationBasis =
+      "Test-only active release attempted to rewrite its protected pending core.";
+    recommitLocalRefRetirementRegistry(context, "rewrite pending authorization core at release");
+
+    const boundary = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(boundary.status).toBe(1);
+    expect(boundary.stderr).toContain(
+      "rule=local-ref-retirement-release-pending-custody-mismatch"
+    );
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an expired protected-main local-ref retirement authorization", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-authorization-expired");
+    context.authorization.authorizedAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    context.authorization.expiresAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    recommitLocalRefRetirementRegistry(context, "expire local retirement authorization");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-authorization-expired");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects replay through a consumed protected-main local-ref retirement authorization", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-authorization-consumed");
+    const consumedAt = new Date().toISOString();
+    context.authorization.status = "consumed";
+    context.authorization.authorizationRegistryCommit = context.authorizationCommit;
+    context.authorization.eventId = "a".repeat(64);
+    context.authorization.consumedAt = consumedAt;
+    context.authorization.executedBy = context.authorization.operatorOwnerKey;
+    context.authorization.localRefAbsenceReadbackAt = consumedAt;
+    context.authorization.result = "deleted";
+    context.authorization.preparedReceiptPath = join(context.receiptDirectory, "prepared.json");
+    context.authorization.preparedReceiptSha256 = "b".repeat(64);
+    context.authorization.completedReceiptPath = join(context.receiptDirectory, "completed.json");
+    context.authorization.completedReceiptSha256 = "c".repeat(64);
+    recommitLocalRefRetirementRegistry(context, "consume local retirement authorization");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-authorization-consumed");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local archive retirement when the target SHA drifts", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-sha-drift");
+    runGit(context.fixture.root, ["update-ref", context.targetRef, context.fixture.head]);
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-target-sha-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.head);
+  });
+
+  it("rejects local archive retirement when bundle bytes no longer match protected custody", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-bundle-hash");
+    const bytes = readFileSync(context.bundlePath);
+    bytes[bytes.length - 1] ^= 1;
+    writeFileSync(context.bundlePath, bytes, { mode: 0o600 });
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-bundle-sha256-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local archive retirement when the bundle is not owner-only", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-bundle-mode");
+    chmodSync(context.bundlePath, 0o644);
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-bundle-mode-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local archive retirement when the authorized bundle ref is absent", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-bundle-ref-mismatch");
+    context.authorization.custody.bundleRef = "refs/tags/archive/missing-retirement-tag";
+    context.authorization.custody.tagRef = context.authorization.custody.bundleRef;
+    rebindLocalRefRetirementAuthorization(context, "bind missing retirement bundle ref");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-bundle-ref-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects duplicate manifest refs that omit one actual bundle head", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-duplicate-manifest-ref");
+    const manifest = JSON.parse(readFileSync(context.manifestPath, "utf8"));
+    manifest.archiveRefs[1] = { ...manifest.archiveRefs[0] };
+    writeFileSync(context.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+    context.authorization.custody.manifestSha256 = sha256File(context.manifestPath);
+    rebindLocalRefRetirementAuthorization(context, "bind duplicate retirement manifest ref");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-bundle-ref-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local archive retirement after its annotated tag moves", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-tag-peel-mismatch");
+    runGit(context.fixture.root, [
+      "tag",
+      "-f",
+      "-a",
+      context.tagRef.slice("refs/tags/".length),
+      context.fixture.head,
+      "-m",
+      "test-only moved archive tag"
+    ]);
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-tag-peel-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local archive retirement from a dirty operator worktree", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-operator-dirty");
+    writeFileSync(join(context.fixture.root, "dirty-untracked.txt"), "dirty\n");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-operator-dirty");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects ordinary archive custody that claims quarantined history is reachable", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-ordinary-quarantine-isolation");
+    const manifest = JSON.parse(readFileSync(context.manifestPath, "utf8"));
+    manifest.knownQuarantinedBlobReachableCommitCount = 1;
+    writeFileSync(context.manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+    context.authorization.custody.manifestSha256 = sha256File(context.manifestPath);
+    rebindLocalRefRetirementAuthorization(context, "bind unsafe ordinary archive manifest");
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-ordinary-quarantine-isolation");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("retires one exact local ref by guarded CAS and rejects replay", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-executor");
+
+    const first = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(first.status, `${first.stdout}${first.stderr}`).toBe(0);
+    expect(first.stdout).toContain(
+      `SENA_LOCAL_REF_RETIREMENT pass authorization=${context.authorization.id} ref=${context.targetRef}`
+    );
+    expect(
+      spawnSync("git", ["rev-parse", "--verify", context.targetRef], {
+        cwd: context.fixture.root,
+        encoding: "utf8"
+      }).status
+    ).not.toBe(0);
+    expect(existsSync(join(context.receiptDirectory, `${context.authorization.id}.prepared.json`))).toBe(true);
+    expect(existsSync(join(context.receiptDirectory, `${context.authorization.id}.completed.json`))).toBe(true);
+    const completedReceipt = JSON.parse(
+      readFileSync(
+        join(context.receiptDirectory, `${context.authorization.id}.completed.json`),
+        "utf8"
+      )
+    );
+    expect(completedReceipt.liveMainSha).toBe(context.authorizationCommit);
+    expect(completedReceipt.liveTargetHeadSha).toBeNull();
+    expect(completedReceipt.liveMainReadbackAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(completedReceipt.liveTargetAbsenceReadbackAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    const replay = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(replay.status).toBe(1);
+    expect(replay.stderr).toContain("rule=local-ref-retirement-replay");
+    expect(
+      spawnSync("git", ["rev-parse", "--verify", context.targetRef], {
+        cwd: context.fixture.root,
+        encoding: "utf8"
+      }).status
+    ).not.toBe(0);
+  });
+
+  it("preserves a drifted local ref when the guarded CAS lease loses the race", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-cas-drift");
+    context.env.SENA_TEST_CAS_DRIFT_SHA = context.fixture.head;
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-exact-cas-failed");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.head);
+    expect(existsSync(join(context.receiptDirectory, `${context.authorization.id}.prepared.json`))).toBe(true);
+    expect(existsSync(join(context.receiptDirectory, `${context.authorization.id}.completed.json`))).toBe(false);
+  });
+
+  it("rejects local retirement while the target branch occupies a registered worktree", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-worktree-occupied");
+    const targetWorktree = join(temporaryRoot("local-retirement-worktree-parent"), "target");
+    runGit(context.fixture.root, [
+      "worktree",
+      "add",
+      "-q",
+      targetWorktree,
+      context.targetRef.slice("refs/heads/".length)
+    ]);
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-target-worktree-occupied");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local retirement while the target head still exists on the live remote", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-remote-present");
+    context.env.SENA_TEST_REMOTE_TARGET_SHA = context.fixture.base;
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-target-remote-present");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("does not fall back to a spoofed origin when canonical GitHub readback fails", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-canonical-remote-failure");
+    context.env.SENA_TEST_CANONICAL_REMOTE_FAILURE = "1";
+    context.env.SENA_TEST_SPOOFED_ORIGIN_SUCCEEDS = "1";
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-canonical-remote-readback-failed");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects a canonical live main SHA that differs from the protected authorization commit", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-live-main-mismatch");
+    context.env.SENA_TEST_AUTHORIZATION_SHA = context.fixture.base;
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-live-main-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects local retirement when the operator HEAD is not the exact protected authorization commit", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-operator-head-drift");
+    runGit(context.fixture.root, ["config", "--unset", "core.hooksPath"]);
+    runGit(context.fixture.root, ["commit", "--allow-empty", "-q", "-m", "operator head drift"]);
+    runGit(context.fixture.root, ["config", "core.hooksPath", ".githooks"]);
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement-boundary");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-operator-head-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects dangerous Git environment overrides before local-ref retirement preflight", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-dangerous-git-env");
+    context.env.GIT_NAMESPACE = "retirement-test-namespace";
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-dangerous-git-environment");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("rejects an assume-unchanged verifier whose bytes differ from the protected authorization commit", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-script-drift");
+    writeFileSync(
+      context.fixture.script,
+      `${readFileSync(context.fixture.script, "utf8")}\n// test-only hidden verifier drift\n`
+    );
+    runGit(context.fixture.root, [
+      "update-index",
+      "--assume-unchanged",
+      "scripts/verify-sena-repo-governance.mjs"
+    ]);
+
+    const result = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=local-ref-retirement-script-custody-mismatch");
+    expect(runGit(context.fixture.root, ["rev-parse", context.targetRef])).toBe(context.fixture.base);
+  });
+
+  it("audits an executed active local retirement as pending protected closeout", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-pending-closeout");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).not.toContain(`governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`);
+    expect(report.warnings).toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects a pending-closeout receipt with future execution timestamps", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-future-receipt");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    const completedPath = join(
+      context.receiptDirectory,
+      `${context.authorization.id}.completed.json`
+    );
+    const completed = JSON.parse(readFileSync(completedPath, "utf8"));
+    const future = new Date(Date.now() + 30 * 60_000).toISOString();
+    completed.executedAt = future;
+    completed.localRefAbsenceReadbackAt = future;
+    completed.liveMainReadbackAt = future;
+    completed.liveTargetAbsenceReadbackAt = future;
+    writeFileSync(completedPath, `${JSON.stringify(completed, null, 2)}\n`, { mode: 0o600 });
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("audits a consumed local retirement with immutable receipts as retired", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-consumed-closeout");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    closeOutLocalRefRetirementRegistry(context, "close out consumed local retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors, JSON.stringify(report, null, 2)).not.toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects a consumed local retirement ref that reappears", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-ref-reappeared");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    closeOutLocalRefRetirementRegistry(context, "close out consumed local retirement");
+    runGit(context.fixture.root, [
+      "update-ref",
+      context.targetRef,
+      context.authorization.expectedOldSha
+    ]);
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(audit.status).toBe(1);
+    expect(report.errors).toContain(
+      `rule=local-ref-retirement-ref-reappeared ref=${context.targetRef}`
+    );
+  });
+
+  it("accepts a staged consumed closeout anchored to the exact execution HEAD", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-staged-closeout");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    applyConsumedLocalRefRetirementCloseout(context);
+    writeFileSync(
+      context.fixture.registryPath,
+      `${JSON.stringify(context.fixture.registry, null, 2)}\n`
+    );
+    runGit(context.fixture.root, [
+      "add",
+      "coordination/repo-governance/active-work.json"
+    ]);
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).not.toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects consumed closeout that rewrites the protected deletion release", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-closeout-tamper");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    context.authorization.deletionRelease.releaseBasis = "Tampered after exact-CAS execution.";
+    closeOutLocalRefRetirementRegistry(
+      context,
+      "tamper protected deletion release at closeout"
+    );
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects consumed closeout that rewrites the protected authorization core", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-core-closeout-tamper");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    context.authorization.authorizationBasis =
+      "Tampered authorization core after exact-CAS execution.";
+    closeOutLocalRefRetirementRegistry(
+      context,
+      "tamper protected authorization core at closeout"
+    );
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("keeps an execution-time-valid consumed receipt durable after its release expires", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-historical-release");
+    const now = Date.now();
+    context.authorization.authorizedAt = new Date(now - 60_000).toISOString();
+    context.authorization.expiresAt = new Date(now + 60 * 60_000).toISOString();
+    context.authorization.deletionRelease.releasedAt = new Date(now - 40_000).toISOString();
+    context.authorization.deletionRelease.expiresAt = new Date(now - 20_000).toISOString();
+    rebindLocalRefRetirementAuthorization(context, "bind historical deletion release");
+    writeSyntheticLocalRefRetirementReceipts(context, {
+      preparedAt: new Date(now - 35_000).toISOString(),
+      executedAt: new Date(now - 30_000).toISOString(),
+      liveReadbackAt: new Date(now - 25_000).toISOString()
+    });
+    closeOutLocalRefRetirementRegistry(context, "close historical consumed retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors, JSON.stringify(report, null, 2)).not.toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects a consumed receipt executed outside its protected deletion release window", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-release-window");
+    const now = Date.now();
+    context.authorization.authorizedAt = new Date(now - 60_000).toISOString();
+    context.authorization.expiresAt = new Date(now + 60 * 60_000).toISOString();
+    context.authorization.deletionRelease.releasedAt = new Date(now - 40_000).toISOString();
+    context.authorization.deletionRelease.expiresAt = new Date(now - 20_000).toISOString();
+    rebindLocalRefRetirementAuthorization(context, "bind expired deletion release window");
+    writeSyntheticLocalRefRetirementReceipts(context, {
+      preparedAt: new Date(now - 15_000).toISOString(),
+      executedAt: new Date(now - 10_000).toISOString(),
+      liveReadbackAt: new Date(now - 5_000).toISOString()
+    });
+    closeOutLocalRefRetirementRegistry(context, "close out-of-window consumed retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rechecks pending-release ancestry when auditing a consumed receipt", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-receipt-release-ancestry");
+    const unrelatedCommit = runGit(context.fixture.root, [
+      "commit-tree",
+      `${context.fixture.base}^{tree}`,
+      "-m",
+      "unrelated pending authorization for receipt audit"
+    ]);
+    context.authorization.deletionRelease.pendingAuthorizationCommit = unrelatedCommit;
+    recommitLocalRefRetirementRegistry(context, "bind unrelated release ancestry for receipt audit");
+    const now = Date.now();
+    writeSyntheticLocalRefRetirementReceipts(context, {
+      preparedAt: new Date(now).toISOString(),
+      executedAt: new Date(now + 1).toISOString(),
+      liveReadbackAt: new Date(now + 2).toISOString()
+    });
+    closeOutLocalRefRetirementRegistry(context, "close invalid-ancestry consumed retirement");
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects consumed closeout whose protected execution commit is not first-parent history", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-closeout-ancestry");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+    closeOutLocalRefRetirementRegistry(context, "prepare consumed closeout ancestry test");
+    const forgedCloseoutCommit = runGit(context.fixture.root, [
+      "commit-tree",
+      `${context.authorizationCommit}^{tree}`,
+      "-p",
+      context.pendingAuthorizationCommit,
+      "-m",
+      "consumed closeout without protected execution ancestry"
+    ]);
+    context.authorizationCommit = forgedCloseoutCommit;
+    context.env.SENA_TEST_AUTHORIZATION_SHA = forgedCloseoutCommit;
+    runGit(context.fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      forgedCloseoutCommit
+    ]);
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
+  it("rejects a pending-closeout receipt whose authorization commit and event ID were rewritten", () => {
+    const context = createLocalArchiveRetirementFixture("local-retirement-receipt-auth-tamper");
+    const execution = runLocalRefRetirementCli(context, "local-ref-retirement");
+    expect(execution.status, `${execution.stdout}${execution.stderr}`).toBe(0);
+
+    const preparedPath = join(
+      context.receiptDirectory,
+      `${context.authorization.id}.prepared.json`
+    );
+    const completedPath = join(
+      context.receiptDirectory,
+      `${context.authorization.id}.completed.json`
+    );
+    const prepared = JSON.parse(readFileSync(preparedPath, "utf8"));
+    const completed = JSON.parse(readFileSync(completedPath, "utf8"));
+    prepared.authorizationRegistryCommit = context.fixture.base;
+    prepared.eventId = "f".repeat(64);
+    completed.authorizationRegistryCommit = context.fixture.base;
+    completed.eventId = prepared.eventId;
+    writeFileSync(preparedPath, `${JSON.stringify(prepared, null, 2)}\n`, { mode: 0o600 });
+    completed.preparedReceiptSha256 = sha256File(preparedPath);
+    writeFileSync(completedPath, `${JSON.stringify(completed, null, 2)}\n`, { mode: 0o600 });
+
+    const audit = runNode(
+      context.fixture.script,
+      ["audit", "--registry-from-commit", context.authorizationCommit],
+      { cwd: context.fixture.root, env: context.env }
+    );
+    const report = JSON.parse(audit.stdout);
+    expect(report.errors).toContain(
+      `governed local branch is absent: ${context.authorization.ref.slice("refs/heads/".length)}`
+    );
+    expect(report.warnings).not.toContain(
+      `local ref retirement executed pending protected closeout: ${context.authorization.ref}`
+    );
+  });
+
   it("reports a closed incident with restored root control plane as pass", () => {
     const result = runNode(governanceScript, ["audit"]);
     expect(result.status).toBe(0);
@@ -2402,17 +3686,49 @@ describe("SENA repository governance", () => {
   it("does not leak a pre-commit candidate index into other registered worktrees", () => {
     const root = temporaryRoot("candidate-index-isolation");
     const sourceIndex = runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const sourceObjectDirectory = runGit(projectRoot, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "objects"
+    ]);
+    const sourceIndexSha256 = sha256File(sourceIndex);
     const candidateIndex = join(root, "candidate-index");
+    const candidateObjectDirectory = join(root, "objects");
     copyFileSync(sourceIndex, candidateIndex);
+    mkdirSync(candidateObjectDirectory, { recursive: true });
+    const candidateEnvironment = {
+      GIT_INDEX_FILE: candidateIndex,
+      GIT_OBJECT_DIRECTORY: candidateObjectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: sourceObjectDirectory,
+      GIT_OPTIONAL_LOCKS: "0"
+    };
+    const candidateAdd = spawnSync(
+      "git",
+      [
+        "add",
+        "--",
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: { ...process.env, ...candidateEnvironment }
+      }
+    );
+    expect(candidateAdd.status, candidateAdd.stderr).toBe(0);
 
     const result = runNode(governanceScript, ["audit", "--pre-commit", "--registry-from-index"], {
-      env: { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" }
+      env: candidateEnvironment
     });
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.errors).toEqual([]);
     expect(report.status).toBe("pass");
     expect(report.ownerBlockers).toEqual([]);
+    expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
   });
 
   it("enforces rescue bundle custody instead of trusting the ledger text", () => {
@@ -2428,5 +3744,829 @@ describe("SENA repository governance", () => {
     expect(result.status).toBe(1);
     const report = JSON.parse(result.stdout);
     expect(report.errors).toContain("rescue bundle SHA-256 does not match registry");
+  });
+
+  it("validates the exact PR46 conflict triple and rejects a stale authorization snapshot", () => {
+    const authorizationCommit = runGit(projectRoot, ["rev-parse", "refs/remotes/origin/main"]);
+    const exact = runNode(governanceScript, [
+      "conflict-intake",
+      "--authorization-registry-commit",
+      authorizationCommit,
+      "--candidate-registry-from-index",
+      "--staged"
+    ]);
+    expect(exact.status, `${exact.stdout}${exact.stderr}`).toBe(0);
+    expect(exact.stdout).toContain("SENA_CONFLICT_INTAKE pass");
+    expect(exact.stdout).toContain("mode=final-base-handshake-remerge-consumed-awaiting-ci");
+
+    const stale = runNode(governanceScript, [
+      "conflict-intake",
+      "--authorization-registry-commit",
+      "88d1c55074fd74f91a291afd89965f4a42bd39f7"
+    ]);
+    expect(stale.status).toBe(1);
+  });
+
+  it("fails closed on every ambiguous or missing final-handshake projection source", () => {
+    const authorizationCommit = runGit(projectRoot, ["rev-parse", "refs/remotes/origin/main"]);
+    const baseArgs = [
+      "conflict-intake",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ];
+    const ambiguous = runNode(governanceScript, [
+      ...baseArgs,
+      "--candidate-registry-from-index",
+      "--candidate-registry-from-head",
+      "--staged"
+    ]);
+    expect(ambiguous.status).toBe(1);
+    expect(ambiguous.stderr).toContain("rule=final-base-handshake-projection-source-ambiguous");
+
+    const indexWithoutStaged = runNode(governanceScript, [
+      ...baseArgs,
+      "--candidate-registry-from-index"
+    ]);
+    expect(indexWithoutStaged.status).toBe(1);
+    expect(indexWithoutStaged.stderr).toContain("rule=final-base-handshake-index-staged-flag-missing");
+
+    const root = temporaryRoot("final-handshake-projection-source");
+    const sourceIndex = runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const candidateIndex = join(root, "candidate-index");
+    copyFileSync(sourceIndex, candidateIndex);
+    const candidateEnvironment = { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" };
+    const removeRegistry = spawnSync(
+      "git",
+      ["update-index", "--force-remove", "--", "coordination/repo-governance/active-work.json"],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: { ...process.env, ...candidateEnvironment }
+      }
+    );
+    expect(removeRegistry.status, removeRegistry.stderr).toBe(0);
+
+    const missingStageZero = runNode(
+      governanceScript,
+      [...baseArgs, "--candidate-registry-from-index", "--staged"],
+      { env: candidateEnvironment }
+    );
+    expect(missingStageZero.status).toBe(1);
+    expect(missingStageZero.stderr).toContain("stage-0 registry snapshot is absent or conflicted");
+
+    const implicitFallback = runNode(governanceScript, baseArgs, { env: candidateEnvironment });
+    expect(implicitFallback.status).toBe(1);
+    expect(implicitFallback.stderr).toContain("rule=final-base-handshake-projection-source-required");
+
+    const dirtyHead = runNode(
+      governanceScript,
+      [...baseArgs, "--candidate-registry-from-head"],
+      { env: candidateEnvironment }
+    );
+    expect(dirtyHead.status).toBe(1);
+    expect(dirtyHead.stderr).toContain("rule=final-base-handshake-head-projection-dirty");
+  });
+
+  it("accepts only the exact three-state final-base handshake projections", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.finalBaseHandshakeResolutionFromRegistries).toBe("function");
+    expect(typeof governance.finalBaseHandshakeTrueAuthorizationPaths).toBe("function");
+    expect(typeof governance.normalizedNonOwnedRegistrySha256).toBe("function");
+
+    const authorizationCommitSha = runGit(projectRoot, ["rev-parse", "refs/remotes/origin/main"]);
+    const protectedRegistry = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${authorizationCommitSha}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const sourceItem = protectedRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    const sourceAuthorization = sourceItem.finalBaseHandshakeAuthorization;
+    const protectedMainParents = runGit(projectRoot, [
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      authorizationCommitSha
+    ]).split(/\s+/).slice(1);
+    const protectedActivationActual = {
+      protectedMainSha: authorizationCommitSha,
+      protectedMainTreeSha: runGit(projectRoot, ["rev-parse", `${authorizationCommitSha}^{tree}`]),
+      protectedRegistryBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        `${authorizationCommitSha}:coordination/repo-governance/active-work.json`
+      ]),
+      finalHeadSha: protectedMainParents[1],
+      parentShas: protectedMainParents
+    };
+    const exactThreePaths = [
+      "coordination/repo-governance/active-work.json",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ];
+    const registryOnlyPath = ["coordination/repo-governance/active-work.json"];
+    const verifierBlobSha = "a".repeat(40);
+    const governanceTestBlobSha = "b".repeat(40);
+    const normalizedNonOwnedRegistrySha256 =
+      governance.normalizedNonOwnedRegistrySha256(protectedRegistry);
+
+    expect(governance.finalBaseHandshakeTrueAuthorizationPaths(sourceAuthorization)).toEqual([
+      "finalMergeCommitPushAuthorizedAfterRequiredGates",
+      "finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation",
+      "finalResolverAndTestStageAuthorizedAfterProtectedActivation"
+    ]);
+
+    const remergeCandidate = structuredClone(protectedRegistry);
+    const remergeItem = remergeCandidate.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    const remergeAuthorization = remergeItem.finalBaseHandshakeAuthorization;
+    remergeAuthorization.status = "consumed-by-final-pr46-remerge-candidate-awaiting-ci";
+    remergeAuthorization.finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation = false;
+    remergeAuthorization.finalResolverAndTestStageAuthorizedAfterProtectedActivation = false;
+    remergeAuthorization.finalMergeCommitPushAuthorizedAfterRequiredGates = false;
+    remergeAuthorization.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = true;
+    remergeAuthorization.pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks = false;
+    remergeAuthorization.protectedActivationCompletionEvidence = {
+      pullRequestNumber: 79,
+      finalHeadSha: protectedActivationActual.finalHeadSha,
+      protectedMainSha: authorizationCommitSha,
+      protectedMainTreeSha: protectedActivationActual.protectedMainTreeSha,
+      protectedRegistryBlobSha: protectedActivationActual.protectedRegistryBlobSha,
+      postMainBuildRunId: 1,
+      postMainBuildCheckJobId: 2,
+      postMainRepositorySecurityRunId: 3,
+      postMainRepositorySecurityCheckJobId: 4,
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      commitBoundLiveAuditStatus: "pass",
+      auditErrors: [],
+      auditOwnerBlockers: [],
+      unreachableCommitCount: 0
+    };
+    remergeAuthorization.remergeCandidateImplementationEvidence = {
+      candidateVerifierBlobSha: verifierBlobSha,
+      candidateGovernanceTestBlobSha: governanceTestBlobSha,
+      normalizedRegistrySha256: normalizedNonOwnedRegistrySha256,
+      candidateIndexAuditPassed: true,
+      writePolicyPassed: true,
+      securityPassed: true,
+      exactConflictIntakePassed: true,
+      conflictIntakeMode: "final-base-handshake-remerge-consumed-awaiting-ci",
+      fullRepoGovernanceTestsPassed: 100,
+      fullRepoGovernanceTestsTotal: 100,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+    remergeCandidate.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "pr46-final-base-handshake-remerge-candidate",
+      taskId: "SENA-BRANCH-RETIREMENT-20260829",
+      ownerKey: "Codex-branch-retirement-01a04916",
+      scope: exactThreePaths,
+      authorizationBoundary: {
+        finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks: true,
+        pr46ReadyAndProtectedMergeAuthorizedNow: false,
+        branchDeletionAuthorized: false
+      }
+    });
+    const remergeContext = {
+      authorizationCommitSha,
+      fetchedOriginMainSha: authorizationCommitSha,
+      protectedActivationActual,
+      projectionMode: "index",
+      currentHeadSha: sourceAuthorization.candidateHeadSha,
+      mergeHeadSha: authorizationCommitSha,
+      stagedPaths: exactThreePaths,
+      candidateParentShas: [sourceAuthorization.candidateHeadSha, authorizationCommitSha],
+      currentVerifierBlobSha: verifierBlobSha,
+      currentGovernanceTestBlobSha: governanceTestBlobSha,
+      nonOwnedRegistrySemanticEquivalent: true,
+      normalizedNonOwnedRegistrySha256,
+      candidateHeadMatchesLivePr46Head: true
+    };
+    expect(
+      governance.finalBaseHandshakeResolutionFromRegistries(
+        protectedRegistry,
+        remergeCandidate,
+        remergeContext
+      ).mode
+    ).toBe("final-base-handshake-remerge-consumed-awaiting-ci");
+
+    const remergeCases: Array<[string, (candidate: typeof remergeCandidate, context: typeof remergeContext) => void]> = [
+      ["rule=final-base-handshake-status-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.status = "arbitrary";
+      }],
+      ["rule=final-base-handshake-remerge-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.future = { nestedMutationAuthorized: true };
+      }],
+      ["rule=final-base-handshake-remerge-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.finalMergeCommitPushAuthorizedAfterRequiredGates = true;
+      }],
+      ["rule=final-base-handshake-index-path-set-mismatch", (_candidate, context) => {
+        context.stagedPaths = [...exactThreePaths, "unexpected.ts"];
+      }],
+      ["rule=final-base-handshake-merge-head-mismatch", (_candidate, context) => {
+        context.mergeHeadSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-code-blob-mismatch", (_candidate, context) => {
+        context.currentVerifierBlobSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-non-owned-registry-drift", (_candidate, context) => {
+        context.nonOwnedRegistrySemanticEquivalent = false;
+      }],
+      ["rule=final-base-handshake-remerge-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateImplementationEvidence.securityPassed = false;
+      }],
+      ["rule=final-base-handshake-protected-activation-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.protectedActivationCompletionEvidence = null;
+      }],
+      ["rule=final-base-handshake-protected-activation-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.protectedActivationCompletionEvidence.requiredChecksPassed = false;
+      }],
+      ["rule=final-base-handshake-protected-activation-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.protectedActivationCompletionEvidence.protectedMainTreeSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.pop();
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)));
+      }],
+      ["rule=final-base-handshake-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).authorizationBoundary.futureMutationAuthorized = true;
+      }]
+    ];
+    for (const [expectedError, mutate] of remergeCases) {
+      const candidate = structuredClone(remergeCandidate);
+      const context = structuredClone(remergeContext);
+      mutate(candidate, context);
+      expect(() =>
+        governance.finalBaseHandshakeResolutionFromRegistries(protectedRegistry, candidate, context)
+      ).toThrow(expectedError);
+    }
+
+    const remergeCandidateHeadSha = "d".repeat(40);
+    const finalReadyCandidate = structuredClone(remergeCandidate);
+    const finalItem = finalReadyCandidate.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    const finalAuthorization = finalItem.finalBaseHandshakeAuthorization;
+    finalAuthorization.status = "final-pr46-ready-authorization-pending-final-head-checks";
+    finalAuthorization.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = false;
+    finalAuthorization.pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks = true;
+    finalAuthorization.remergeCandidateCompletionEvidence = {
+      candidateHeadSha: remergeCandidateHeadSha,
+      candidateTreeSha: "e".repeat(40),
+      candidateRegistryBlobSha: "f".repeat(40),
+      candidateVerifierBlobSha: verifierBlobSha,
+      candidateGovernanceTestBlobSha: governanceTestBlobSha,
+      candidateParentShas: [sourceAuthorization.candidateHeadSha, authorizationCommitSha],
+      binaryDiffSha256AgainstFirstParent: "2".repeat(64),
+      binaryDiffSha256AgainstProtectedMain: "1".repeat(64),
+      normalizedRegistrySha256: normalizedNonOwnedRegistrySha256,
+      candidateIndexAuditPassed: true,
+      writePolicyPassed: true,
+      securityPassed: true,
+      exactConflictIntakePassed: true,
+      conflictIntakeMode: "final-base-handshake-remerge-consumed-awaiting-ci",
+      fullRepoGovernanceTestsPassed: 100,
+      fullRepoGovernanceTestsTotal: 100,
+      specReviewApproved: true,
+      qualityReviewApproved: true,
+      buildRunId: 1,
+      repositorySecurityRunIds: [2, 3],
+      checkJobIds: [4, 5, 6],
+      requiredChecksPassed: true,
+      annotationsEmpty: true
+    };
+    finalReadyCandidate.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "pr46-final-base-handshake-final-authorization",
+      taskId: "SENA-BRANCH-RETIREMENT-20260829",
+      ownerKey: "Codex-branch-retirement-01a04916",
+      scope: registryOnlyPath,
+      authorizationBoundary: {
+        pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks: true,
+        finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks: false,
+        branchDeletionAuthorized: false
+      }
+    });
+    const remergeCandidateActual = {
+      candidateHeadSha: remergeCandidateHeadSha,
+      candidateTreeSha: "e".repeat(40),
+      candidateRegistryBlobSha: "f".repeat(40),
+      candidateVerifierBlobSha: verifierBlobSha,
+      candidateGovernanceTestBlobSha: governanceTestBlobSha,
+      candidateParentShas: [sourceAuthorization.candidateHeadSha, authorizationCommitSha],
+      changedPathsAgainstProtectedMain: exactThreePaths,
+      binaryDiffSha256AgainstFirstParent: "2".repeat(64),
+      binaryDiffSha256AgainstProtectedMain: "1".repeat(64),
+      normalizedRegistrySha256: normalizedNonOwnedRegistrySha256,
+      candidateRegistry: remergeCandidate
+    };
+    const finalContext = {
+      authorizationCommitSha,
+      fetchedOriginMainSha: authorizationCommitSha,
+      protectedActivationActual,
+      projectionMode: "head",
+      currentHeadSha: "9".repeat(40),
+      currentParentShas: [remergeCandidateHeadSha],
+      changedPathsFromFirstParent: registryOnlyPath,
+      overallChangedPathsFromProtectedMain: exactThreePaths,
+      currentVerifierBlobSha: verifierBlobSha,
+      currentGovernanceTestBlobSha: governanceTestBlobSha,
+      nonOwnedRegistrySemanticEquivalent: true,
+      normalizedNonOwnedRegistrySha256,
+      candidateHeadMatchesLivePr46Head: true,
+      remergeCandidateActual,
+      remergeCandidateRegistry: remergeCandidate
+    };
+    expect(
+      governance.finalBaseHandshakeResolutionFromRegistries(
+        protectedRegistry,
+        finalReadyCandidate,
+        finalContext
+      ).mode
+    ).toBe("final-base-handshake-final-ready-pending-head-checks");
+
+    const finalCases: Array<[string, (candidate: typeof finalReadyCandidate, context: typeof finalContext) => void]> = [
+      ["rule=final-base-handshake-final-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = true;
+      }],
+      ["rule=final-base-handshake-final-parent-mismatch", (_candidate, context) => {
+        context.currentParentShas = ["0".repeat(40)];
+      }],
+      ["rule=final-base-handshake-final-path-set-mismatch", (_candidate, context) => {
+        context.changedPathsFromFirstParent = [...registryOnlyPath, "unexpected.ts"];
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.requiredChecksPassed = false;
+      }],
+      ["rule=final-base-handshake-final-code-blob-mismatch", (_candidate, context) => {
+        context.currentGovernanceTestBlobSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-final-non-owned-registry-drift", (_candidate, context) => {
+        context.normalizedNonOwnedRegistrySha256 = "0".repeat(64);
+      }],
+      ["rule=final-base-handshake-live-pr-head-mismatch", (_candidate, context) => {
+        context.candidateHeadMatchesLivePr46Head = false;
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.candidateTreeSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.candidateRegistryBlobSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.binaryDiffSha256AgainstProtectedMain =
+          "0".repeat(64);
+      }],
+      ["rule=final-base-handshake-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.pop();
+      }],
+      ["rule=final-base-handshake-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)));
+      }],
+      ["rule=final-base-handshake-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).authorizationBoundary.futureMutationAuthorized = true;
+      }],
+      ["rule=final-base-handshake-status-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.status = "pending-protected-activation";
+      }],
+      ["rule=final-base-handshake-remerge-action-set-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.finalMergeCommitPushAuthorizedAfterRequiredGates = true;
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.releaseReceipts.pop();
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.releaseReceipts.push(
+          structuredClone(context.remergeCandidateRegistry.releaseReceipts.at(-1))
+        );
+      }],
+      ["rule=final-base-handshake-remerge-evidence-incomplete", (_candidate, context) => {
+        context.remergeCandidateRegistry.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateImplementationEvidence.securityPassed = false;
+      }]
+    ];
+    for (const [expectedError, mutate] of finalCases) {
+      const candidate = structuredClone(finalReadyCandidate);
+      const context = structuredClone(finalContext);
+      mutate(candidate, context);
+      expect(() =>
+        governance.finalBaseHandshakeResolutionFromRegistries(protectedRegistry, candidate, context)
+      ).toThrow(expectedError);
+    }
+  });
+
+  it("accepts only the exact superseded conflict binding as evidence-only", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const candidateHeadSha = "c".repeat(40);
+    const registry = {
+      workItems: [
+        {
+          taskId: "SENA-BRANCH-RETIREMENT-20260829",
+          protectedConflictValidatorAuthorization: {
+            status: "superseded-after-protected-activation-and-index-counterevidence",
+            supersededBy: "threePathReconstructionAuthorization",
+            candidateHeadSha,
+            validatorCandidateStageCommitPushAuthorizedAfterProtectedActivation: false,
+            implementationAuthorizedNow: false,
+            pr46IntakeAuthorized: false,
+            pr46ReadyAuthorized: false,
+            pr46MergeAuthorized: false,
+            casAuthorized: false,
+            receiptMintingAuthorized: false,
+            targetRefMutationAuthorized: false,
+            targetTagMutationAuthorized: false,
+            quarantineMutationAuthorized: false,
+            deploymentAuthorized: false,
+            providerMutationAuthorized: false,
+            historyRewriteAuthorized: false
+          },
+          threePathReconstructionAuthorization: {
+            status: "activated-but-blocked-by-full-governance-red",
+            candidateHeadSha,
+            conflictIntakePassed: true,
+            threePathStageCommitPushAuthorizedAfterProtectedActivation: true,
+            pr46ReadyAuthorized: false,
+            pr46MergeAuthorized: false,
+            casAuthorized: false,
+            receiptMintingAuthorized: false,
+            targetRefMutationAuthorized: false,
+            targetTagMutationAuthorized: false,
+            quarantineMutationAuthorized: false,
+            orphanWorktreeMutationAuthorized: false,
+            deploymentAuthorized: false,
+            providerMutationAuthorized: false,
+            resetAuthorized: false,
+            rebaseAuthorized: false,
+            stashAuthorized: false,
+            forceAuthorized: false,
+            historyRewriteAuthorized: false
+          },
+          supersededBindingValidationRepairAuthorization: {
+            status: "pending-protected-activation",
+            candidateHeadSha,
+            repairStageCommitPushAuthorizedAfterProtectedActivation: true,
+            implementationAuthorizedNow: false,
+            pr46ReadyAuthorized: false,
+            pr46MergeAuthorized: false,
+            casAuthorized: false,
+            receiptMintingAuthorized: false,
+            targetRefMutationAuthorized: false,
+            targetTagMutationAuthorized: false,
+            quarantineMutationAuthorized: false,
+            orphanWorktreeMutationAuthorized: false,
+            deploymentAuthorized: false,
+            providerMutationAuthorized: false,
+            resetAuthorized: false,
+            rebaseAuthorized: false,
+            stashAuthorized: false,
+            forceAuthorized: false,
+            historyRewriteAuthorized: false
+          }
+        }
+      ]
+    };
+
+    expect(governance.conflictIntakeBindingResolutionFromRegistry(registry).mode).toBe(
+      "evidence-only-superseded-binding"
+    );
+
+    const cases: Array<[string, (candidate: typeof registry) => void]> = [
+      ["rule=conflict-intake-authorization-missing", (candidate) => {
+        candidate.workItems[0].protectedConflictValidatorAuthorization.status = "arbitrary";
+      }],
+      ["rule=conflict-intake-superseded-link-mismatch", (candidate) => {
+        candidate.workItems[0].protectedConflictValidatorAuthorization.supersededBy = "other";
+      }],
+      ["rule=conflict-intake-superseded-binding-action-enabled", (candidate) => {
+        candidate.workItems[0].protectedConflictValidatorAuthorization.pr46ReadyAuthorized = true;
+      }],
+      ["rule=conflict-intake-three-path-proof-missing", (candidate) => {
+        candidate.workItems[0].threePathReconstructionAuthorization.conflictIntakePassed = false;
+      }],
+      ["rule=conflict-intake-repair-authorization-missing", (candidate) => {
+        candidate.workItems[0].supersededBindingValidationRepairAuthorization.status = "arbitrary";
+      }]
+    ];
+    for (const [expectedError, mutate] of cases) {
+      const candidate = structuredClone(registry);
+      mutate(candidate);
+      expect(() => governance.conflictIntakeBindingResolutionFromRegistry(candidate)).toThrow(expectedError);
+    }
+
+    for (const field of [
+      "orphanWorktreeMutationAuthorized",
+      "resetAuthorized",
+      "rebaseAuthorized",
+      "stashAuthorized",
+      "forceAuthorized",
+      "futureMutationAuthorized"
+    ]) {
+      const candidate = structuredClone(registry);
+      (candidate.workItems[0].protectedConflictValidatorAuthorization as Record<string, unknown>)[field] = true;
+      expect(() => governance.conflictIntakeBindingResolutionFromRegistry(candidate)).toThrow(
+        "rule=conflict-intake-superseded-binding-action-enabled"
+      );
+    }
+
+    const nestedBindingAuthorization = structuredClone(registry);
+    (nestedBindingAuthorization.workItems[0].protectedConflictValidatorAuthorization as Record<string, unknown>)[
+      "future"
+    ] = { nestedMutationAuthorized: true };
+    expect(() => governance.conflictIntakeBindingResolutionFromRegistry(nestedBindingAuthorization)).toThrow(
+      "rule=conflict-intake-superseded-binding-action-enabled"
+    );
+
+    const unknownThreePathAuthorization = structuredClone(registry);
+    (unknownThreePathAuthorization.workItems[0].threePathReconstructionAuthorization as Record<string, unknown>)[
+      "futureMutationAuthorized"
+    ] = true;
+    expect(() => governance.conflictIntakeBindingResolutionFromRegistry(unknownThreePathAuthorization)).toThrow(
+      "rule=conflict-intake-three-path-proof-missing"
+    );
+
+    const unknownRepairAuthorization = structuredClone(registry);
+    (unknownRepairAuthorization.workItems[0].supersededBindingValidationRepairAuthorization as Record<
+      string,
+      unknown
+    >)["futureMutationAuthorized"] = true;
+    expect(() => governance.conflictIntakeBindingResolutionFromRegistry(unknownRepairAuthorization)).toThrow(
+      "rule=conflict-intake-repair-authorization-missing"
+    );
+  });
+
+  it("accepts only the exact consumed repair lifecycle with complete protected evidence", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const registry = JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+    const item = registry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    expect(item.supersededBindingValidationRepairAuthorization.status).toBe(
+      "consumed-by-pr46-candidate-9a5234c"
+    );
+    expect(item.threePathReconstructionAuthorization.status).toBe("consumed-by-pr46-candidate-9a5234c");
+    expect(item.threePathReconstructionAuthorization.threePathStageCommitPushAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.supersededBindingValidationRepairAuthorization.repairStageCommitPushAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.ordinaryMergeReconciliationAuthorization.status).toBe(
+      "consumed-by-pr77-exact-abort-and-redo-reconciliation"
+    );
+    expect(item.ordinaryMergeReconciliationAuthorization.ordinaryMergeNoCommitAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.ordinaryMergeReconciliationAuthorization.mergeCommitPushAuthorizedAfterRequiredGates).toBe(false);
+    expect(item.repairLifecycleStateResolutionAuthorization.status).toBe("consumed-by-pr46-merge-candidate");
+    expect(item.repairLifecycleStateResolutionAuthorization.exactMergeAbortAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    expect(item.repairLifecycleStateResolutionAuthorization.repairStageCommitPushAuthorizedAfterProtectedActivation).toBe(
+      false
+    );
+    const resolution = governance.conflictIntakeBindingResolutionFromRegistry(registry);
+    expect(resolution.mode).toBe("evidence-only-superseded-binding-consumed-repair");
+    expect(resolution.checkoutHeadSha).toBe("9a5234c53442b63d6926f6b885f9418082475909");
+
+    const cases: Array<[string, (candidate: typeof registry) => void]> = [
+      ["rule=conflict-intake-repair-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.status = "consumed-by-some-other-candidate";
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.authorizedRepairSemantics.allowedStatuses.push(
+          "future-status"
+        );
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.futureMutationAuthorized = true;
+      }],
+      ["rule=conflict-intake-ordinary-merge-proof-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.futureMutationAuthorized = true;
+      }],
+      ["rule=conflict-intake-ordinary-merge-proof-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.mergeCommitPushAuthorizedAfterRequiredGates = true;
+      }],
+      ["rule=conflict-intake-three-path-proof-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.threePathReconstructionAuthorization.threePathStageCommitPushAuthorizedAfterProtectedActivation =
+          true;
+      }],
+      ["rule=conflict-intake-repair-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.repairStageCommitPushAuthorizedAfterProtectedActivation =
+          true;
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.exactMergeAbortAuthorizedAfterProtectedActivation = true;
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.completionEvidence.candidateCommitSha = "0".repeat(40);
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.completionEvidence.candidateIndexAuditPassed = false;
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.supersededBindingValidationRepairAuthorization.completionEvidence.conflictIntakeMode =
+          "pending-protected-activation-binding";
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.candidateVerification.securityPassed = false;
+      }],
+      ["rule=conflict-intake-repair-completion-evidence-mismatch", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.ordinaryMergeReconciliationAuthorization.nonOwnedRegistrySemanticEquivalencePassed = false;
+      }],
+      ["rule=conflict-intake-repair-lifecycle-authorization-missing", (candidate) => {
+        const workItem = candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        );
+        workItem.repairLifecycleStateResolutionAuthorization.authorizedRepairSemantics
+          .consumedStatusRequiresExactCompletionEvidence.candidateTreeSha = "0".repeat(40);
+      }]
+    ];
+
+    for (const [expectedError, mutate] of cases) {
+      const candidate = structuredClone(registry);
+      mutate(candidate);
+      expect(() => governance.conflictIntakeBindingResolutionFromRegistry(candidate)).toThrow(expectedError);
+    }
+
+    const observedCheckout = {
+      checkoutHeadSha: "9a5234c53442b63d6926f6b885f9418082475909",
+      checkoutTreeSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909^{tree}"
+      ]),
+      checkoutRegistryBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909:coordination/repo-governance/active-work.json"
+      ]),
+      checkoutVerifierBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909:scripts/verify-sena-repo-governance.mjs"
+      ]),
+      checkoutGovernanceTestBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        "9a5234c53442b63d6926f6b885f9418082475909:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ])
+    };
+    const coordinatedMutations = [
+      ["candidateTreeSha", "checkoutTreeSha", "rule=conflict-intake-checkout-tree-mismatch"],
+      [
+        "candidateRegistryBlobSha",
+        "checkoutRegistryBlobSha",
+        "rule=conflict-intake-checkout-registry-blob-mismatch"
+      ],
+      [
+        "candidateVerifierBlobSha",
+        "checkoutVerifierBlobSha",
+        "rule=conflict-intake-checkout-verifier-blob-mismatch"
+      ],
+      [
+        "candidateGovernanceTestBlobSha",
+        "checkoutGovernanceTestBlobSha",
+        "rule=conflict-intake-checkout-governance-test-blob-mismatch"
+      ]
+    ] as const;
+    for (const [registryField, resolutionField, expectedRule] of coordinatedMutations) {
+      const candidate = structuredClone(registry);
+      const workItem = candidate.workItems.find(
+        (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+      );
+      const drifted = "0".repeat(40);
+      workItem.repairLifecycleStateResolutionAuthorization[registryField] = drifted;
+      workItem.repairLifecycleStateResolutionAuthorization.authorizedRepairSemantics
+        .consumedStatusRequiresExactCompletionEvidence[registryField] = drifted;
+      workItem.supersededBindingValidationRepairAuthorization.completionEvidence[registryField] = drifted;
+      workItem.ordinaryMergeReconciliationAuthorization[registryField] = drifted;
+      const coordinatedResolution = governance.conflictIntakeBindingResolutionFromRegistry(candidate);
+      expect(coordinatedResolution[resolutionField]).toBe(drifted);
+      expect(governance.exactConsumedCheckoutMismatchRules(coordinatedResolution, observedCheckout)).toContain(
+        expectedRule
+      );
+    }
+  });
+
+  it("classifies every exact conflict-intake binding mismatch as fail closed", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const binding = {
+      protectedMainSha: "p".repeat(40),
+      protectedMainTreeSha: "a".repeat(40),
+      candidateHeadSha: "c".repeat(40),
+      candidateTreeSha: "b".repeat(40),
+      mergeBaseSha: "m".repeat(40),
+      mergeBaseTreeSha: "d".repeat(40),
+      protectedRegistryBlobSha: "e".repeat(40),
+      candidateRegistryBlobSha: "f".repeat(40),
+      candidateVerifierBlobSha: "1".repeat(40),
+      candidateGovernanceTestBlobSha: "2".repeat(40),
+      protectedMainChangedPaths: ["coordination/repo-governance/active-work.json"],
+      candidateChangedPaths: [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      conflictingPaths: ["coordination/repo-governance/active-work.json"],
+      cleanCandidateOnlyPaths: [
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      protectedMainDiffSha256: "3".repeat(64),
+      candidateDiffSha256: "4".repeat(64),
+      protectedToCandidateDiffSha256: "5".repeat(64)
+    };
+    const observed = structuredClone(binding);
+    expect(governance.exactConflictIntakeMismatchRules(binding, observed)).toEqual([]);
+
+    const cases: Array<[keyof typeof observed, string, unknown]> = [
+      ["protectedMainTreeSha", "conflict-intake-protected-tree-mismatch", "0".repeat(40)],
+      ["candidateTreeSha", "conflict-intake-candidate-tree-mismatch", "0".repeat(40)],
+      ["mergeBaseTreeSha", "conflict-intake-merge-base-tree-mismatch", "0".repeat(40)],
+      ["protectedRegistryBlobSha", "conflict-intake-protected-registry-blob-mismatch", "0".repeat(40)],
+      ["candidateVerifierBlobSha", "conflict-intake-candidate-verifier-blob-mismatch", "0".repeat(40)],
+      ["candidateGovernanceTestBlobSha", "conflict-intake-candidate-governance-test-blob-mismatch", "0".repeat(40)],
+      ["conflictingPaths", "conflict-intake-conflict-path-set-mismatch", []],
+      ["candidateDiffSha256", "conflict-intake-candidate-diff-mismatch", "0".repeat(64)],
+      ["candidateChangedPaths", "conflict-intake-candidate-path-set-mismatch", ["unexpected.ts"]]
+    ];
+    for (const [field, expectedRule, replacement] of cases) {
+      const mutated = structuredClone(observed);
+      (mutated as Record<string, unknown>)[field] = replacement;
+      expect(governance.exactConflictIntakeMismatchRules(binding, mutated)).toContain(`rule=${expectedRule}`);
+    }
   });
 });
