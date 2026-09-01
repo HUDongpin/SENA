@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-01T03:51:10Z",
+  "updatedAt": "2026-09-01T04:27:20Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1050,10 +1050,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "d3719d56db66c6cdb91249c155fc3124b64836dc",
+      "headSha": "235c2fc1360cbf6ba7d0060b921bf36e9beee5b3",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -1068,13 +1068,13 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-09-01T03:51:10Z",
-      "lastObservedAt": "2026-09-01T03:51:10Z",
-      "nextReviewAt": "2026-09-02T03:51:10Z",
+      "lastHeartbeatAt": "2026-09-01T04:27:20Z",
+      "lastObservedAt": "2026-09-01T04:27:20Z",
+      "nextReviewAt": "2026-09-02T04:27:20Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
-      "prNumber": null,
+      "prNumber": 80,
       "plannedPullRequestNumber": 80,
-      "prIsDraft": false,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
@@ -1572,8 +1572,8 @@
           "hook-custody-control-root-containment"
         ]
       },
-      "noPrReason": "PR80 is planned but must not be created until the initial candidate passes local gates and exact immutable reviews.",
-      "dirtyState": "staged-five-path-pr80-repair-authorization-candidate",
+      "noPrReason": null,
+      "dirtyState": "staged-registry-only-pr80-final-authorization-candidate",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -1791,7 +1791,7 @@
         "activationCondition": "The final authorization commit produced from this registry must pass its own exact-head build and both repository-security checks with zero annotations before PR68 may become Ready and protected-merge. Post-main checks plus exact-main live audit remain required before the separate PR46 push release."
       },
       "pr80FinalReadyTestRepairLifecycle": {
-        "status": "pr80-repair-authorization-candidate-awaiting-initial-checks",
+        "status": "pr80-ready-authorization-pending-final-head-checks",
         "oneShot": true,
         "pullRequestNumber": 80,
         "protectedBaseSha": "ca7d464e5e58e48996daaee01ac22f929b964b8f",
@@ -1937,9 +1937,20 @@
             }
           }
         },
-        "initialCandidateCompletionEvidence": null,
-        "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks": true,
-        "pr80ReadyAndProtectedMergeAuthorizedAfterFinalChecks": false,
+        "initialCandidateCompletionEvidence": {
+          "headSha": "235c2fc1360cbf6ba7d0060b921bf36e9beee5b3",
+          "treeSha": "450ab15072e899ee508f94f6a7480eeb65be59bd",
+          "registryBlobSha": "ff8b72aaafad3e3833acd96bccd7788a27cd0ddc",
+          "buildRunId": 33469723417,
+          "repositorySecurityRunIds": [33469723411, 33469702689],
+          "checkJobIds": [99736843017, 99736842828, 99736784209],
+          "requiredChecksPassed": true,
+          "annotationsEmpty": true,
+          "specReviewApproved": true,
+          "qualityReviewApproved": true
+        },
+        "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks": false,
+        "pr80ReadyAndProtectedMergeAuthorizedAfterFinalChecks": true,
         "pr46ReadyAndProtectedMergeAuthorizedNow": false,
         "localRefRetirementAuthorized": false,
         "retirementReceiptMintingAuthorized": false,
@@ -1961,11 +1972,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "A01 HEAD remains exact plan commit d3719d5, two commits ahead of protected ca7d464. The initial PR80 candidate is exactly five paths: registry, approved design, implementation plan, fail-closed PR80 transition validator, and its negative governance tests",
-        "ci": "A01 protected-main baseline governance test was 48/48. The strengthened PR80 contract was observed RED for sibling authorization, field-scope, prefix, receipt, evidence-context, direct-final, replay, and index-path cases, then the exact five-path index passed registry, audit, write-policy, security, native pre-commit, and the complete updated governance file 49/49. PR80 does not exist and has no CI yet. Exact PR46 e24c635 retains build 33458602803 and repository-security 33458602756/33458598644 with zero annotations",
-        "merged": "PR79 final head ff5cba6 is merged as protected main ca7d464 with post-main gates and live audit green. PR46 remains OPEN/Draft/MERGEABLE/CLEAN at e24c635. PR80 is only planned, not created; no repair implementation, PR46 Ready/merge, or cleanup action is currently authorized",
+        "local": "A01 HEAD is exact initial PR80 head 235c2fc, three commits ahead of protected ca7d464, clean and pushed before this registry-only final-authorization candidate was staged",
+        "ci": "Initial PR80 exact head 235c2fc passed build 33469723417 and repository-security 33469723411/33469702689 in jobs 99736843017/99736842828/99736784209 with zero annotations; the exact initial candidate also passed immutable spec and quality reviews plus the complete updated governance file 49/49",
+        "merged": "PR80 remains OPEN/Draft/MERGEABLE/CLEAN at exact initial head 235c2fc and is neither Ready nor merged. PR46 remains untouched OPEN/Draft/MERGEABLE/CLEAN at e24c635",
         "deployed": "not in scope and not authorized",
-        "live": "live main and the clean root remain ca7d464; live A01 remote remains ff5cba6 while local A01 HEAD remains d3719d5 with an uncommitted five-path PR80 candidate; live PR46 remains e24c635 Draft. All target refs, worktrees, invalid-pointer directories, keep-around refs, and custody objects remain preserved"
+        "live": "live main and the clean root remain ca7d464; live A01 local, remote, and PR head are exact 235c2fc; live PR46 remains e24c635 Draft. All cleanup targets, worktrees, invalid-pointer directories, keep-around refs, and custody objects remain preserved and untouched"
       },
       "disposition": "active",
       "freezeException": "governance-preservation"
@@ -4692,22 +4703,22 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "9ecc72b09d51e2426868eb7569449ed9aea0f774",
-      "headSha": "d3719d56db66c6cdb91249c155fc3124b64836dc",
+      "headSha": "235c2fc1360cbf6ba7d0060b921bf36e9beee5b3",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "ff5cba65be3ce3338d66b96c262edc1815d180f4",
-      "remoteObservedAt": "2026-09-01T03:51:10Z",
-      "pr": null,
+      "remoteHeadSha": "235c2fc1360cbf6ba7d0060b921bf36e9beee5b3",
+      "remoteObservedAt": "2026-09-01T04:27:20Z",
+      "pr": 80,
       "plannedPullRequestNumber": 80,
-      "prState": "NOT_CREATED",
-      "prIsDraft": false,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": null,
+      "prHeadSha": "235c2fc1360cbf6ba7d0060b921bf36e9beee5b3",
       "prBase": "main",
-      "noPrReason": "PR80 is planned but must not be created until the initial candidate passes local gates and exact immutable reviews.",
+      "noPrReason": null,
       "pr79InitialChecks": {
         "headSha": "2ff4c84bbdd169121e9d2d77a8cac1f363f9dd1a",
         "headTreeSha": "e631ed11a45fe9263579c61e916e1409d5d9a42b",
@@ -5271,13 +5282,15 @@
         "postMainChecksPassed": true,
         "commitBoundLiveAuditStatus": "pass"
       },
-      "lastOwnerHeartbeatAt": "2026-09-01T03:51:10Z",
-      "lastObservedAt": "2026-09-01T03:51:10Z",
-      "lastCommitAt": "2026-09-01T10:49:11+08:00",
-      "nextReviewAt": "2026-09-02T03:51:10Z",
+      "lastOwnerHeartbeatAt": "2026-09-01T04:27:20Z",
+      "lastObservedAt": "2026-09-01T04:27:20Z",
+      "lastCommitAt": "2026-09-01T12:23:30+08:00",
+      "nextReviewAt": "2026-09-02T04:27:20Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "PR79 is merged as protected ca7d464. A01 local head d3719d5 contains the approved PR46 repair design and implementation plan above protected main; live remote remains ff5cba6, PR80 is planned but not created, and the current initial candidate adds registry, verifier, and governance-test changes without authorizing PR80 Ready/merge or PR46 mutation"
+      "closeout": "PR80 remains OPEN/Draft/MERGEABLE/CLEAN at exact initial head 235c2fc. Its initial exact-head build and both security checks passed with zero annotations, and this staged registry-only transition conditionally authorizes Ready/protected merge only after the new final head passes fresh exact-head checks",
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN"
     },
     {
       "name": "codex/sena-evidenceflow-v1-20260828",
@@ -7959,6 +7972,49 @@
         "historyRewriteAuthorized": false
       },
       "evidenceBoundary": "This exact five-path candidate permits only an initial PR80 commit/push/Draft lifecycle and one later registry-only final-authorization transition after initial checks. The verifier rejects invalid status, retained or unknown recursive true authorization, replay, and missing, extra, reordered, or scope-expanded PR80 receipts. It grants no current PR80 Ready/merge, no PR46 repair/Ready/merge before protected activation, and no cleanup or target mutation."
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr80-final-ready-test-repair-final-authorization",
+      "status": "authorized-for-pr80-ready-and-protected-merge-after-final-head-checks",
+      "recordedAt": "2026-09-01T04:27:20Z",
+      "taskId": "SENA-A01-REPO-GOVERNANCE-20260827",
+      "threadId": "01a05865-c301-7223-b74d-96e228b8a435",
+      "ownerKey": "Codex-primary-writer",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "authorizationBasis": "Initial PR80 exact head 235c2fc1360cbf6ba7d0060b921bf36e9beee5b3 passed build and both repository-security checks with zero annotations, and the exact initial candidate passed immutable spec and quality reviews. This final metadata remains Draft and OPEN and conditionally authorizes Ready and protected merge only after its new exact head passes fresh checks.",
+      "authorizationSourceInitialHeadSha": "235c2fc1360cbf6ba7d0060b921bf36e9beee5b3",
+      "authorizationSourceInitialTreeSha": "450ab15072e899ee508f94f6a7480eeb65be59bd",
+      "authorizationSourceInitialRegistryBlobSha": "ff8b72aaafad3e3833acd96bccd7788a27cd0ddc",
+      "buildRunId": 33469723417,
+      "repositorySecurityRunIds": [33469723411, 33469702689],
+      "checkJobIds": [99736843017, 99736842828, 99736784209],
+      "requiredChecksPassed": true,
+      "annotationsEmpty": true,
+      "specReviewApproved": true,
+      "qualityReviewApproved": true,
+      "authorizationBoundary": {
+        "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks": false,
+        "pr80ReadyAndProtectedMergeAuthorizedAfterFinalChecks": true,
+        "pr46ReadyAndProtectedMergeAuthorizedNow": false,
+        "localRefRetirementAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      },
+      "evidenceBoundary": "Only the exact final PR80 head may become Ready and protected-merge after fresh build, both repository-security checks, and zero annotations pass. PR46 repair, PR46 Ready or merge, every local ref retirement, receipt minting, branch deletion, worktree removal, orphan mutation, target mutation, deployment, provider mutation, and history rewrite remain unauthorized."
     }
   ]
 }
