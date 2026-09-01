@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-01T07:15:22Z",
+  "updatedAt": "2026-09-01T07:26:02Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -4838,10 +4838,10 @@
       "branch": "codex/sena-protected-currentness-activation-repair-20260901",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr80-post-main-closeout-20260901",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "cfbbf7f18b9d9fe89249cb095e3d1ed619d8aee6",
+      "headSha": "ad75cf5b75d1fc16cf459eb230b5c53ff6116855",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
+        "ahead": 2,
         "behind": 0
       },
       "allowedPaths": [
@@ -4850,23 +4850,23 @@
         "coordination/repo-governance/pr82-protected-currentness-activation-repair-implementation-plan.md"
       ],
       "createdAt": "2026-09-01T06:44:53Z",
-      "lastHeartbeatAt": "2026-09-01T07:15:22Z",
-      "lastObservedAt": "2026-09-01T07:15:22Z",
-      "nextReviewAt": "2026-09-02T07:15:22Z",
-      "expectedCloseAt": "owner-gated:implementation-plan-execution-choice",
+      "lastHeartbeatAt": "2026-09-01T07:26:02Z",
+      "lastObservedAt": "2026-09-01T07:26:02Z",
+      "nextReviewAt": "2026-09-02T07:26:02Z",
+      "expectedCloseAt": "owner-gated:seed-draft-pr-review-before-implementation",
       "prNumber": null,
       "plannedPullRequestNumber": null,
       "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "noPrReason": "Owner-approved design lane is local-only pending written-spec review; no push or pull request is authorized.",
-      "dirtyState": "staged-registry-design-status-and-implementation-plan-awaiting-execution-choice",
+      "noPrReason": "No pull request exists yet; the recorded execution choice authorizes exactly one registry-only seed commit, one push of the named repair branch, and one Draft pull request after the seed gates pass.",
+      "dirtyState": "staged-registry-only-execution-choice-reconciliation",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
       ],
       "protectedCurrentnessActivationRepairDesignLifecycle": {
-        "status": "written-spec-approved-implementation-plan-committed-awaiting-execution-choice",
+        "status": "subagent-driven-execution-choice-recorded-seed-release-authorized",
         "oneShot": true,
         "protectedSourceMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
         "protectedSourceTreeSha": "c3d3d91ff7868939cb331a8c237349d6abbd9357",
@@ -4886,6 +4886,9 @@
         "implementationAuthorizedNow": false,
         "pushAuthorizedNow": false,
         "draftPullRequestAuthorizedNow": false,
+        "seedRegistryChoiceCommitAuthorizedNow": true,
+        "seedPushAuthorizedNow": true,
+        "seedDraftPullRequestAuthorizedNow": true,
         "readyAuthorizedNow": false,
         "protectedMergeAuthorizedNow": false,
         "pr46RemergeOrMutationAuthorizedNow": false,
@@ -4926,12 +4929,29 @@
           "governanceTestsPassed": 49,
           "governanceTestsTotal": 49
         },
-        "executionChoiceRecorded": false
+        "executionChoiceRecorded": true,
+        "executionMode": "subagent-driven-development",
+        "executionChoiceSourceEvidence": {
+          "headSha": "ad75cf5b75d1fc16cf459eb230b5c53ff6116855",
+          "treeSha": "fbe95398812db31effbc7fe66cd86e57781e9d7e",
+          "registryBlobSha": "1a37a0e92220be6cf2fb6e78909eb310e45c6b37",
+          "receiptPrefix": {
+            "count": 37,
+            "sha256": "20965f988beddf77c109883fd48927cfdff93b85ec50e07af558739d2f6922c2"
+          }
+        },
+        "cleanupAuthorizedNow": false,
+        "rootCheckoutMutationAuthorized": false,
+        "evidenceFlowMutationAuthorized": false,
+        "invalidPointerMutationAuthorized": false,
+        "keepAroundRefMutationAuthorized": false,
+        "otherRemoteBranchMutationAuthorized": false,
+        "archiveTagMutationAuthorized": false
       },
       "evidenceState": {
-        "local": "owner-reviewed design is committed at cfbbf7f; the implementation plan and design-status/registry update are staged as the only plan-commit paths",
-        "ci": "design commit passed registry, write-policy, security, 49/49 governance tests, and exact commit-bound live audit; no seed push, PR, or implementation CI is claimed",
-        "merged": "PR81 remains protected-main active; the repair design/plan branch is local-only, has no upstream or remote ref, and is not in a PR, Ready, or merged",
+        "local": "owner-reviewed design and implementation plan are committed through exact source ad75cf5; only the registry execution-choice reconciliation is staged for the authorized seed commit",
+        "ci": "the design/plan source previously passed its declared gates; the registry-only execution-choice seed must pass fresh index-bound and commit-bound gates before its one authorized push and Draft PR",
+        "merged": "PR81 remains protected-main active; this repair branch has no upstream or remote ref and is not yet in a PR, Ready, or merged; only seed publication is authorized",
         "deployed": "not in scope and not authorized",
         "live": "live and fetched main remain exact 969a206; PR46 remains exact e24c635 Draft/CONFLICTING/DIRTY; all remote branches, EvidenceFlow, rescue custody, keep-around refs, invalid pointers, and retirement targets remain preserved"
       },
@@ -5060,7 +5080,7 @@
       "remotePresent": true,
       "remoteHeadSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-09-01T06:44:53Z",
+      "remoteObservedAt": "2026-09-01T07:26:02Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
       "lastOwnerHeartbeatAt": "2026-09-01T03:18:16Z",
@@ -5894,7 +5914,7 @@
       "owner": "Codex protected currentness and activation repair designer",
       "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "cfbbf7f18b9d9fe89249cb095e3d1ed619d8aee6",
+      "headSha": "ad75cf5b75d1fc16cf459eb230b5c53ff6116855",
       "upstream": null,
       "upstreamState": "not-applicable",
       "upstreamCacheState": "not-applicable",
@@ -5909,14 +5929,14 @@
       "mergeAuthorized": false,
       "prHeadSha": null,
       "prBase": "main",
-      "noPrReason": "Local-only owner-approved written-spec lane; no push or pull request is authorized before written-spec review and an implementation plan.",
-      "lastOwnerHeartbeatAt": "2026-09-01T07:15:22Z",
-      "lastObservedAt": "2026-09-01T07:15:22Z",
-      "lastCommitAt": "2026-09-01T15:15:22+08:00",
-      "nextReviewAt": "2026-09-02T07:15:22Z",
-      "expectedCloseAt": "owner-gated:implementation-plan-execution-choice",
+      "noPrReason": "No pull request exists yet; exact seed push and Draft PR creation are authorized only after the registry-only execution-choice seed commit and gates pass.",
+      "lastOwnerHeartbeatAt": "2026-09-01T07:26:02Z",
+      "lastObservedAt": "2026-09-01T07:26:02Z",
+      "lastCommitAt": "2026-09-01T15:18:01+08:00",
+      "nextReviewAt": "2026-09-02T07:26:02Z",
+      "expectedCloseAt": "owner-gated:seed-draft-pr-review-before-implementation",
       "disposition": "active",
-      "closeout": "owner-reviewed design plus implementation plan are local-only; no push, Draft PR, implementation, Ready, merge, PR46, cleanup, deletion, target, provider, deployment, or history mutation is authorized before the execution choice"
+      "closeout": "subagent-driven execution choice is recorded; exactly one registry seed commit, named-branch push, and Draft PR are authorized, while implementation, Ready, merge, PR46, cleanup, deletion, other ref/branch/worktree/orphan/target/tag/quarantine, provider, deployment, and history mutation remain unauthorized"
     }
   ],
   "orphanWorktrees": [
@@ -8948,6 +8968,59 @@
         "targetRefMutationAuthorized": false,
         "targetTagMutationAuthorized": false,
         "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      }
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr82-protected-currentness-activation-repair-execution-choice",
+      "status": "subagent-driven-execution-choice-recorded-seed-release-authorized",
+      "taskId": "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901",
+      "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
+      "scope": [
+        "coordination/repo-governance/active-work.json"
+      ],
+      "protectedSourceMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      "executionMode": "subagent-driven-development",
+      "executionChoiceSourceHeadSha": "ad75cf5b75d1fc16cf459eb230b5c53ff6116855",
+      "executionChoiceSourceTreeSha": "fbe95398812db31effbc7fe66cd86e57781e9d7e",
+      "executionChoiceSourceRegistryBlobSha": "1a37a0e92220be6cf2fb6e78909eb310e45c6b37",
+      "executionChoiceSourceReceiptPrefix": {
+        "count": 37,
+        "sha256": "20965f988beddf77c109883fd48927cfdff93b85ec50e07af558739d2f6922c2"
+      },
+      "authorizationBasis": "The owner explicitly selected subagent-driven development for Task 1 and authorized exactly one registry-only execution-choice commit, one push of the named repair branch, and one Draft pull request creation and readback; no implementation or prohibited mutation is authorized.",
+      "authorizationBoundary": {
+        "executionChoiceRecorded": true,
+        "seedRegistryChoiceCommitAuthorizedNow": true,
+        "seedPushAuthorizedNow": true,
+        "seedDraftPullRequestAuthorizedNow": true,
+        "implementationAuthorizedNow": false,
+        "readyAuthorizedNow": false,
+        "protectedMergeAuthorizedNow": false,
+        "pr46RemergeOrMutationAuthorizedNow": false,
+        "pr46ReadyAndProtectedMergeAuthorizedNow": false,
+        "cleanupAuthorizedNow": false,
+        "localRefRetirementAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "rootCheckoutMutationAuthorized": false,
+        "evidenceFlowMutationAuthorized": false,
+        "invalidPointerMutationAuthorized": false,
+        "keepAroundRefMutationAuthorized": false,
+        "otherRemoteBranchMutationAuthorized": false,
+        "archiveTagMutationAuthorized": false,
         "deploymentAuthorized": false,
         "providerMutationAuthorized": false,
         "resetAuthorized": false,
