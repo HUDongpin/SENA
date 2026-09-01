@@ -743,6 +743,645 @@ function onlyAllowedTrueAuthorizations(record, allowedPaths) {
   return trueAuthorizationPaths(record).every((path) => allowed.has(path));
 }
 
+const FINAL_BASE_HANDSHAKE_PENDING_STATUS = "pending-protected-activation";
+const FINAL_BASE_HANDSHAKE_REMERGE_STATUS =
+  "consumed-by-final-pr46-remerge-candidate-awaiting-ci";
+const FINAL_BASE_HANDSHAKE_READY_STATUS =
+  "final-pr46-ready-authorization-pending-final-head-checks";
+const FINAL_BASE_HANDSHAKE_REMERGE_MODE =
+  "final-base-handshake-remerge-consumed-awaiting-ci";
+const FINAL_BASE_HANDSHAKE_READY_MODE =
+  "final-base-handshake-final-ready-pending-head-checks";
+const FINAL_BASE_HANDSHAKE_PENDING_MODE =
+  "final-base-handshake-pending-protected-remerge";
+const FINAL_BASE_HANDSHAKE_PENDING_ACTIONS = [
+  "finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation",
+  "finalResolverAndTestStageAuthorizedAfterProtectedActivation",
+  "finalMergeCommitPushAuthorizedAfterRequiredGates"
+];
+const FINAL_BASE_HANDSHAKE_REMERGE_ACTION =
+  "finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks";
+const FINAL_BASE_HANDSHAKE_READY_ACTION =
+  "pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks";
+const FINAL_BASE_HANDSHAKE_CLOSED_ACTIONS = [
+  "implementationAuthorizedNow",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized"
+];
+
+export function finalBaseHandshakeTrueAuthorizationPaths(value) {
+  return trueAuthorizationPaths(value).sort();
+}
+
+function finalBaseHandshakeWorkItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+}
+
+function hasReleaseReceipt(registry, receiptKind) {
+  return (registry?.releaseReceipts ?? []).some((entry) => entry?.receiptKind === receiptKind);
+}
+
+function sameJson(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function positiveIntegerArray(value) {
+  return Array.isArray(value) && value.length > 0 && value.every((entry) => Number.isInteger(entry) && entry > 0);
+}
+
+function validSha256(value) {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+export function normalizedNonOwnedRegistrySha256(registry) {
+  const normalized = structuredClone(registry ?? {});
+  normalized.updatedAt = "<branch-retirement-owned>";
+  normalized.workItems = (normalized.workItems ?? []).map((entry) =>
+    entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+      ? { taskId: "SENA-BRANCH-RETIREMENT-20260829", owned: "<branch-retirement-owned>" }
+      : entry
+  );
+  normalized.branches = (normalized.branches ?? []).map((entry) =>
+    entry?.name === "codex/sena-branch-retirement-20260829"
+      ? { name: "codex/sena-branch-retirement-20260829", owned: "<branch-retirement-owned>" }
+      : entry
+  );
+  normalized.releaseReceipts = (normalized.releaseReceipts ?? []).filter(
+    (entry) => entry?.taskId !== "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(normalized)));
+}
+
+function branchRetirementReleaseReceipts(registry) {
+  return (registry?.releaseReceipts ?? []).filter(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+}
+
+function validateFinalBaseHandshakeTransitionReceipt(receipt, expectedKind, expectedScope, allowedActionPath) {
+  if (
+    !receipt ||
+    receipt.schemaVersion !== "sena-registry-reconciliation-receipt/v1" ||
+    receipt.receiptKind !== expectedKind ||
+    receipt.taskId !== "SENA-BRANCH-RETIREMENT-20260829" ||
+    receipt.ownerKey !== "Codex-branch-retirement-01a04916" ||
+    !samePathSet(receipt.scope ?? [], expectedScope) ||
+    !receipt.authorizationBoundary ||
+    !samePathSet(finalBaseHandshakeTrueAuthorizationPaths(receipt), [allowedActionPath])
+  ) {
+    throw new Error("rule=final-base-handshake-transition-receipt-invalid");
+  }
+}
+
+function validateFinalBaseHandshakeReceiptDelta(protectedRegistry, candidateRegistry, status, context) {
+  const protectedReceipts = branchRetirementReleaseReceipts(protectedRegistry);
+  const candidateReceipts = branchRetirementReleaseReceipts(candidateRegistry);
+  if (status === FINAL_BASE_HANDSHAKE_REMERGE_STATUS) {
+    if (
+      candidateReceipts.length !== protectedReceipts.length + 1 ||
+      !protectedReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index]))
+    ) {
+      throw new Error("rule=final-base-handshake-remerge-receipt-delta-invalid");
+    }
+    validateFinalBaseHandshakeTransitionReceipt(
+      candidateReceipts.at(-1),
+      "pr46-final-base-handshake-remerge-candidate",
+      EXACT_CONFLICT_INTAKE_PATHS,
+      `authorizationBoundary.${FINAL_BASE_HANDSHAKE_REMERGE_ACTION}`
+    );
+    return;
+  }
+  const remergeRegistry = context?.remergeCandidateRegistry;
+  const remergeReceipts = branchRetirementReleaseReceipts(remergeRegistry);
+  if (
+    !remergeRegistry ||
+    candidateReceipts.length !== remergeReceipts.length + 1 ||
+    !remergeReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index]))
+  ) {
+    throw new Error("rule=final-base-handshake-final-receipt-delta-invalid");
+  }
+  validateFinalBaseHandshakeTransitionReceipt(
+    candidateReceipts.at(-1),
+    "pr46-final-base-handshake-final-authorization",
+    [REGISTRY_REPO_PATH],
+    `authorizationBoundary.${FINAL_BASE_HANDSHAKE_READY_ACTION}`
+  );
+}
+
+function validateFinalBaseHandshakeSource(protectedRegistry, context) {
+  const item = finalBaseHandshakeWorkItem(protectedRegistry);
+  const authorization = item?.finalBaseHandshakeAuthorization;
+  if (!authorization || authorization.status !== FINAL_BASE_HANDSHAKE_PENDING_STATUS) {
+    throw new Error("rule=final-base-handshake-source-missing");
+  }
+  if (
+    authorization.oneShot !== true ||
+    !isSha(authorization.candidateHeadSha) ||
+    !isSha(authorization.candidateTreeSha) ||
+    !isSha(authorization.candidateRegistryBlobSha) ||
+    !isSha(authorization.candidateVerifierBlobSha) ||
+    !isSha(authorization.candidateGovernanceTestBlobSha) ||
+    !isSha(authorization.mergeBaseSha) ||
+    authorization.protectedActivationBinding?.mode !==
+      "loaded-fetched-origin-main-authorization-registry-commit" ||
+    authorization.protectedActivationBinding?.requiredAuthorizationStatus !==
+      FINAL_BASE_HANDSHAKE_PENDING_STATUS ||
+    authorization.protectedActivationBinding?.mustEqualFetchedOriginMain !== true ||
+    authorization.protectedActivationBinding?.postMainBuildRequired !== true ||
+    authorization.protectedActivationBinding?.postMainSecurityRequired !== true ||
+    authorization.protectedActivationBinding?.postMainAnnotationsMustBeEmpty !== true ||
+    authorization.protectedActivationBinding?.commitBoundLiveAuditRequired !== true ||
+    !hasReleaseReceipt(
+      protectedRegistry,
+      authorization.protectedActivationBinding?.requiredReceiptKind
+    ) ||
+    !hasReleaseReceipt(
+      protectedRegistry,
+      authorization.protectedActivationBinding?.requiredFinalAuthorizationReceiptKind
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-source-invalid");
+  }
+  if (
+    !isSha(context?.authorizationCommitSha) ||
+    context.authorizationCommitSha !== context.fetchedOriginMainSha
+  ) {
+    throw new Error("rule=final-base-handshake-source-main-mismatch");
+  }
+  const transition = authorization.authorizedResolverTransition;
+  if (
+    !transition ||
+    !samePathSet(transition.allowedStatuses ?? [], [
+      FINAL_BASE_HANDSHAKE_PENDING_STATUS,
+      FINAL_BASE_HANDSHAKE_REMERGE_STATUS,
+      FINAL_BASE_HANDSHAKE_READY_STATUS
+    ]) ||
+    !samePathSet(transition.requiredResolverModes ?? [], [
+      FINAL_BASE_HANDSHAKE_REMERGE_MODE,
+      FINAL_BASE_HANDSHAKE_READY_MODE
+    ]) ||
+    transition.arbitraryStatusMustFailClosed !== true ||
+    transition.unknownTrueAuthorizationMustFailClosedRecursively !== true ||
+    !samePathSet(
+      transition.pendingState?.allowedTrueAuthorizationPaths ?? [],
+      FINAL_BASE_HANDSHAKE_PENDING_ACTIONS
+    ) ||
+    !samePathSet(
+      transition.remergeConsumedState?.allowedTrueAuthorizationPaths ?? [],
+      [FINAL_BASE_HANDSHAKE_REMERGE_ACTION]
+    ) ||
+    !samePathSet(
+      transition.finalReadyState?.allowedTrueAuthorizationPaths ?? [],
+      [FINAL_BASE_HANDSHAKE_READY_ACTION]
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-source-semantics-invalid");
+  }
+  if (
+    !FINAL_BASE_HANDSHAKE_PENDING_ACTIONS.every((field) => authorization[field] === true) ||
+    authorization[FINAL_BASE_HANDSHAKE_REMERGE_ACTION] !== false ||
+    authorization[FINAL_BASE_HANDSHAKE_READY_ACTION] !== false ||
+    !allExplicitlyFalse(authorization, FINAL_BASE_HANDSHAKE_CLOSED_ACTIONS) ||
+    !samePathSet(
+      finalBaseHandshakeTrueAuthorizationPaths(authorization),
+      FINAL_BASE_HANDSHAKE_PENDING_ACTIONS
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-source-action-set-invalid");
+  }
+  return { item, authorization, transition };
+}
+
+function validateCandidateAuthorizationCore(sourceAuthorization, candidateAuthorization) {
+  const fields = [
+    "oneShot",
+    "authorizationSourceMainSha",
+    "authorizationSourceMainTreeSha",
+    "authorizationSourceRegistryBlobSha",
+    "pullRequestNumber",
+    "candidateHeadSha",
+    "candidateTreeSha",
+    "candidateRegistryBlobSha",
+    "candidateVerifierBlobSha",
+    "candidateGovernanceTestBlobSha",
+    "mergeBaseSha"
+  ];
+  if (
+    !candidateAuthorization ||
+    !exactFieldsMatch(candidateAuthorization, sourceAuthorization, fields) ||
+    !sameJson(
+      candidateAuthorization.protectedActivationBinding,
+      sourceAuthorization.protectedActivationBinding
+    ) ||
+    !sameJson(candidateAuthorization.candidateParents, sourceAuthorization.candidateParents) ||
+    !sameJson(candidateAuthorization.requiredExecution, sourceAuthorization.requiredExecution) ||
+    !sameJson(
+      candidateAuthorization.authorizedResolverTransition,
+      sourceAuthorization.authorizedResolverTransition
+    ) ||
+    !allExplicitlyFalse(candidateAuthorization, FINAL_BASE_HANDSHAKE_CLOSED_ACTIONS)
+  ) {
+    throw new Error("rule=final-base-handshake-candidate-core-drift");
+  }
+}
+
+function validateProtectedActivationCompletionEvidence(candidateAuthorization, context) {
+  const evidence = candidateAuthorization?.protectedActivationCompletionEvidence;
+  const actual = context?.protectedActivationActual;
+  if (
+    !evidence ||
+    !actual ||
+    evidence.pullRequestNumber !== 79 ||
+    evidence.finalHeadSha !== actual.finalHeadSha ||
+    evidence.protectedMainSha !== context.authorizationCommitSha ||
+    evidence.protectedMainSha !== actual.protectedMainSha ||
+    evidence.protectedMainTreeSha !== actual.protectedMainTreeSha ||
+    evidence.protectedRegistryBlobSha !== actual.protectedRegistryBlobSha ||
+    !Number.isInteger(evidence.postMainBuildRunId) ||
+    evidence.postMainBuildRunId <= 0 ||
+    !Number.isInteger(evidence.postMainBuildCheckJobId) ||
+    evidence.postMainBuildCheckJobId <= 0 ||
+    !Number.isInteger(evidence.postMainRepositorySecurityRunId) ||
+    evidence.postMainRepositorySecurityRunId <= 0 ||
+    !Number.isInteger(evidence.postMainRepositorySecurityCheckJobId) ||
+    evidence.postMainRepositorySecurityCheckJobId <= 0 ||
+    evidence.requiredChecksPassed !== true ||
+    evidence.annotationsEmpty !== true ||
+    evidence.commitBoundLiveAuditStatus !== "pass" ||
+    !Array.isArray(evidence.auditErrors) ||
+    evidence.auditErrors.length !== 0 ||
+    !Array.isArray(evidence.auditOwnerBlockers) ||
+    evidence.auditOwnerBlockers.length !== 0 ||
+    evidence.unreachableCommitCount !== 0
+  ) {
+    throw new Error("rule=final-base-handshake-protected-activation-evidence-invalid");
+  }
+}
+
+function validateRemergeImplementationEvidence(evidence, context) {
+  if (
+    !evidence ||
+    !isSha(evidence.candidateVerifierBlobSha) ||
+    !isSha(evidence.candidateGovernanceTestBlobSha) ||
+    !validSha256(evidence.normalizedRegistrySha256) ||
+    evidence.candidateVerifierBlobSha !== context.currentVerifierBlobSha ||
+    evidence.candidateGovernanceTestBlobSha !== context.currentGovernanceTestBlobSha ||
+    evidence.normalizedRegistrySha256 !== context.normalizedNonOwnedRegistrySha256 ||
+    evidence.conflictIntakeMode !== FINAL_BASE_HANDSHAKE_REMERGE_MODE ||
+    ![
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "specReviewApproved",
+      "qualityReviewApproved"
+    ].every((field) => evidence[field] === true) ||
+    !Number.isInteger(evidence.fullRepoGovernanceTestsPassed) ||
+    evidence.fullRepoGovernanceTestsPassed <= 0 ||
+    evidence.fullRepoGovernanceTestsPassed !== evidence.fullRepoGovernanceTestsTotal
+  ) {
+    throw new Error("rule=final-base-handshake-remerge-evidence-incomplete");
+  }
+}
+
+function exactRemergeCandidateEvidence(candidateHeadSha, authorizationCommitSha) {
+  if (!isSha(candidateHeadSha) || !gitObjectExists(`${candidateHeadSha}^{commit}`)) return null;
+  const candidateRegistry = loadRegistryFromCommit(candidateHeadSha).parsed;
+  const parents = gitText(["rev-list", "--parents", "-n", "1", candidateHeadSha])
+    .trim()
+    .split(/\s+/)
+    .slice(1);
+  return {
+    candidateHeadSha,
+    candidateTreeSha: exactTreeSha(candidateHeadSha),
+    candidateRegistryBlobSha: exactBlobSha(candidateHeadSha, REGISTRY_REPO_PATH),
+    candidateVerifierBlobSha: exactBlobSha(
+      candidateHeadSha,
+      "scripts/verify-sena-repo-governance.mjs"
+    ),
+    candidateGovernanceTestBlobSha: exactBlobSha(
+      candidateHeadSha,
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ),
+    candidateParentShas: parents,
+    changedPathsAgainstProtectedMain: changedPathsAgainstParent(
+      authorizationCommitSha,
+      candidateHeadSha
+    ),
+    binaryDiffSha256AgainstFirstParent:
+      parents.length > 0 ? binaryDiffSha256(parents[0], candidateHeadSha) : null,
+    binaryDiffSha256AgainstProtectedMain: binaryDiffSha256(
+      authorizationCommitSha,
+      candidateHeadSha
+    ),
+    normalizedRegistrySha256: normalizedNonOwnedRegistrySha256(candidateRegistry),
+    candidateRegistry
+  };
+}
+
+function exactProtectedActivationEvidence(authorizationCommitSha) {
+  if (!isSha(authorizationCommitSha) || !gitObjectExists(`${authorizationCommitSha}^{commit}`)) return null;
+  const parents = gitText(["rev-list", "--parents", "-n", "1", authorizationCommitSha])
+    .trim()
+    .split(/\s+/)
+    .slice(1);
+  return {
+    protectedMainSha: authorizationCommitSha,
+    protectedMainTreeSha: exactTreeSha(authorizationCommitSha),
+    protectedRegistryBlobSha: exactBlobSha(authorizationCommitSha, REGISTRY_REPO_PATH),
+    finalHeadSha: parents.length === 2 ? parents[1] : null,
+    parentShas: parents
+  };
+}
+
+function validateRemergeCompletionEvidence(evidence, sourceAuthorization, context) {
+  const actual = context?.remergeCandidateActual;
+  if (
+    !evidence ||
+    !actual ||
+    ![
+      "candidateHeadSha",
+      "candidateTreeSha",
+      "candidateRegistryBlobSha",
+      "candidateVerifierBlobSha",
+      "candidateGovernanceTestBlobSha"
+    ].every((field) => isSha(evidence[field])) ||
+    !Array.isArray(evidence.candidateParentShas) ||
+    !sameJson(evidence.candidateParentShas, [
+      sourceAuthorization.candidateHeadSha,
+      context.authorizationCommitSha
+    ]) ||
+    !validSha256(evidence.binaryDiffSha256AgainstFirstParent) ||
+    !validSha256(evidence.binaryDiffSha256AgainstProtectedMain) ||
+    !validSha256(evidence.normalizedRegistrySha256) ||
+    evidence.normalizedRegistrySha256 !== context.normalizedNonOwnedRegistrySha256 ||
+    evidence.conflictIntakeMode !== FINAL_BASE_HANDSHAKE_REMERGE_MODE ||
+    ![
+      "candidateIndexAuditPassed",
+      "writePolicyPassed",
+      "securityPassed",
+      "exactConflictIntakePassed",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "requiredChecksPassed",
+      "annotationsEmpty"
+    ].every((field) => evidence[field] === true) ||
+    !Number.isInteger(evidence.fullRepoGovernanceTestsPassed) ||
+    evidence.fullRepoGovernanceTestsPassed <= 0 ||
+    evidence.fullRepoGovernanceTestsPassed !== evidence.fullRepoGovernanceTestsTotal ||
+    !Number.isInteger(evidence.buildRunId) ||
+    evidence.buildRunId <= 0 ||
+    !positiveIntegerArray(evidence.repositorySecurityRunIds) ||
+    !positiveIntegerArray(evidence.checkJobIds) ||
+    !samePathSet(actual.changedPathsAgainstProtectedMain ?? [], EXACT_CONFLICT_INTAKE_PATHS) ||
+    ![
+      "candidateHeadSha",
+      "candidateTreeSha",
+      "candidateRegistryBlobSha",
+      "candidateVerifierBlobSha",
+      "candidateGovernanceTestBlobSha",
+      "binaryDiffSha256AgainstFirstParent",
+      "binaryDiffSha256AgainstProtectedMain",
+      "normalizedRegistrySha256"
+    ].every((field) => evidence[field] === actual[field]) ||
+    !sameJson(evidence.candidateParentShas, actual.candidateParentShas)
+  ) {
+    throw new Error("rule=final-base-handshake-final-evidence-incomplete");
+  }
+}
+
+function validateFinalBaseHandshakeRemergeParent(protectedRegistry, context) {
+  const actual = context?.remergeCandidateActual;
+  const remergeRegistry = context?.remergeCandidateRegistry;
+  if (
+    !actual ||
+    !remergeRegistry ||
+    !sameJson(actual.candidateRegistry, remergeRegistry)
+  ) {
+    throw new Error("rule=final-base-handshake-remerge-parent-projection-invalid");
+  }
+  const parentContext = {
+    authorizationCommitSha: context.authorizationCommitSha,
+    fetchedOriginMainSha: context.fetchedOriginMainSha,
+    protectedActivationActual: context.protectedActivationActual,
+    projectionMode: "head",
+    currentHeadSha: actual.candidateHeadSha,
+    currentParentShas: actual.candidateParentShas,
+    currentVerifierBlobSha: actual.candidateVerifierBlobSha,
+    currentGovernanceTestBlobSha: actual.candidateGovernanceTestBlobSha,
+    overallChangedPathsFromProtectedMain: actual.changedPathsAgainstProtectedMain,
+    changedPathsFromFirstParent: [],
+    nonOwnedRegistrySemanticEquivalent:
+      normalizedNonOwnedRegistrySha256(protectedRegistry) ===
+      normalizedNonOwnedRegistrySha256(remergeRegistry),
+    normalizedNonOwnedRegistrySha256: normalizedNonOwnedRegistrySha256(remergeRegistry),
+    candidateHeadMatchesLivePr46Head: true
+  };
+  const resolution = finalBaseHandshakeResolutionFromRegistries(
+    protectedRegistry,
+    remergeRegistry,
+    parentContext
+  );
+  if (resolution.mode !== FINAL_BASE_HANDSHAKE_REMERGE_MODE) {
+    throw new Error("rule=final-base-handshake-remerge-parent-projection-invalid");
+  }
+}
+
+export function finalBaseHandshakeResolutionFromRegistries(
+  protectedRegistry,
+  candidateRegistry,
+  context = {}
+) {
+  const { authorization: sourceAuthorization } = validateFinalBaseHandshakeSource(
+    protectedRegistry,
+    context
+  );
+  const candidateItem = finalBaseHandshakeWorkItem(candidateRegistry);
+  const candidateAuthorization = candidateItem?.finalBaseHandshakeAuthorization;
+
+  if (!candidateAuthorization) {
+    if (
+      context.projectionMode !== "pending-head" ||
+      context.currentHeadSha !== sourceAuthorization.candidateHeadSha ||
+      context.currentTreeSha !== sourceAuthorization.candidateTreeSha ||
+      context.currentRegistryBlobSha !== sourceAuthorization.candidateRegistryBlobSha ||
+      context.currentVerifierBlobSha !== sourceAuthorization.candidateVerifierBlobSha ||
+      context.currentGovernanceTestBlobSha !== sourceAuthorization.candidateGovernanceTestBlobSha
+    ) {
+      throw new Error("rule=final-base-handshake-pending-candidate-mismatch");
+    }
+    return {
+      mode: FINAL_BASE_HANDSHAKE_PENDING_MODE,
+      sourceAuthorization,
+      checkoutHeadSha: context.currentHeadSha
+    };
+  }
+
+  validateCandidateAuthorizationCore(sourceAuthorization, candidateAuthorization);
+  validateProtectedActivationCompletionEvidence(candidateAuthorization, context);
+  if (
+    candidateAuthorization.status !== FINAL_BASE_HANDSHAKE_REMERGE_STATUS &&
+    candidateAuthorization.status !== FINAL_BASE_HANDSHAKE_READY_STATUS
+  ) {
+    throw new Error("rule=final-base-handshake-status-invalid");
+  }
+  if (
+    context.nonOwnedRegistrySemanticEquivalent !== true ||
+    normalizedNonOwnedRegistrySha256(protectedRegistry) !==
+      normalizedNonOwnedRegistrySha256(candidateRegistry)
+  ) {
+    throw new Error("rule=final-base-handshake-non-owned-registry-drift");
+  }
+  if (
+    context.normalizedNonOwnedRegistrySha256 !==
+    normalizedNonOwnedRegistrySha256(candidateRegistry)
+  ) {
+    throw new Error("rule=final-base-handshake-final-non-owned-registry-drift");
+  }
+
+  if (candidateAuthorization.status === FINAL_BASE_HANDSHAKE_REMERGE_STATUS) {
+    validateFinalBaseHandshakeReceiptDelta(
+      protectedRegistry,
+      candidateRegistry,
+      candidateAuthorization.status,
+      context
+    );
+    if (
+      !allExplicitlyFalse(candidateAuthorization, FINAL_BASE_HANDSHAKE_PENDING_ACTIONS) ||
+      candidateAuthorization[FINAL_BASE_HANDSHAKE_REMERGE_ACTION] !== true ||
+      candidateAuthorization[FINAL_BASE_HANDSHAKE_READY_ACTION] !== false ||
+      !samePathSet(
+        finalBaseHandshakeTrueAuthorizationPaths(candidateAuthorization),
+        [FINAL_BASE_HANDSHAKE_REMERGE_ACTION]
+      )
+    ) {
+      throw new Error("rule=final-base-handshake-remerge-action-set-invalid");
+    }
+    if (context.projectionMode === "index") {
+      if (
+        context.currentHeadSha !== sourceAuthorization.candidateHeadSha ||
+        context.mergeHeadSha !== context.authorizationCommitSha ||
+        !samePathSet(context.stagedPaths ?? [], EXACT_CONFLICT_INTAKE_PATHS) ||
+        !sameJson(context.candidateParentShas, [
+          sourceAuthorization.candidateHeadSha,
+          context.authorizationCommitSha
+        ])
+      ) {
+        if (!samePathSet(context.stagedPaths ?? [], EXACT_CONFLICT_INTAKE_PATHS)) {
+          throw new Error("rule=final-base-handshake-index-path-set-mismatch");
+        }
+        throw new Error("rule=final-base-handshake-merge-head-mismatch");
+      }
+    } else if (context.projectionMode === "head") {
+      if (
+        !sameJson(context.currentParentShas, [
+          sourceAuthorization.candidateHeadSha,
+          context.authorizationCommitSha
+        ]) ||
+        !samePathSet(context.overallChangedPathsFromProtectedMain ?? [], EXACT_CONFLICT_INTAKE_PATHS)
+      ) {
+        throw new Error("rule=final-base-handshake-remerge-parent-or-path-mismatch");
+      }
+    } else {
+      throw new Error("rule=final-base-handshake-projection-source-invalid");
+    }
+    if (
+      candidateAuthorization.remergeCandidateImplementationEvidence?.candidateVerifierBlobSha !==
+        context.currentVerifierBlobSha ||
+      candidateAuthorization.remergeCandidateImplementationEvidence
+        ?.candidateGovernanceTestBlobSha !== context.currentGovernanceTestBlobSha
+    ) {
+      throw new Error("rule=final-base-handshake-code-blob-mismatch");
+    }
+    validateRemergeImplementationEvidence(
+      candidateAuthorization.remergeCandidateImplementationEvidence,
+      context
+    );
+    if (context.candidateHeadMatchesLivePr46Head !== true) {
+      throw new Error("rule=final-base-handshake-live-pr-head-mismatch");
+    }
+    return {
+      mode: FINAL_BASE_HANDSHAKE_REMERGE_MODE,
+      sourceAuthorization,
+      candidateAuthorization,
+      checkoutHeadSha: context.currentHeadSha
+    };
+  }
+
+  if (
+    !allExplicitlyFalse(candidateAuthorization, [
+      ...FINAL_BASE_HANDSHAKE_PENDING_ACTIONS,
+      FINAL_BASE_HANDSHAKE_REMERGE_ACTION
+    ]) ||
+    candidateAuthorization[FINAL_BASE_HANDSHAKE_READY_ACTION] !== true ||
+    !samePathSet(
+      finalBaseHandshakeTrueAuthorizationPaths(candidateAuthorization),
+      [FINAL_BASE_HANDSHAKE_READY_ACTION]
+    )
+  ) {
+    throw new Error("rule=final-base-handshake-final-action-set-invalid");
+  }
+  const completion = candidateAuthorization.remergeCandidateCompletionEvidence;
+  validateRemergeCompletionEvidence(completion, sourceAuthorization, context);
+  validateFinalBaseHandshakeRemergeParent(protectedRegistry, context);
+  validateFinalBaseHandshakeReceiptDelta(
+    protectedRegistry,
+    candidateRegistry,
+    candidateAuthorization.status,
+    context
+  );
+  if (context.projectionMode === "index") {
+    if (
+      context.currentHeadSha !== completion.candidateHeadSha ||
+      !samePathSet(context.stagedPaths ?? [], [REGISTRY_REPO_PATH]) ||
+      context.mergeHeadSha
+    ) {
+      throw new Error("rule=final-base-handshake-final-path-set-mismatch");
+    }
+  } else if (context.projectionMode === "head") {
+    if (!sameJson(context.currentParentShas, [completion.candidateHeadSha])) {
+      throw new Error("rule=final-base-handshake-final-parent-mismatch");
+    }
+    if (
+      !samePathSet(context.changedPathsFromFirstParent ?? [], [REGISTRY_REPO_PATH]) ||
+      !samePathSet(context.overallChangedPathsFromProtectedMain ?? [], EXACT_CONFLICT_INTAKE_PATHS)
+    ) {
+      throw new Error("rule=final-base-handshake-final-path-set-mismatch");
+    }
+  } else {
+    throw new Error("rule=final-base-handshake-projection-source-invalid");
+  }
+  if (
+    completion.candidateVerifierBlobSha !== context.currentVerifierBlobSha ||
+    completion.candidateGovernanceTestBlobSha !== context.currentGovernanceTestBlobSha
+  ) {
+    throw new Error("rule=final-base-handshake-final-code-blob-mismatch");
+  }
+  if (context.candidateHeadMatchesLivePr46Head !== true) {
+    throw new Error("rule=final-base-handshake-live-pr-head-mismatch");
+  }
+  return {
+    mode: FINAL_BASE_HANDSHAKE_READY_MODE,
+    sourceAuthorization,
+    candidateAuthorization,
+    checkoutHeadSha: context.currentHeadSha
+  };
+}
+
 function exactFieldsMatch(actual, expected, fields) {
   return fields.every((field) => actual?.[field] === expected?.[field]);
 }
@@ -1127,8 +1766,217 @@ export function exactConflictIntakeMismatchRules(binding, observed) {
   return errors;
 }
 
+function exactIndexBlobSha(path) {
+  return gitText(["rev-parse", `:${path}`]).trim();
+}
+
+function currentMergeHeadSha() {
+  const result = git(["rev-parse", "--verify", "MERGE_HEAD"], { allowFailure: true });
+  return result.status === 0 ? String(result.stdout).trim() : null;
+}
+
+function currentBranchLiveRemoteSha() {
+  const branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+  if (branch.status !== 0) return null;
+  const branchName = String(branch.stdout).trim();
+  const remote = git(["ls-remote", "--heads", "origin", `refs/heads/${branchName}`], {
+    allowFailure: true
+  });
+  if (remote.status !== 0) return null;
+  const lines = String(remote.stdout ?? "")
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  if (lines.length !== 1) return null;
+  const [sha, ref] = lines[0].trim().split(/\s+/);
+  return isSha(sha) && ref === `refs/heads/${branchName}` ? sha : null;
+}
+
+function indexChangedPathsAgainst(commit) {
+  return gitText(["diff", "--cached", "--name-only", "-z", "--no-renames", commit])
+    .split("\0")
+    .filter(Boolean);
+}
+
+function finalBaseHandshakeCandidateProjection(flags, authorization, currentHead) {
+  const fromIndex = flags.has("candidate-registry-from-index");
+  const fromHead = flags.has("candidate-registry-from-head");
+  if (fromIndex && fromHead) {
+    throw new Error("rule=final-base-handshake-projection-source-ambiguous");
+  }
+  const mergeHeadSha = currentMergeHeadSha();
+  const liveRemoteSha = currentBranchLiveRemoteSha();
+  if (fromIndex) {
+    if (!flags.has("staged")) {
+      throw new Error("rule=final-base-handshake-index-staged-flag-missing");
+    }
+    const loaded = loadRegistryFromIndex();
+    const stagedPaths = stagedChangedPaths();
+    const context = {
+      authorizationCommitSha: authorization.commit,
+      fetchedOriginMainSha: authorization.commit,
+      protectedActivationActual: exactProtectedActivationEvidence(authorization.commit),
+      projectionMode: "index",
+      currentHeadSha: currentHead,
+      mergeHeadSha,
+      stagedPaths,
+      candidateParentShas: mergeHeadSha ? [currentHead, mergeHeadSha] : [currentHead],
+      currentVerifierBlobSha: exactIndexBlobSha("scripts/verify-sena-repo-governance.mjs"),
+      currentGovernanceTestBlobSha: exactIndexBlobSha(
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ),
+      overallChangedPathsFromProtectedMain: indexChangedPathsAgainst(authorization.commit),
+      changedPathsFromFirstParent: stagedPaths,
+      nonOwnedRegistrySemanticEquivalent:
+        normalizedNonOwnedRegistrySha256(authorization.parsed) ===
+        normalizedNonOwnedRegistrySha256(loaded.parsed),
+      normalizedNonOwnedRegistrySha256: normalizedNonOwnedRegistrySha256(loaded.parsed),
+      candidateHeadMatchesLivePr46Head: liveRemoteSha === currentHead
+    };
+    const completion = finalBaseHandshakeWorkItem(loaded.parsed)?.finalBaseHandshakeAuthorization
+      ?.remergeCandidateCompletionEvidence;
+    if (isSha(completion?.candidateHeadSha)) {
+      context.remergeCandidateActual = exactRemergeCandidateEvidence(
+        completion.candidateHeadSha,
+        authorization.commit
+      );
+      context.remergeCandidateRegistry = context.remergeCandidateActual?.candidateRegistry ?? null;
+    }
+    return { parsed: loaded.parsed, context };
+  }
+  if (fromHead) {
+    const status = gitText(["status", "--porcelain=v1"]);
+    if (status.trim()) throw new Error("rule=final-base-handshake-head-projection-dirty");
+    const loaded = loadRegistryFromCommit(currentHead);
+    const parents = gitText(["rev-list", "--parents", "-n", "1", currentHead])
+      .trim()
+      .split(/\s+/)
+      .slice(1);
+    const context = {
+      authorizationCommitSha: authorization.commit,
+      fetchedOriginMainSha: authorization.commit,
+      protectedActivationActual: exactProtectedActivationEvidence(authorization.commit),
+      projectionMode: "head",
+      currentHeadSha: currentHead,
+      currentParentShas: parents,
+      currentVerifierBlobSha: exactBlobSha(currentHead, "scripts/verify-sena-repo-governance.mjs"),
+      currentGovernanceTestBlobSha: exactBlobSha(
+        currentHead,
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ),
+      overallChangedPathsFromProtectedMain: changedPathsAgainstParent(
+        authorization.commit,
+        currentHead
+      ),
+      changedPathsFromFirstParent:
+        parents.length > 0 ? changedPathsAgainstParent(parents[0], currentHead) : [],
+      nonOwnedRegistrySemanticEquivalent:
+        normalizedNonOwnedRegistrySha256(authorization.parsed) ===
+        normalizedNonOwnedRegistrySha256(loaded.parsed),
+      normalizedNonOwnedRegistrySha256: normalizedNonOwnedRegistrySha256(loaded.parsed),
+      candidateHeadMatchesLivePr46Head: liveRemoteSha === currentHead
+    };
+    const completion = finalBaseHandshakeWorkItem(loaded.parsed)?.finalBaseHandshakeAuthorization
+      ?.remergeCandidateCompletionEvidence;
+    if (isSha(completion?.candidateHeadSha)) {
+      context.remergeCandidateActual = exactRemergeCandidateEvidence(
+        completion.candidateHeadSha,
+        authorization.commit
+      );
+      context.remergeCandidateRegistry = context.remergeCandidateActual?.candidateRegistry ?? null;
+    }
+    return { parsed: loaded.parsed, context };
+  }
+  if (mergeHeadSha || gitText(["status", "--porcelain=v1"]).trim()) {
+    throw new Error("rule=final-base-handshake-projection-source-required");
+  }
+  const loaded = loadRegistryFromCommit(currentHead);
+  return {
+    parsed: loaded.parsed,
+    context: {
+      authorizationCommitSha: authorization.commit,
+      fetchedOriginMainSha: authorization.commit,
+      projectionMode: "pending-head",
+      currentHeadSha: currentHead,
+      currentTreeSha: exactTreeSha(currentHead),
+      currentRegistryBlobSha: exactBlobSha(currentHead, REGISTRY_REPO_PATH),
+      currentVerifierBlobSha: exactBlobSha(currentHead, "scripts/verify-sena-repo-governance.mjs"),
+      currentGovernanceTestBlobSha: exactBlobSha(
+        currentHead,
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      )
+    }
+  };
+}
+
+function finalBaseHandshakePendingTopologyErrors(sourceAuthorization, authorizationCommit) {
+  const errors = [];
+  const candidate = sourceAuthorization.candidateHeadSha;
+  const mergeBase = gitText(["merge-base", authorizationCommit, candidate]).trim();
+  if (mergeBase !== sourceAuthorization.mergeBaseSha) {
+    errors.push("rule=final-base-handshake-pending-merge-base-mismatch");
+    return errors;
+  }
+  const protectedPaths = changedPathsAgainstParent(mergeBase, authorizationCommit);
+  const candidatePaths = changedPathsAgainstParent(mergeBase, candidate);
+  const conflicts = sortedPathSet(protectedPaths.filter((path) => candidatePaths.includes(path)));
+  const cleanCandidateOnly = sortedPathSet(candidatePaths.filter((path) => !protectedPaths.includes(path)));
+  if (!samePathSet(conflicts, [REGISTRY_REPO_PATH])) {
+    errors.push("rule=final-base-handshake-pending-conflict-path-set-mismatch");
+  }
+  if (
+    !samePathSet(cleanCandidateOnly, [
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ])
+  ) {
+    errors.push("rule=final-base-handshake-pending-clean-path-set-mismatch");
+  }
+  return errors;
+}
+
+function runFinalBaseHandshakeConflictIntake(flags, authorization) {
+  const sourceItem = finalBaseHandshakeWorkItem(authorization.parsed);
+  if (!sourceItem?.finalBaseHandshakeAuthorization) return false;
+  const currentHead = gitText(["rev-parse", "HEAD"]).trim();
+  const projection = finalBaseHandshakeCandidateProjection(flags, authorization, currentHead);
+  const resolution = finalBaseHandshakeResolutionFromRegistries(
+    authorization.parsed,
+    projection.parsed,
+    projection.context
+  );
+  const errors = [];
+  if (resolution.mode === FINAL_BASE_HANDSHAKE_PENDING_MODE) {
+    errors.push(
+      ...finalBaseHandshakePendingTopologyErrors(
+        resolution.sourceAuthorization,
+        authorization.commit
+      )
+    );
+  } else if (
+    !samePathSet(
+      projection.context.overallChangedPathsFromProtectedMain ?? [],
+      EXACT_CONFLICT_INTAKE_PATHS
+    )
+  ) {
+    errors.push("rule=final-base-handshake-overall-path-set-mismatch");
+  }
+  if (errors.length > 0) {
+    for (const error of [...new Set(errors)].sort()) {
+      process.stderr.write(`SENA_CONFLICT_INTAKE blocked ${error}\n`);
+    }
+    process.exitCode = 1;
+    return true;
+  }
+  process.stdout.write(
+    `SENA_CONFLICT_INTAKE pass mode=${resolution.mode} authorizationRegistryCommit=${authorization.commit} checkout=${currentHead}\n`
+  );
+  return true;
+}
+
 function runConflictIntake(flags) {
   const authorization = loadProtectedMainAuthorizationRegistry(flags, { required: true });
+  if (runFinalBaseHandshakeConflictIntake(flags, authorization)) return;
   const resolution = conflictIntakeBindingResolutionFromRegistry(authorization.parsed);
   const binding = resolution.binding;
   const errors = [];
@@ -5042,7 +5890,7 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs write-policy --registry-from-index --staged\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
-  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs conflict-intake --authorization-registry-commit SHA\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs conflict-intake --authorization-registry-commit SHA [--candidate-registry-from-index --staged|--candidate-registry-from-head]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs local-ref-retirement-boundary --authorization-registry-commit SHA --authorization-id ID\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs local-ref-retirement --authorization-registry-commit SHA --authorization-id ID\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs registry [--registry PATH]\n`);

@@ -3751,11 +3751,13 @@ describe("SENA repository governance", () => {
     const exact = runNode(governanceScript, [
       "conflict-intake",
       "--authorization-registry-commit",
-      authorizationCommit
+      authorizationCommit,
+      "--candidate-registry-from-index",
+      "--staged"
     ]);
     expect(exact.status, `${exact.stdout}${exact.stderr}`).toBe(0);
     expect(exact.stdout).toContain("SENA_CONFLICT_INTAKE pass");
-    expect(exact.stdout).toContain("mode=evidence-only-superseded-binding-consumed-repair");
+    expect(exact.stdout).toContain("mode=final-base-handshake-remerge-consumed-awaiting-ci");
 
     const stale = runNode(governanceScript, [
       "conflict-intake",
@@ -3763,6 +3765,430 @@ describe("SENA repository governance", () => {
       "88d1c55074fd74f91a291afd89965f4a42bd39f7"
     ]);
     expect(stale.status).toBe(1);
+  });
+
+  it("fails closed on every ambiguous or missing final-handshake projection source", () => {
+    const authorizationCommit = runGit(projectRoot, ["rev-parse", "refs/remotes/origin/main"]);
+    const baseArgs = [
+      "conflict-intake",
+      "--authorization-registry-commit",
+      authorizationCommit
+    ];
+    const ambiguous = runNode(governanceScript, [
+      ...baseArgs,
+      "--candidate-registry-from-index",
+      "--candidate-registry-from-head",
+      "--staged"
+    ]);
+    expect(ambiguous.status).toBe(1);
+    expect(ambiguous.stderr).toContain("rule=final-base-handshake-projection-source-ambiguous");
+
+    const indexWithoutStaged = runNode(governanceScript, [
+      ...baseArgs,
+      "--candidate-registry-from-index"
+    ]);
+    expect(indexWithoutStaged.status).toBe(1);
+    expect(indexWithoutStaged.stderr).toContain("rule=final-base-handshake-index-staged-flag-missing");
+
+    const root = temporaryRoot("final-handshake-projection-source");
+    const sourceIndex = runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const candidateIndex = join(root, "candidate-index");
+    copyFileSync(sourceIndex, candidateIndex);
+    const candidateEnvironment = { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" };
+    const removeRegistry = spawnSync(
+      "git",
+      ["update-index", "--force-remove", "--", "coordination/repo-governance/active-work.json"],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: { ...process.env, ...candidateEnvironment }
+      }
+    );
+    expect(removeRegistry.status, removeRegistry.stderr).toBe(0);
+
+    const missingStageZero = runNode(
+      governanceScript,
+      [...baseArgs, "--candidate-registry-from-index", "--staged"],
+      { env: candidateEnvironment }
+    );
+    expect(missingStageZero.status).toBe(1);
+    expect(missingStageZero.stderr).toContain("stage-0 registry snapshot is absent or conflicted");
+
+    const implicitFallback = runNode(governanceScript, baseArgs, { env: candidateEnvironment });
+    expect(implicitFallback.status).toBe(1);
+    expect(implicitFallback.stderr).toContain("rule=final-base-handshake-projection-source-required");
+
+    const dirtyHead = runNode(
+      governanceScript,
+      [...baseArgs, "--candidate-registry-from-head"],
+      { env: candidateEnvironment }
+    );
+    expect(dirtyHead.status).toBe(1);
+    expect(dirtyHead.stderr).toContain("rule=final-base-handshake-head-projection-dirty");
+  });
+
+  it("accepts only the exact three-state final-base handshake projections", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.finalBaseHandshakeResolutionFromRegistries).toBe("function");
+    expect(typeof governance.finalBaseHandshakeTrueAuthorizationPaths).toBe("function");
+    expect(typeof governance.normalizedNonOwnedRegistrySha256).toBe("function");
+
+    const authorizationCommitSha = runGit(projectRoot, ["rev-parse", "refs/remotes/origin/main"]);
+    const protectedRegistry = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${authorizationCommitSha}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const sourceItem = protectedRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    const sourceAuthorization = sourceItem.finalBaseHandshakeAuthorization;
+    const protectedMainParents = runGit(projectRoot, [
+      "rev-list",
+      "--parents",
+      "-n",
+      "1",
+      authorizationCommitSha
+    ]).split(/\s+/).slice(1);
+    const protectedActivationActual = {
+      protectedMainSha: authorizationCommitSha,
+      protectedMainTreeSha: runGit(projectRoot, ["rev-parse", `${authorizationCommitSha}^{tree}`]),
+      protectedRegistryBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        `${authorizationCommitSha}:coordination/repo-governance/active-work.json`
+      ]),
+      finalHeadSha: protectedMainParents[1],
+      parentShas: protectedMainParents
+    };
+    const exactThreePaths = [
+      "coordination/repo-governance/active-work.json",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ];
+    const registryOnlyPath = ["coordination/repo-governance/active-work.json"];
+    const verifierBlobSha = "a".repeat(40);
+    const governanceTestBlobSha = "b".repeat(40);
+    const normalizedNonOwnedRegistrySha256 =
+      governance.normalizedNonOwnedRegistrySha256(protectedRegistry);
+
+    expect(governance.finalBaseHandshakeTrueAuthorizationPaths(sourceAuthorization)).toEqual([
+      "finalMergeCommitPushAuthorizedAfterRequiredGates",
+      "finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation",
+      "finalResolverAndTestStageAuthorizedAfterProtectedActivation"
+    ]);
+
+    const remergeCandidate = structuredClone(protectedRegistry);
+    const remergeItem = remergeCandidate.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    const remergeAuthorization = remergeItem.finalBaseHandshakeAuthorization;
+    remergeAuthorization.status = "consumed-by-final-pr46-remerge-candidate-awaiting-ci";
+    remergeAuthorization.finalOrdinaryMergeReconciliationAuthorizedAfterProtectedActivation = false;
+    remergeAuthorization.finalResolverAndTestStageAuthorizedAfterProtectedActivation = false;
+    remergeAuthorization.finalMergeCommitPushAuthorizedAfterRequiredGates = false;
+    remergeAuthorization.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = true;
+    remergeAuthorization.pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks = false;
+    remergeAuthorization.protectedActivationCompletionEvidence = {
+      pullRequestNumber: 79,
+      finalHeadSha: protectedActivationActual.finalHeadSha,
+      protectedMainSha: authorizationCommitSha,
+      protectedMainTreeSha: protectedActivationActual.protectedMainTreeSha,
+      protectedRegistryBlobSha: protectedActivationActual.protectedRegistryBlobSha,
+      postMainBuildRunId: 1,
+      postMainBuildCheckJobId: 2,
+      postMainRepositorySecurityRunId: 3,
+      postMainRepositorySecurityCheckJobId: 4,
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      commitBoundLiveAuditStatus: "pass",
+      auditErrors: [],
+      auditOwnerBlockers: [],
+      unreachableCommitCount: 0
+    };
+    remergeAuthorization.remergeCandidateImplementationEvidence = {
+      candidateVerifierBlobSha: verifierBlobSha,
+      candidateGovernanceTestBlobSha: governanceTestBlobSha,
+      normalizedRegistrySha256: normalizedNonOwnedRegistrySha256,
+      candidateIndexAuditPassed: true,
+      writePolicyPassed: true,
+      securityPassed: true,
+      exactConflictIntakePassed: true,
+      conflictIntakeMode: "final-base-handshake-remerge-consumed-awaiting-ci",
+      fullRepoGovernanceTestsPassed: 100,
+      fullRepoGovernanceTestsTotal: 100,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+    remergeCandidate.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "pr46-final-base-handshake-remerge-candidate",
+      taskId: "SENA-BRANCH-RETIREMENT-20260829",
+      ownerKey: "Codex-branch-retirement-01a04916",
+      scope: exactThreePaths,
+      authorizationBoundary: {
+        finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks: true,
+        pr46ReadyAndProtectedMergeAuthorizedNow: false,
+        branchDeletionAuthorized: false
+      }
+    });
+    const remergeContext = {
+      authorizationCommitSha,
+      fetchedOriginMainSha: authorizationCommitSha,
+      protectedActivationActual,
+      projectionMode: "index",
+      currentHeadSha: sourceAuthorization.candidateHeadSha,
+      mergeHeadSha: authorizationCommitSha,
+      stagedPaths: exactThreePaths,
+      candidateParentShas: [sourceAuthorization.candidateHeadSha, authorizationCommitSha],
+      currentVerifierBlobSha: verifierBlobSha,
+      currentGovernanceTestBlobSha: governanceTestBlobSha,
+      nonOwnedRegistrySemanticEquivalent: true,
+      normalizedNonOwnedRegistrySha256,
+      candidateHeadMatchesLivePr46Head: true
+    };
+    expect(
+      governance.finalBaseHandshakeResolutionFromRegistries(
+        protectedRegistry,
+        remergeCandidate,
+        remergeContext
+      ).mode
+    ).toBe("final-base-handshake-remerge-consumed-awaiting-ci");
+
+    const remergeCases: Array<[string, (candidate: typeof remergeCandidate, context: typeof remergeContext) => void]> = [
+      ["rule=final-base-handshake-status-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.status = "arbitrary";
+      }],
+      ["rule=final-base-handshake-remerge-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.future = { nestedMutationAuthorized: true };
+      }],
+      ["rule=final-base-handshake-remerge-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.finalMergeCommitPushAuthorizedAfterRequiredGates = true;
+      }],
+      ["rule=final-base-handshake-index-path-set-mismatch", (_candidate, context) => {
+        context.stagedPaths = [...exactThreePaths, "unexpected.ts"];
+      }],
+      ["rule=final-base-handshake-merge-head-mismatch", (_candidate, context) => {
+        context.mergeHeadSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-code-blob-mismatch", (_candidate, context) => {
+        context.currentVerifierBlobSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-non-owned-registry-drift", (_candidate, context) => {
+        context.nonOwnedRegistrySemanticEquivalent = false;
+      }],
+      ["rule=final-base-handshake-remerge-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateImplementationEvidence.securityPassed = false;
+      }],
+      ["rule=final-base-handshake-protected-activation-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.protectedActivationCompletionEvidence = null;
+      }],
+      ["rule=final-base-handshake-protected-activation-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.protectedActivationCompletionEvidence.requiredChecksPassed = false;
+      }],
+      ["rule=final-base-handshake-protected-activation-evidence-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.protectedActivationCompletionEvidence.protectedMainTreeSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.pop();
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)));
+      }],
+      ["rule=final-base-handshake-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).authorizationBoundary.futureMutationAuthorized = true;
+      }]
+    ];
+    for (const [expectedError, mutate] of remergeCases) {
+      const candidate = structuredClone(remergeCandidate);
+      const context = structuredClone(remergeContext);
+      mutate(candidate, context);
+      expect(() =>
+        governance.finalBaseHandshakeResolutionFromRegistries(protectedRegistry, candidate, context)
+      ).toThrow(expectedError);
+    }
+
+    const remergeCandidateHeadSha = "d".repeat(40);
+    const finalReadyCandidate = structuredClone(remergeCandidate);
+    const finalItem = finalReadyCandidate.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    const finalAuthorization = finalItem.finalBaseHandshakeAuthorization;
+    finalAuthorization.status = "final-pr46-ready-authorization-pending-final-head-checks";
+    finalAuthorization.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = false;
+    finalAuthorization.pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks = true;
+    finalAuthorization.remergeCandidateCompletionEvidence = {
+      candidateHeadSha: remergeCandidateHeadSha,
+      candidateTreeSha: "e".repeat(40),
+      candidateRegistryBlobSha: "f".repeat(40),
+      candidateVerifierBlobSha: verifierBlobSha,
+      candidateGovernanceTestBlobSha: governanceTestBlobSha,
+      candidateParentShas: [sourceAuthorization.candidateHeadSha, authorizationCommitSha],
+      binaryDiffSha256AgainstFirstParent: "2".repeat(64),
+      binaryDiffSha256AgainstProtectedMain: "1".repeat(64),
+      normalizedRegistrySha256: normalizedNonOwnedRegistrySha256,
+      candidateIndexAuditPassed: true,
+      writePolicyPassed: true,
+      securityPassed: true,
+      exactConflictIntakePassed: true,
+      conflictIntakeMode: "final-base-handshake-remerge-consumed-awaiting-ci",
+      fullRepoGovernanceTestsPassed: 100,
+      fullRepoGovernanceTestsTotal: 100,
+      specReviewApproved: true,
+      qualityReviewApproved: true,
+      buildRunId: 1,
+      repositorySecurityRunIds: [2, 3],
+      checkJobIds: [4, 5, 6],
+      requiredChecksPassed: true,
+      annotationsEmpty: true
+    };
+    finalReadyCandidate.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "pr46-final-base-handshake-final-authorization",
+      taskId: "SENA-BRANCH-RETIREMENT-20260829",
+      ownerKey: "Codex-branch-retirement-01a04916",
+      scope: registryOnlyPath,
+      authorizationBoundary: {
+        pr46ReadyAndProtectedMergeAuthorizedAfterFinalCandidateChecks: true,
+        finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks: false,
+        branchDeletionAuthorized: false
+      }
+    });
+    const remergeCandidateActual = {
+      candidateHeadSha: remergeCandidateHeadSha,
+      candidateTreeSha: "e".repeat(40),
+      candidateRegistryBlobSha: "f".repeat(40),
+      candidateVerifierBlobSha: verifierBlobSha,
+      candidateGovernanceTestBlobSha: governanceTestBlobSha,
+      candidateParentShas: [sourceAuthorization.candidateHeadSha, authorizationCommitSha],
+      changedPathsAgainstProtectedMain: exactThreePaths,
+      binaryDiffSha256AgainstFirstParent: "2".repeat(64),
+      binaryDiffSha256AgainstProtectedMain: "1".repeat(64),
+      normalizedRegistrySha256: normalizedNonOwnedRegistrySha256,
+      candidateRegistry: remergeCandidate
+    };
+    const finalContext = {
+      authorizationCommitSha,
+      fetchedOriginMainSha: authorizationCommitSha,
+      protectedActivationActual,
+      projectionMode: "head",
+      currentHeadSha: "9".repeat(40),
+      currentParentShas: [remergeCandidateHeadSha],
+      changedPathsFromFirstParent: registryOnlyPath,
+      overallChangedPathsFromProtectedMain: exactThreePaths,
+      currentVerifierBlobSha: verifierBlobSha,
+      currentGovernanceTestBlobSha: governanceTestBlobSha,
+      nonOwnedRegistrySemanticEquivalent: true,
+      normalizedNonOwnedRegistrySha256,
+      candidateHeadMatchesLivePr46Head: true,
+      remergeCandidateActual,
+      remergeCandidateRegistry: remergeCandidate
+    };
+    expect(
+      governance.finalBaseHandshakeResolutionFromRegistries(
+        protectedRegistry,
+        finalReadyCandidate,
+        finalContext
+      ).mode
+    ).toBe("final-base-handshake-final-ready-pending-head-checks");
+
+    const finalCases: Array<[string, (candidate: typeof finalReadyCandidate, context: typeof finalContext) => void]> = [
+      ["rule=final-base-handshake-final-action-set-invalid", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.finalAuthorizationMetadataCommitAuthorizedAfterInitialExactHeadChecks = true;
+      }],
+      ["rule=final-base-handshake-final-parent-mismatch", (_candidate, context) => {
+        context.currentParentShas = ["0".repeat(40)];
+      }],
+      ["rule=final-base-handshake-final-path-set-mismatch", (_candidate, context) => {
+        context.changedPathsFromFirstParent = [...registryOnlyPath, "unexpected.ts"];
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.requiredChecksPassed = false;
+      }],
+      ["rule=final-base-handshake-final-code-blob-mismatch", (_candidate, context) => {
+        context.currentGovernanceTestBlobSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-final-non-owned-registry-drift", (_candidate, context) => {
+        context.normalizedNonOwnedRegistrySha256 = "0".repeat(64);
+      }],
+      ["rule=final-base-handshake-live-pr-head-mismatch", (_candidate, context) => {
+        context.candidateHeadMatchesLivePr46Head = false;
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.candidateTreeSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.candidateRegistryBlobSha = "0".repeat(40);
+      }],
+      ["rule=final-base-handshake-final-evidence-incomplete", (candidate) => {
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateCompletionEvidence.binaryDiffSha256AgainstProtectedMain =
+          "0".repeat(64);
+      }],
+      ["rule=final-base-handshake-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.pop();
+      }],
+      ["rule=final-base-handshake-final-receipt-delta-invalid", (candidate) => {
+        candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)));
+      }],
+      ["rule=final-base-handshake-transition-receipt-invalid", (candidate) => {
+        candidate.releaseReceipts.at(-1).authorizationBoundary.futureMutationAuthorized = true;
+      }],
+      ["rule=final-base-handshake-status-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.status = "pending-protected-activation";
+      }],
+      ["rule=final-base-handshake-remerge-action-set-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.finalMergeCommitPushAuthorizedAfterRequiredGates = true;
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.releaseReceipts.pop();
+      }],
+      ["rule=final-base-handshake-remerge-receipt-delta-invalid", (_candidate, context) => {
+        context.remergeCandidateRegistry.releaseReceipts.push(
+          structuredClone(context.remergeCandidateRegistry.releaseReceipts.at(-1))
+        );
+      }],
+      ["rule=final-base-handshake-remerge-evidence-incomplete", (_candidate, context) => {
+        context.remergeCandidateRegistry.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).finalBaseHandshakeAuthorization.remergeCandidateImplementationEvidence.securityPassed = false;
+      }]
+    ];
+    for (const [expectedError, mutate] of finalCases) {
+      const candidate = structuredClone(finalReadyCandidate);
+      const context = structuredClone(finalContext);
+      mutate(candidate, context);
+      expect(() =>
+        governance.finalBaseHandshakeResolutionFromRegistries(protectedRegistry, candidate, context)
+      ).toThrow(expectedError);
+    }
   });
 
   it("accepts only the exact superseded conflict binding as evidence-only", async () => {
