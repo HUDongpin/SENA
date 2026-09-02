@@ -1687,6 +1687,7 @@ function runWritePolicy(flags) {
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) throw new Error("index registry snapshot is invalid");
   validatePr80RepairIndexTransition(registry);
+  validateEvidenceFlowCurrentnessIndexTransition(registry);
   validateProtectedCurrentnessRepairIndexTransition(registry);
 
   const findings = [];
@@ -3942,6 +3943,29 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
   }
   const receipts = registry.releaseReceipts ?? [];
   const prefixCount = lifecycle.designPlanSeedReceiptPrefix.count;
+  const suffixReceiptKinds = receipts
+    .slice(prefixCount)
+    .map((receipt) => receipt?.receiptKind);
+  const exactInitialSequence = [PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT];
+  const exactCorrectionSequence = [
+    PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+    PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT
+  ];
+  const exactCorrectionWithEvidenceFlowSequence = [
+    ...exactCorrectionSequence,
+    EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
+    TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
+  ];
+  const exactFinalSequence = [
+    ...exactCorrectionSequence,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
+  const exactFinalAfterEvidenceFlowSequence = [
+    ...exactCorrectionSequence,
+    EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
+    TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
   if (
     receipts.length < prefixCount ||
     protectedCurrentnessRepairReceiptPrefixSha256(receipts, prefixCount) !==
@@ -3951,7 +3975,7 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
   }
   const initialReceipt = receipts[prefixCount];
   if (lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS) {
-    if (receipts.length !== prefixCount + 1) {
+    if (!sameJson(suffixReceiptKinds, exactInitialSequence)) {
       throw new Error("rule=protected-currentness-repair-initial-receipt-delta-invalid");
     }
     validateProtectedCurrentnessRepairReceipt(
@@ -3975,10 +3999,20 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     validateProtectedCurrentnessRepairAdditiveCorrectionAuthorization(
       lifecycle.additiveCorrectionAuthorization
     );
-    if (receipts.length !== prefixCount + 2) {
+    const correctionHasEvidenceFlow = sameJson(
+      suffixReceiptKinds,
+      exactCorrectionWithEvidenceFlowSequence
+    );
+    if (
+      !sameJson(suffixReceiptKinds, exactCorrectionSequence) &&
+      !correctionHasEvidenceFlow
+    ) {
       throw new Error(
         "rule=protected-currentness-repair-correction-receipt-delta-invalid"
       );
+    }
+    if (correctionHasEvidenceFlow) {
+      validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
     }
     validateProtectedCurrentnessRepairReceipt(
       initialReceipt,
@@ -4025,8 +4059,15 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     ) {
       throw new Error("rule=protected-currentness-repair-final-action-set-invalid");
     }
-    if (receipts.length !== prefixCount + 3) {
+    const finalHasEvidenceFlow = sameJson(
+      suffixReceiptKinds,
+      exactFinalAfterEvidenceFlowSequence
+    );
+    if (!sameJson(suffixReceiptKinds, exactFinalSequence) && !finalHasEvidenceFlow) {
       throw new Error("rule=protected-currentness-repair-final-receipt-delta-invalid");
+    }
+    if (finalHasEvidenceFlow) {
+      validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
     }
     validateProtectedCurrentnessRepairReceipt(
       initialReceipt,
@@ -4043,7 +4084,7 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       lifecycle.additiveCorrectionAuthorization
     );
     validateProtectedCurrentnessRepairReceipt(
-      receipts[prefixCount + 2],
+      receipts[prefixCount + (finalHasEvidenceFlow ? 4 : 2)],
       PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION,
@@ -5052,11 +5093,1067 @@ export function validateProtectedCurrentnessRepairIndexTransition(candidateRegis
   assertProtectedCurrentnessRepairIndexPaths(lifecycle, staged);
   const headSha = gitText(["rev-parse", "HEAD"]).trim();
   const sourceRegistry = loadRegistryFromCommit(headSha).parsed;
+  const sourceHasEvidenceFlow = Boolean(
+    evidenceFlowCurrentnessWorkItem(sourceRegistry)?.[
+      EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+    ]
+  );
+  const candidateHasEvidenceFlow = Boolean(
+    evidenceFlowCurrentnessWorkItem(candidateRegistry)?.[
+      EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+    ]
+  );
+  if (candidateHasEvidenceFlow) {
+    assertEvidenceFlowCurrentnessLifecycleIndexBlobs(candidateRegistry);
+  }
+  if (candidateHasEvidenceFlow && !sourceHasEvidenceFlow) {
+    if (headSha !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA) {
+      throw new Error("rule=evidenceflow-currentness-index-source-head-mismatch");
+    }
+    validateEvidenceFlowCurrentnessLifecycleTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    const sourceRepairLifecycle = protectedCurrentnessRepairWorkItem(sourceRegistry)
+      ?.protectedCurrentnessActivationRepairLifecycle;
+    if (!sameJson(sourceRepairLifecycle, lifecycle)) {
+      throw new Error("rule=protected-currentness-repair-transition-source-invalid");
+    }
+    return;
+  }
+  if (sourceHasEvidenceFlow) {
+    if (!candidateHasEvidenceFlow) {
+      throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+    }
+    validateEvidenceFlowCurrentnessLifecycleSnapshot(sourceRegistry);
+    validateEvidenceFlowCurrentnessLifecycleSnapshot(candidateRegistry);
+  }
   protectedCurrentnessRepairLifecycleResolutionFromRegistries(
     sourceRegistry,
     candidateRegistry,
     protectedCurrentnessRepairObservationContextFromEnvironment(headSha)
   );
+}
+
+const EVIDENCE_FLOW_CURRENTNESS_TASK_ID = "SENA-EVIDENCEFLOW-V1-20260828";
+const EVIDENCE_FLOW_CURRENTNESS_BRANCH = "codex/sena-evidenceflow-v1-20260828";
+const EVIDENCE_FLOW_CURRENTNESS_OWNER_KEY = "Codex-evidenceflow-01a04273";
+const EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY =
+  "evidenceFlowAdditiveCurrentnessLifecycle";
+const EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_STATUS =
+  "evidenceflow-additive-currentness-observation-recorded";
+const EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND =
+  "evidenceflow-additive-currentness-observation";
+const TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY =
+  "task7_7CombinedCurrentnessLifecycle";
+const TASK77_COMBINED_CURRENTNESS_STATUS =
+  "task7.7-combined-currentness-candidate";
+const TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND =
+  "task7.7-combined-currentness-candidate";
+const TASK77_COMBINED_CURRENTNESS_OBSERVED_AT = "2026-09-02T10:42:00Z";
+const TASK77_COMBINED_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-03T10:42:00Z";
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA =
+  "44a814721831bd369be34794eb3e13ad459d4b30";
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_TREE_SHA =
+  "998b6342c4e0fb4d527a68cd42610c994bcb29d2";
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA =
+  "9dda7977d067378bdb5ba40427039ce77f2d7f19";
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_VERIFIER_BLOB_SHA =
+  "5ef613dfff43b36eeeacf323e359a1897ded3f83";
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_GOVERNANCE_TEST_BLOB_SHA =
+  "154b283a351726fe3217cf75c50e7637e91bc1a5";
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT = 42;
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_PREFIX_SHA256 =
+  "276f6581fdf0a8e84f60b39be74160fc7d0358f1ef395f4c375faf39517ed885";
+const EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_SENTENCE =
+  "授权 Task7.6 EvidenceFlow 加法式当前性修复生命周期。";
+const EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_SHA256 =
+  "3d55f9909e6064f9bcf0d4660bde88b3579b900d6cd9cf2aac70e959dea1edb8";
+const EVIDENCE_FLOW_CURRENTNESS_OBSERVED_AT = "2026-09-02T08:14:52Z";
+const EVIDENCE_FLOW_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-03T08:14:52Z";
+const EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS = [
+  REGISTRY_REPO_PATH,
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+const EVIDENCE_FLOW_CURRENTNESS_SOURCE_BINDING_KEYS = [
+  "headSha",
+  "treeSha",
+  "registryBlobSha",
+  "verifierBlobSha",
+  "governanceTestBlobSha",
+  "receiptPrefix"
+];
+const EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS = [
+  "candidateCommitAuthorized",
+  "candidatePushAuthorized",
+  "pr38ReadyAuthorized",
+  "pr38MergeAuthorized",
+  "pr46MutationAuthorized",
+  "pr82MutationAuthorized",
+  "cleanupAuthorized",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "orphanWorktreeMutationAuthorized",
+  "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized",
+  "futureTask8Authorized"
+];
+const EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_KEYS = [
+  "mode",
+  "status",
+  "exactSentence",
+  "exactSentenceSha256",
+  "requiredCandidatePaths",
+  "authorizedWorkItemTaskId",
+  "authorizedBranch",
+  "observerHeartbeatMode",
+  "authorizationBoundary"
+];
+const EVIDENCE_FLOW_CURRENTNESS_OBSERVATION_KEYS = [
+  "observedAt",
+  "nextReviewAt",
+  "baseRef",
+  "localHeadSha",
+  "localTreeSha",
+  "protectedMainSha",
+  "ahead",
+  "behind",
+  "stagedPathCount",
+  "unstagedTrackedPathCount",
+  "untrackedPathCount",
+  "totalChangedPathCount",
+  "allowedPathViolationCount",
+  "statusPorcelainV1Sha256",
+  "fullDiffSha256",
+  "cachedRemoteHeadSha",
+  "liveRemoteHeadSha",
+  "pullRequestNumber",
+  "pullRequestHeadSha",
+  "pullRequestState",
+  "pullRequestIsDraft",
+  "pullRequestReadyForReview",
+  "pullRequestMergeable",
+  "pullRequestMergeStateStatus",
+  "pullRequestMergeAuthorized",
+  "lockCount",
+  "activeProcessCount",
+  "cwdHandleCount"
+];
+const EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEYS = [
+  "status",
+  "mode",
+  "sourceBinding",
+  "authorization",
+  "observation",
+  "authorizationBoundary"
+];
+const EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KEYS = [
+  "schemaVersion",
+  "receiptKind",
+  "taskId",
+  "ownerKey",
+  "scope",
+  "sourceBinding",
+  "authorization",
+  "observation",
+  "authorizationBoundary"
+];
+const EVIDENCE_FLOW_CURRENTNESS_RECEIPT_BOUNDARY_KEYS = [
+  "evidenceFlowCurrentnessObservationRecorded",
+  ...EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS
+];
+const TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS = [
+  "candidateCommitAuthorizedAfterGates",
+  "candidatePushToDraftPr82AuthorizedAfterGates",
+  "pr82ReadyAuthorized",
+  "pr82MergeAuthorized",
+  "pr46MutationAuthorized",
+  "localRefRetirementAuthorized",
+  "retirementReceiptMintingAuthorized",
+  "branchDeletionAuthorized",
+  "worktreeRemovalAuthorized",
+  "targetRefMutationAuthorized",
+  "targetTagMutationAuthorized",
+  "quarantineMutationAuthorized",
+  "deploymentAuthorized",
+  "providerMutationAuthorized",
+  "resetAuthorized",
+  "rebaseAuthorized",
+  "stashAuthorized",
+  "forceAuthorized",
+  "historyRewriteAuthorized"
+];
+const TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_KEYS = [
+  "mode",
+  "status",
+  "sourceThreadId",
+  "targetThreadId",
+  "requiredCandidatePaths",
+  "authorizedWorkItemTaskId",
+  "authorizedBranch",
+  "ownerHeartbeatMode",
+  "authorizationBoundary"
+];
+const TASK77_COMBINED_CURRENTNESS_OBSERVATION_KEYS = [
+  "observedAt",
+  "nextReviewAt",
+  "baseRef",
+  "localHeadSha",
+  "remoteHeadSha",
+  "protectedMainSha",
+  "ahead",
+  "behind",
+  "stagedPathCount",
+  "unstagedPathCount",
+  "untrackedPathCount",
+  "statusPorcelainV1Sha256",
+  "pullRequestNumber",
+  "pullRequestHeadSha",
+  "pullRequestState",
+  "pullRequestIsDraft",
+  "pullRequestMergeable",
+  "pullRequestMergeStateStatus",
+  "remoteSameNameHeadCount",
+  "ordinaryArchiveBundleSha256",
+  "exactLedgerBundleCount",
+  "exactLedgerOwnerOnlyCount",
+  "exactLedgerCompleteHistoryVerifiedCount",
+  "activeProcessCount",
+  "cwdHandleCount"
+];
+const TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEYS = [
+  "status",
+  "mode",
+  "authorization",
+  "observation",
+  "authorizationBoundary"
+];
+const TASK77_COMBINED_CURRENTNESS_RECEIPT_KEYS = [
+  "schemaVersion",
+  "receiptKind",
+  "taskId",
+  "ownerKey",
+  "scope",
+  "authorization",
+  "observation",
+  "authorizationBoundary"
+];
+const EVIDENCE_FLOW_CURRENTNESS_DIRTY_STATE =
+  "unstaged-bounded-76-tracked-10-untracked-currentness-observed-against-protected-main-969a206";
+const EVIDENCE_FLOW_CURRENTNESS_LOCAL_EVIDENCE =
+  "local EvidenceFlow owner head remains exact 434a1aac with tree 66d9867; against protected main 969a206 it is ahead 16/behind 82; staged 0, unstaged tracked 76, untracked 10, total changed 86, allowed-path violations 0; exact git status --porcelain=v1 SHA-256 037d4727 and git diff --binary HEAD -- . SHA-256 e6c725cf; observer currentness does not refresh the owner heartbeat";
+const EVIDENCE_FLOW_CURRENTNESS_MERGED_EVIDENCE =
+  "EvidenceFlow remains unmerged; Draft PR38 remote and PR head remain exact 40438885 while local owner head remains exact 434a1aac plus 76 tracked and 10 untracked bounded paths; against protected main 969a206 it is ahead 16/behind 82; no candidate commit/push/Ready/merge is authorized";
+const EVIDENCE_FLOW_CURRENTNESS_LIVE_EVIDENCE =
+  "the 2026-09-02T08:14:52Z observation binds protected main 969a206, local head/tree 434a1aac/66d9867, cached/live remote and Draft PR38 head 40438885, PR38 OPEN/Draft/MERGEABLE/BEHIND, status 037d4727, diff e6c725cf, counts 0 staged/76 unstaged tracked/10 untracked/0 allowlist violations, and zero locks/process/cwd handles; product files and owner heartbeats remain untouched";
+const EVIDENCE_FLOW_CURRENTNESS_BRANCH_CLOSEOUT =
+  "Draft PR38 cached/live remote and PR head remain exact 40438885; local owner head/tree remain exact 434a1aac/66d9867 against protected main 969a206, ahead 16/behind 82, plus 76 unstaged tracked and 10 untracked bounded paths with full diff e6c725cf and status 037d4727. PR38 remains OPEN/Draft/MERGEABLE/BEHIND and candidate commit/push/Ready/merge remain false; this observer currentness does not refresh the owner heartbeat";
+function evidenceFlowCurrentnessWorkItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry?.taskId === EVIDENCE_FLOW_CURRENTNESS_TASK_ID
+  );
+}
+
+function evidenceFlowCurrentnessBranch(registry) {
+  return (registry?.branches ?? []).find(
+    (entry) => entry?.name === EVIDENCE_FLOW_CURRENTNESS_BRANCH
+  );
+}
+
+function task77BranchRetirementWorkItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+}
+
+function task77BranchRetirementBranch(registry) {
+  return (registry?.branches ?? []).find(
+    (entry) => entry?.name === "codex/sena-branch-retirement-20260829"
+  );
+}
+
+function task77CombinedCurrentnessCarrierItem(registry) {
+  return evidenceFlowCurrentnessWorkItem(registry);
+}
+
+function evidenceFlowCurrentnessClone(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function evidenceFlowCurrentnessSourceBinding() {
+  return {
+    headSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA,
+    treeSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_TREE_SHA,
+    registryBlobSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA,
+    verifierBlobSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_VERIFIER_BLOB_SHA,
+    governanceTestBlobSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_GOVERNANCE_TEST_BLOB_SHA,
+    receiptPrefix: {
+      count: EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT,
+      sha256: EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_PREFIX_SHA256
+    }
+  };
+}
+
+function evidenceFlowCurrentnessAuthorizationBoundary() {
+  return Object.fromEntries(
+    EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS.map((key) => [key, false])
+  );
+}
+
+function evidenceFlowCurrentnessAuthorization() {
+  return {
+    mode: "explicit-owner-conversation-authorization",
+    status: "consumed-by-exact-evidenceflow-additive-currentness-candidate",
+    exactSentence: EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_SENTENCE,
+    exactSentenceSha256: EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_SHA256,
+    requiredCandidatePaths: [...EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS],
+    authorizedWorkItemTaskId: EVIDENCE_FLOW_CURRENTNESS_TASK_ID,
+    authorizedBranch: EVIDENCE_FLOW_CURRENTNESS_BRANCH,
+    observerHeartbeatMode: "observation-only-owner-heartbeats-byte-identical",
+    authorizationBoundary: evidenceFlowCurrentnessAuthorizationBoundary()
+  };
+}
+
+function evidenceFlowCurrentnessObservation() {
+  return {
+    observedAt: EVIDENCE_FLOW_CURRENTNESS_OBSERVED_AT,
+    nextReviewAt: EVIDENCE_FLOW_CURRENTNESS_NEXT_REVIEW_AT,
+    baseRef: "origin/main",
+    localHeadSha: "434a1aac542e60e793afef77fb35104cdb470d53",
+    localTreeSha: "66d986701619acc9281e61c7d62bbafd924981f1",
+    protectedMainSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+    ahead: 16,
+    behind: 82,
+    stagedPathCount: 0,
+    unstagedTrackedPathCount: 76,
+    untrackedPathCount: 10,
+    totalChangedPathCount: 86,
+    allowedPathViolationCount: 0,
+    statusPorcelainV1Sha256:
+      "037d472704beb72408363f5b81bfe5be132405e5fc74edae9047dfdf265c708b",
+    fullDiffSha256:
+      "e6c725cfe31c8c30a6e0798de5ca2c4e2d343225085552224887d58b65ffa8c1",
+    cachedRemoteHeadSha: "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+    liveRemoteHeadSha: "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+    pullRequestNumber: 38,
+    pullRequestHeadSha: "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+    pullRequestState: "OPEN",
+    pullRequestIsDraft: true,
+    pullRequestReadyForReview: false,
+    pullRequestMergeable: "MERGEABLE",
+    pullRequestMergeStateStatus: "BEHIND",
+    pullRequestMergeAuthorized: false,
+    lockCount: 0,
+    activeProcessCount: 0,
+    cwdHandleCount: 0
+  };
+}
+
+function evidenceFlowCurrentnessLifecycle() {
+  return {
+    status: EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_STATUS,
+    mode: "strict-additive-observation-only",
+    sourceBinding: evidenceFlowCurrentnessSourceBinding(),
+    authorization: evidenceFlowCurrentnessAuthorization(),
+    observation: evidenceFlowCurrentnessObservation(),
+    authorizationBoundary: evidenceFlowCurrentnessAuthorizationBoundary()
+  };
+}
+
+function evidenceFlowCurrentnessReceipt() {
+  return {
+    schemaVersion: "sena-registry-reconciliation-receipt/v1",
+    receiptKind: EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
+    taskId: EVIDENCE_FLOW_CURRENTNESS_TASK_ID,
+    ownerKey: EVIDENCE_FLOW_CURRENTNESS_OWNER_KEY,
+    scope: [...EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS],
+    sourceBinding: evidenceFlowCurrentnessSourceBinding(),
+    authorization: evidenceFlowCurrentnessAuthorization(),
+    observation: evidenceFlowCurrentnessObservation(),
+    authorizationBoundary: {
+      evidenceFlowCurrentnessObservationRecorded: true,
+      ...evidenceFlowCurrentnessAuthorizationBoundary()
+    }
+  };
+}
+
+function task77CombinedCurrentnessAuthorizationBoundary() {
+  return Object.fromEntries(
+    TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS.map((key) => [
+      key,
+      key === "candidateCommitAuthorizedAfterGates" ||
+        key === "candidatePushToDraftPr82AuthorizedAfterGates"
+    ])
+  );
+}
+
+function task77CombinedCurrentnessAuthorization() {
+  return {
+    mode: "cross-task-user-continuation-authorization",
+    status: "consumed-by-exact-task7.7-combined-currentness-candidate",
+    sourceThreadId: "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+    targetThreadId: "01a04916-4ba7-7c11-8fee-7760f7bb3659",
+    requiredCandidatePaths: [...EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS],
+    authorizedWorkItemTaskId: "SENA-BRANCH-RETIREMENT-20260829",
+    authorizedBranch: "codex/sena-branch-retirement-20260829",
+    ownerHeartbeatMode: "task-owner-currentness-without-ref-mutation",
+    authorizationBoundary: task77CombinedCurrentnessAuthorizationBoundary()
+  };
+}
+
+function task77CombinedCurrentnessObservation() {
+  return {
+    observedAt: TASK77_COMBINED_CURRENTNESS_OBSERVED_AT,
+    nextReviewAt: TASK77_COMBINED_CURRENTNESS_NEXT_REVIEW_AT,
+    baseRef: "origin/main",
+    localHeadSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+    remoteHeadSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+    protectedMainSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+    ahead: 8,
+    behind: 8,
+    stagedPathCount: 0,
+    unstagedPathCount: 0,
+    untrackedPathCount: 0,
+    statusPorcelainV1Sha256:
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    pullRequestNumber: 46,
+    pullRequestHeadSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+    pullRequestState: "OPEN",
+    pullRequestIsDraft: true,
+    pullRequestMergeable: "CONFLICTING",
+    pullRequestMergeStateStatus: "DIRTY",
+    remoteSameNameHeadCount: 0,
+    ordinaryArchiveBundleSha256:
+      "ada86c0801288d366533422fd887f7afaa502693ea1776ac5b7888e030fb8d51",
+    exactLedgerBundleCount: 8,
+    exactLedgerOwnerOnlyCount: 8,
+    exactLedgerCompleteHistoryVerifiedCount: 8,
+    activeProcessCount: 0,
+    cwdHandleCount: 0
+  };
+}
+
+function task77CombinedCurrentnessLifecycle() {
+  return {
+    status: TASK77_COMBINED_CURRENTNESS_STATUS,
+    mode: "branch-retirement-owner-currentness-plus-evidenceflow-observation",
+    authorization: task77CombinedCurrentnessAuthorization(),
+    observation: task77CombinedCurrentnessObservation(),
+    authorizationBoundary: task77CombinedCurrentnessAuthorizationBoundary()
+  };
+}
+
+function task77CombinedCurrentnessReceipt() {
+  return {
+    schemaVersion: "sena-registry-reconciliation-receipt/v1",
+    receiptKind: TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND,
+    taskId: "SENA-BRANCH-RETIREMENT-20260829",
+    ownerKey: "Codex-branch-retirement-01a04916",
+    scope: [...EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS],
+    authorization: task77CombinedCurrentnessAuthorization(),
+    observation: task77CombinedCurrentnessObservation(),
+    authorizationBoundary: task77CombinedCurrentnessAuthorizationBoundary()
+  };
+}
+
+function validateTask77CombinedCurrentnessLifecycle(lifecycle) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle,
+    TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEYS,
+    "rule=task7.7-combined-currentness-lifecycle-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.authorization,
+    TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_KEYS,
+    "rule=task7.7-combined-currentness-authorization-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.authorization.authorizationBoundary,
+    TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS,
+    "rule=task7.7-combined-currentness-authorization-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.observation,
+    TASK77_COMBINED_CURRENTNESS_OBSERVATION_KEYS,
+    "rule=task7.7-combined-currentness-observation-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.authorizationBoundary,
+    TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS,
+    "rule=task7.7-combined-currentness-lifecycle-invalid"
+  );
+  if (!sameJson(lifecycle, task77CombinedCurrentnessLifecycle())) {
+    throw new Error("rule=task7.7-combined-currentness-lifecycle-invalid");
+  }
+  return lifecycle;
+}
+
+function validateTask77CombinedCurrentnessReceipt(receipt) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    receipt,
+    TASK77_COMBINED_CURRENTNESS_RECEIPT_KEYS,
+    "rule=task7.7-combined-currentness-receipt-invalid"
+  );
+  if (!sameJson(receipt, task77CombinedCurrentnessReceipt())) {
+    throw new Error("rule=task7.7-combined-currentness-receipt-invalid");
+  }
+  return receipt;
+}
+
+function assertEvidenceFlowCurrentnessOrderedKeys(value, expectedKeys, rule) {
+  if (
+    !isPlainRecord(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype ||
+    !sameJson(Object.keys(value), expectedKeys)
+  ) {
+    throw new Error(rule);
+  }
+}
+
+function validateEvidenceFlowCurrentnessSourceBinding(sourceBinding, rule) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    sourceBinding,
+    EVIDENCE_FLOW_CURRENTNESS_SOURCE_BINDING_KEYS,
+    rule
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    sourceBinding.receiptPrefix,
+    ["count", "sha256"],
+    rule
+  );
+  if (!sameJson(sourceBinding, evidenceFlowCurrentnessSourceBinding())) {
+    throw new Error(rule);
+  }
+}
+
+function validateEvidenceFlowCurrentnessAuthorization(authorization, rule) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    authorization,
+    EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_KEYS,
+    rule
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    authorization.authorizationBoundary,
+    EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS,
+    rule
+  );
+  if (
+    !sameJson(authorization, evidenceFlowCurrentnessAuthorization()) ||
+    sha256Buffer(Buffer.from(authorization.exactSentence)) !==
+      authorization.exactSentenceSha256
+  ) {
+    throw new Error(rule);
+  }
+}
+
+function validateEvidenceFlowCurrentnessObservation(observation, rule) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    observation,
+    EVIDENCE_FLOW_CURRENTNESS_OBSERVATION_KEYS,
+    rule
+  );
+  if (
+    !sameJson(observation, evidenceFlowCurrentnessObservation()) ||
+    Date.parse(observation.observedAt) < Date.parse(EVIDENCE_FLOW_CURRENTNESS_OBSERVED_AT) ||
+    Date.parse(observation.nextReviewAt) - Date.parse(observation.observedAt) !==
+      24 * 60 * 60 * 1000
+  ) {
+    throw new Error(rule);
+  }
+}
+
+function validateEvidenceFlowCurrentnessLifecycle(lifecycle) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle,
+    EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEYS,
+    "rule=evidenceflow-currentness-lifecycle-schema-invalid"
+  );
+  validateEvidenceFlowCurrentnessSourceBinding(
+    lifecycle.sourceBinding,
+    "rule=evidenceflow-currentness-lifecycle-invalid"
+  );
+  validateEvidenceFlowCurrentnessAuthorization(
+    lifecycle.authorization,
+    "rule=evidenceflow-currentness-lifecycle-invalid"
+  );
+  validateEvidenceFlowCurrentnessObservation(
+    lifecycle.observation,
+    "rule=evidenceflow-currentness-lifecycle-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.authorizationBoundary,
+    EVIDENCE_FLOW_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS,
+    "rule=evidenceflow-currentness-lifecycle-invalid"
+  );
+  if (!sameJson(lifecycle, evidenceFlowCurrentnessLifecycle())) {
+    throw new Error("rule=evidenceflow-currentness-lifecycle-invalid");
+  }
+  return lifecycle;
+}
+
+function validateEvidenceFlowCurrentnessReceipt(receipt) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    receipt,
+    EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KEYS,
+    "rule=evidenceflow-currentness-receipt-schema-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    receipt.authorizationBoundary,
+    EVIDENCE_FLOW_CURRENTNESS_RECEIPT_BOUNDARY_KEYS,
+    "rule=evidenceflow-currentness-receipt-schema-invalid"
+  );
+  validateEvidenceFlowCurrentnessSourceBinding(
+    receipt.sourceBinding,
+    "rule=evidenceflow-currentness-receipt-schema-invalid"
+  );
+  validateEvidenceFlowCurrentnessAuthorization(
+    receipt.authorization,
+    "rule=evidenceflow-currentness-receipt-schema-invalid"
+  );
+  validateEvidenceFlowCurrentnessObservation(
+    receipt.observation,
+    "rule=evidenceflow-currentness-receipt-schema-invalid"
+  );
+  if (
+    !sameJson(receipt.scope, EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS) ||
+    !sameJson(receipt, evidenceFlowCurrentnessReceipt())
+  ) {
+    throw new Error("rule=evidenceflow-currentness-receipt-schema-invalid");
+  }
+  return receipt;
+}
+
+function validateEvidenceFlowCurrentnessFrozenSource(sourceRegistry) {
+  if (
+    !protectedActivationCompletionCanonicalJsonTree(sourceRegistry) ||
+    evidenceFlowCurrentnessWorkItem(sourceRegistry)?.[
+      EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+    ] ||
+    (sourceRegistry?.releaseReceipts ?? []).some(
+      (entry) => entry?.receiptKind === EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND
+    )
+  ) {
+    if (
+      evidenceFlowCurrentnessWorkItem(sourceRegistry)?.[
+        EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+      ] ||
+      (sourceRegistry?.releaseReceipts ?? []).some(
+        (entry) => entry?.receiptKind === EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND
+      )
+    ) {
+      throw new Error("rule=evidenceflow-currentness-transition-replay");
+    }
+    throw new Error("rule=evidenceflow-currentness-source-invalid");
+  }
+  const sourceReceipts = sourceRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(sourceReceipts) ||
+    sourceReceipts.length !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceReceipts))) !==
+      EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_PREFIX_SHA256 ||
+    !gitObjectExists(`${EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA}^{commit}`)
+  ) {
+    throw new Error("rule=evidenceflow-currentness-source-invalid");
+  }
+  let committedSource;
+  let treeSha;
+  let registryBlobSha;
+  let verifierBlobSha;
+  let governanceTestBlobSha;
+  try {
+    committedSource = loadRegistryFromCommit(
+      EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA
+    ).parsed;
+    treeSha = gitText([
+      "rev-parse",
+      `${EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA}^{tree}`
+    ]).trim();
+    registryBlobSha = gitText([
+      "rev-parse",
+      `${EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+    ]).trim();
+    verifierBlobSha = gitText([
+      "rev-parse",
+      `${EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+    ]).trim();
+    governanceTestBlobSha = gitText([
+      "rev-parse",
+      `${EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+    ]).trim();
+  } catch {
+    throw new Error("rule=evidenceflow-currentness-source-invalid");
+  }
+  if (
+    treeSha !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_TREE_SHA ||
+    registryBlobSha !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA ||
+    verifierBlobSha !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_VERIFIER_BLOB_SHA ||
+    governanceTestBlobSha !==
+      EVIDENCE_FLOW_CURRENTNESS_SOURCE_GOVERNANCE_TEST_BLOB_SHA ||
+    JSON.stringify(committedSource) !== JSON.stringify(sourceRegistry)
+  ) {
+    throw new Error("rule=evidenceflow-currentness-source-invalid");
+  }
+  return sourceRegistry;
+}
+
+function evidenceFlowCurrentnessNormalizedImmutableRegistrySha256(registry) {
+  const normalized = evidenceFlowCurrentnessClone(registry);
+  normalized.updatedAt = "<evidenceflow-currentness-owned>";
+  normalized.workItems = (normalized.workItems ?? []).map((entry) => {
+    if (entry?.taskId === EVIDENCE_FLOW_CURRENTNESS_TASK_ID) {
+      entry.aheadBehind = "<evidenceflow-currentness-owned>";
+      entry.lastObservedAt = "<evidenceflow-currentness-owned>";
+      entry.nextReviewAt = "<evidenceflow-currentness-owned>";
+      entry.dirtyState = "<evidenceflow-currentness-owned>";
+      entry.evidenceState = "<evidenceflow-currentness-owned>";
+      delete entry[EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY];
+      delete entry[TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY];
+    }
+    if (entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829") {
+      entry.lastObservedAt = "<task7.7-currentness-owned>";
+      entry.nextReviewAt = "<task7.7-currentness-owned>";
+    }
+    return entry;
+  });
+  normalized.branches = (normalized.branches ?? []).map((entry) => {
+    if (entry?.name === EVIDENCE_FLOW_CURRENTNESS_BRANCH) {
+      entry.remoteObservedAt = "<evidenceflow-currentness-owned>";
+      entry.lastObservedAt = "<evidenceflow-currentness-owned>";
+      entry.nextReviewAt = "<evidenceflow-currentness-owned>";
+      entry.closeout = "<evidenceflow-currentness-owned>";
+    }
+    if (entry?.name === "codex/sena-branch-retirement-20260829") {
+      entry.remoteObservedAt = "<task7.7-currentness-owned>";
+      entry.lastObservedAt = "<task7.7-currentness-owned>";
+      entry.nextReviewAt = "<task7.7-currentness-owned>";
+    }
+    return entry;
+  });
+  normalized.releaseReceipts = (normalized.releaseReceipts ?? []).filter(
+    (entry) =>
+      entry?.receiptKind !== EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND &&
+      entry?.receiptKind !== TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(normalized)));
+}
+
+function evidenceFlowCurrentnessExpectedCandidate(sourceRegistry) {
+  const expected = evidenceFlowCurrentnessClone(sourceRegistry);
+  expected.updatedAt = TASK77_COMBINED_CURRENTNESS_OBSERVED_AT;
+  const item = evidenceFlowCurrentnessWorkItem(expected);
+  const branch = evidenceFlowCurrentnessBranch(expected);
+  if (!item || !branch) {
+    throw new Error("rule=evidenceflow-currentness-source-invalid");
+  }
+  item.aheadBehind = { baseRef: "origin/main", ahead: 16, behind: 82 };
+  item.lastObservedAt = EVIDENCE_FLOW_CURRENTNESS_OBSERVED_AT;
+  item.nextReviewAt = EVIDENCE_FLOW_CURRENTNESS_NEXT_REVIEW_AT;
+  item.dirtyState = EVIDENCE_FLOW_CURRENTNESS_DIRTY_STATE;
+  item.evidenceState = {
+    local: EVIDENCE_FLOW_CURRENTNESS_LOCAL_EVIDENCE,
+    ci: item.evidenceState.ci,
+    merged: EVIDENCE_FLOW_CURRENTNESS_MERGED_EVIDENCE,
+    deployed: item.evidenceState.deployed,
+    live: EVIDENCE_FLOW_CURRENTNESS_LIVE_EVIDENCE
+  };
+  item[EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY] =
+    evidenceFlowCurrentnessLifecycle();
+  branch.remoteObservedAt = EVIDENCE_FLOW_CURRENTNESS_OBSERVED_AT;
+  branch.lastObservedAt = EVIDENCE_FLOW_CURRENTNESS_OBSERVED_AT;
+  branch.nextReviewAt = EVIDENCE_FLOW_CURRENTNESS_NEXT_REVIEW_AT;
+  branch.closeout = EVIDENCE_FLOW_CURRENTNESS_BRANCH_CLOSEOUT;
+  expected.releaseReceipts.push(evidenceFlowCurrentnessReceipt());
+  const retirementItem = task77BranchRetirementWorkItem(expected);
+  const retirementBranch = task77BranchRetirementBranch(expected);
+  if (!retirementItem || !retirementBranch) {
+    throw new Error("rule=task7.7-combined-currentness-source-invalid");
+  }
+  retirementItem.lastObservedAt = TASK77_COMBINED_CURRENTNESS_OBSERVED_AT;
+  retirementItem.nextReviewAt = TASK77_COMBINED_CURRENTNESS_NEXT_REVIEW_AT;
+  const evidenceFlowItemIndex = expected.workItems.indexOf(item);
+  expected.workItems[evidenceFlowItemIndex] = Object.fromEntries(
+    Object.entries(item).flatMap(([key, value]) =>
+      key === "disposition"
+        ? [
+            [
+              TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY,
+              task77CombinedCurrentnessLifecycle()
+            ],
+            [key, value]
+          ]
+        : [[key, value]]
+    )
+  );
+  retirementBranch.remoteObservedAt = TASK77_COMBINED_CURRENTNESS_OBSERVED_AT;
+  retirementBranch.lastObservedAt = TASK77_COMBINED_CURRENTNESS_OBSERVED_AT;
+  retirementBranch.nextReviewAt = TASK77_COMBINED_CURRENTNESS_NEXT_REVIEW_AT;
+  expected.releaseReceipts.push(task77CombinedCurrentnessReceipt());
+  return expected;
+}
+
+export function validateEvidenceFlowCurrentnessLifecycleTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  validateEvidenceFlowCurrentnessFrozenSource(sourceRegistry);
+  if (!protectedActivationCompletionCanonicalJsonTree(candidateRegistry)) {
+    throw new Error("rule=evidenceflow-currentness-candidate-noncanonical");
+  }
+  const sourceReceipts = sourceRegistry.releaseReceipts;
+  const candidateReceipts = candidateRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(candidateReceipts) ||
+    candidateReceipts.length !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 2 ||
+    !sourceReceipts.every(
+      (receipt, index) => JSON.stringify(receipt) === JSON.stringify(candidateReceipts[index])
+    )
+  ) {
+    throw new Error("rule=evidenceflow-currentness-receipt-delta-invalid");
+  }
+  const lifecycle = evidenceFlowCurrentnessWorkItem(candidateRegistry)?.[
+    EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+  ];
+  validateEvidenceFlowCurrentnessLifecycle(lifecycle);
+  validateEvidenceFlowCurrentnessReceipt(
+    candidateReceipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT]
+  );
+  validateTask77CombinedCurrentnessLifecycle(
+    task77CombinedCurrentnessCarrierItem(candidateRegistry)?.[
+      TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY
+    ]
+  );
+  validateTask77CombinedCurrentnessReceipt(candidateReceipts.at(-1));
+  if (
+    evidenceFlowCurrentnessNormalizedImmutableRegistrySha256(sourceRegistry) !==
+    evidenceFlowCurrentnessNormalizedImmutableRegistrySha256(candidateRegistry)
+  ) {
+    throw new Error("rule=evidenceflow-currentness-immutable-registry-drift");
+  }
+  const expected = evidenceFlowCurrentnessExpectedCandidate(sourceRegistry);
+  if (JSON.stringify(candidateRegistry) !== JSON.stringify(expected)) {
+    throw new Error("rule=evidenceflow-currentness-field-scope-drift");
+  }
+  return lifecycle;
+}
+
+export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
+  if (!protectedActivationCompletionCanonicalJsonTree(registry)) {
+    throw new Error("rule=evidenceflow-currentness-candidate-noncanonical");
+  }
+  const item = evidenceFlowCurrentnessWorkItem(registry);
+  const branch = evidenceFlowCurrentnessBranch(registry);
+  const lifecycle = item?.[EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY];
+  const receipts = registry?.releaseReceipts;
+  const protectedRepairStatus = protectedCurrentnessRepairWorkItem(registry)
+    ?.protectedCurrentnessActivationRepairLifecycle?.status;
+  const suffixReceiptKinds = Array.isArray(receipts)
+    ? receipts
+      .slice(PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_COUNT)
+      .map((entry) => entry?.receiptKind)
+    : [];
+  const exactCorrectionSequence = [
+    PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+    PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+    EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
+    TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
+  ];
+  const exactFinalSequence = [
+    PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+    PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+    EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
+    TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
+  const exactSequenceAllowed =
+    (protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS &&
+      sameJson(suffixReceiptKinds, exactCorrectionSequence)) ||
+    (protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS &&
+      sameJson(suffixReceiptKinds, exactFinalSequence));
+  if (
+    !item ||
+    !branch ||
+    !Array.isArray(receipts) ||
+    !exactSequenceAllowed ||
+    sha256Buffer(
+      Buffer.from(
+        JSON.stringify(
+          receipts.slice(0, EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT)
+        )
+      )
+    ) !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_PREFIX_SHA256 ||
+    receipts.filter(
+      (entry) => entry?.receiptKind === EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND
+    ).length !== 1 ||
+    receipts.filter(
+      (entry) => entry?.receiptKind === TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
+    ).length !== 1 ||
+    receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT]?.receiptKind !==
+      EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND ||
+    receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 1]?.receiptKind !==
+      TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+  }
+  validateEvidenceFlowCurrentnessLifecycle(lifecycle);
+  validateEvidenceFlowCurrentnessReceipt(
+    receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT]
+  );
+  validateTask77CombinedCurrentnessLifecycle(
+    task77CombinedCurrentnessCarrierItem(registry)?.[
+      TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY
+    ]
+  );
+  validateTask77CombinedCurrentnessReceipt(
+    receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 1]
+  );
+  const expected = evidenceFlowCurrentnessExpectedCandidate(
+    evidenceFlowCurrentnessFrozenSourceRegistry()
+  );
+  const expectedItem = evidenceFlowCurrentnessWorkItem(expected);
+  const expectedBranch = evidenceFlowCurrentnessBranch(expected);
+  const expectedRetirementItem = task77BranchRetirementWorkItem(expected);
+  const expectedTask77CarrierItem = task77CombinedCurrentnessCarrierItem(expected);
+  const expectedRetirementBranch = task77BranchRetirementBranch(expected);
+  for (const field of [
+    "headSha",
+    "aheadBehind",
+    "lastHeartbeatAt",
+    "lastObservedAt",
+    "nextReviewAt",
+    "prNumber",
+    "prIsDraft",
+    "prReadyForReview",
+    "mergeAuthorized",
+    "dirtyState",
+    "evidenceState",
+    EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+  ]) {
+    if (!sameJson(item[field], expectedItem[field])) {
+      throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+    }
+  }
+  for (const field of [
+    "headSha",
+    "remoteHeadSha",
+    "remoteObservedAt",
+    "pr",
+    "prState",
+    "prIsDraft",
+    "prReadyForReview",
+    "mergeAuthorized",
+    "prHeadSha",
+    "lastOwnerHeartbeatAt",
+    "lastObservedAt",
+    "nextReviewAt",
+    "closeout"
+  ]) {
+    if (!sameJson(branch[field], expectedBranch[field])) {
+      throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+    }
+  }
+  const retirementItem = task77BranchRetirementWorkItem(registry);
+  const retirementBranch = task77BranchRetirementBranch(registry);
+  for (const field of ["lastObservedAt", "nextReviewAt"]) {
+    if (!sameJson(retirementItem?.[field], expectedRetirementItem?.[field])) {
+      throw new Error("rule=task7.7-combined-currentness-snapshot-invalid");
+    }
+  }
+  if (
+    !sameJson(
+      task77CombinedCurrentnessCarrierItem(registry)?.[
+        TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY
+      ],
+      expectedTask77CarrierItem?.[TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY]
+    )
+  ) {
+    throw new Error("rule=task7.7-combined-currentness-snapshot-invalid");
+  }
+  for (const field of ["remoteObservedAt", "lastObservedAt", "nextReviewAt"]) {
+    if (!sameJson(retirementBranch?.[field], expectedRetirementBranch?.[field])) {
+      throw new Error("rule=task7.7-combined-currentness-snapshot-invalid");
+    }
+  }
+  return lifecycle;
+}
+
+export function assertEvidenceFlowCurrentnessLifecycleIndexPaths(paths) {
+  if (!sameJson(paths, EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS)) {
+    throw new Error("rule=evidenceflow-currentness-index-path-set-mismatch");
+  }
+  return true;
+}
+
+function assertEvidenceFlowCurrentnessLifecycleIndexBlobs(candidateRegistry) {
+  const stagedRegistry = loadRegistryFromIndex().parsed;
+  if (JSON.stringify(stagedRegistry) !== JSON.stringify(candidateRegistry)) {
+    throw new Error("rule=evidenceflow-currentness-index-blob-mismatch");
+  }
+  for (const path of EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS.slice(1)) {
+    const stagedBlobSha = gitText(["rev-parse", `:${path}`]).trim();
+    const executedBlobSha = gitText([
+      "hash-object",
+      "--no-filters",
+      join(REPO_ROOT, path)
+    ]).trim();
+    if (!isSha(stagedBlobSha) || stagedBlobSha !== executedBlobSha) {
+      throw new Error("rule=evidenceflow-currentness-index-blob-mismatch");
+    }
+  }
+  return true;
+}
+
+function evidenceFlowCurrentnessFrozenSourceRegistry() {
+  return loadRegistryFromCommit(EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA).parsed;
+}
+
+function validateEvidenceFlowCurrentnessIndexTransition(candidateRegistry) {
+  const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], {
+    allowFailure: true
+  });
+  if (
+    branchResult.status !== 0 ||
+    String(branchResult.stdout).trim() !== PROTECTED_CURRENTNESS_REPAIR_BRANCH
+  ) {
+    return false;
+  }
+  const staged = stagedChangedPaths();
+  if (staged.length === 0) return false;
+  const lifecycle = evidenceFlowCurrentnessWorkItem(candidateRegistry)?.[
+    EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+  ];
+  if (!lifecycle) return false;
+  const headSha = gitText(["rev-parse", "HEAD"]).trim();
+  const sourceRegistry = loadRegistryFromCommit(headSha).parsed;
+  if (
+    evidenceFlowCurrentnessWorkItem(sourceRegistry)?.[
+      EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+    ]
+  ) {
+    validateEvidenceFlowCurrentnessLifecycleSnapshot(sourceRegistry);
+    validateEvidenceFlowCurrentnessLifecycleSnapshot(candidateRegistry);
+    return false;
+  }
+  if (headSha !== EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA) {
+    throw new Error("rule=evidenceflow-currentness-index-source-head-mismatch");
+  }
+  assertEvidenceFlowCurrentnessLifecycleIndexPaths(staged);
+  assertEvidenceFlowCurrentnessLifecycleIndexBlobs(candidateRegistry);
+  validateEvidenceFlowCurrentnessLifecycleTransition(
+    sourceRegistry,
+    candidateRegistry
+  );
+  return true;
 }
 
 function validateRegistry(registry) {
@@ -5684,6 +6781,25 @@ function validateRegistry(registry) {
         error instanceof Error
           ? error.message
           : "rule=protected-currentness-repair-lifecycle-invalid"
+      );
+    }
+  }
+  const hasEvidenceFlowCurrentnessLifecycle = Boolean(
+    evidenceFlowCurrentnessWorkItem(registry)?.[
+      EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
+    ]
+  );
+  const hasEvidenceFlowCurrentnessReceipt = (registry.releaseReceipts ?? []).some(
+    (entry) => entry?.receiptKind === EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND
+  );
+  if (hasEvidenceFlowCurrentnessLifecycle || hasEvidenceFlowCurrentnessReceipt) {
+    try {
+      validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
+    } catch (error) {
+      errors.push(
+        error instanceof Error
+          ? error.message
+          : "rule=evidenceflow-currentness-lifecycle-invalid"
       );
     }
   }

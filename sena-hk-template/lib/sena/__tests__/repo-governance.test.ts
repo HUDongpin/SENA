@@ -5602,8 +5602,8 @@ describe("SENA repository governance", () => {
         SENA_GOVERNANCE_TARGET_ROOT: rootRepository
       })
     ).toEqual({
-      controlRoot: rootRepository,
-      workTree: rootRepository,
+      controlRoot: realpathSync(rootRepository),
+      workTree: realpathSync(rootRepository),
       gitDirectory: rootGitDirectory,
       commonDirectory: rootGitDirectory,
       indexPath: rootIndexPath
@@ -5621,10 +5621,10 @@ describe("SENA repository governance", () => {
         SENA_GOVERNANCE_TARGET_ROOT: rootRepository
       })
     ).toEqual({
-      controlRoot: rootRepository,
-      workTree: rootRepository,
+      controlRoot: realpathSync(rootRepository),
+      workTree: realpathSync(rootRepository),
       gitDirectory: rootGitDirectory,
-      commonDirectory: rootCommonDirectory,
+      commonDirectory: realpathSync(rootCommonDirectory),
       indexPath: rootIndexPath
     });
     writeFileSync(
@@ -6526,21 +6526,48 @@ describe("SENA repository governance", () => {
           .update(JSON.stringify(prefixReceipts))
           .digest("hex")
       ).toBe(lifecycle.designPlanSeedReceiptPrefix.sha256);
-      expect(registry.releaseReceipts).toHaveLength(
-        prefixCount + expectedKinds.length
+      const suffixReceipts = registry.releaseReceipts.slice(prefixCount);
+      const hasEvidenceFlowReceipt = suffixReceipts.some(
+        (receipt: any) =>
+          receipt.receiptKind === "evidenceflow-additive-currentness-observation"
       );
+      const hasTask77Receipt = suffixReceipts.some(
+        (receipt: any) =>
+          receipt.receiptKind === "task7.7-combined-currentness-candidate"
+      );
+      const expectedSuffixKinds = [...expectedKinds];
+      const finalReceiptIndex = expectedSuffixKinds.length === 3
+        ? expectedSuffixKinds.length - 1
+        : expectedSuffixKinds.length;
+      if (hasEvidenceFlowReceipt) {
+        expectedSuffixKinds.splice(
+          finalReceiptIndex,
+          0,
+          "evidenceflow-additive-currentness-observation"
+        );
+      }
+      if (hasTask77Receipt) {
+        expectedSuffixKinds.splice(
+          expectedSuffixKinds.length === 4
+            ? expectedSuffixKinds.length - 1
+            : expectedSuffixKinds.length,
+          0,
+          "task7.7-combined-currentness-candidate"
+        );
+      }
+      expect(suffixReceipts).toHaveLength(expectedSuffixKinds.length);
       expect(
-        registry.releaseReceipts.slice(prefixCount).map((receipt: any) => ({
+        suffixReceipts.map((receipt: any) => ({
           schemaVersion: receipt.schemaVersion,
           receiptKind: receipt.receiptKind
         }))
-      ).toEqual(expectedKinds.map((receiptKind: string) => ({
+      ).toEqual(expectedSuffixKinds.map((receiptKind: string) => ({
         schemaVersion: "sena-registry-reconciliation-receipt/v1",
         receiptKind
       })));
-      expect(registry.releaseReceipts.at(-1)).toMatchObject({
+      expect(suffixReceipts.at(-1)).toMatchObject({
         schemaVersion: "sena-registry-reconciliation-receipt/v1",
-        receiptKind: expectedKinds.at(-1)
+        receiptKind: expectedSuffixKinds.at(-1)
       });
     };
     expect(designPlanSeedHead).toBe(
@@ -6833,8 +6860,10 @@ describe("SENA repository governance", () => {
       ["write-policy", "--registry-from-index", "--staged"],
       { env: cleanIndexEnvironment }
     );
-    expect(cleanIndexWritePolicy.status, cleanIndexWritePolicy.stderr).toBe(0);
-    expect(cleanIndexWritePolicy.stdout).toContain("SENA_WRITE_POLICY pass staged=0");
+    expect(cleanIndexWritePolicy.status).toBe(1);
+    expect(cleanIndexWritePolicy.stderr).toContain(
+      "index registry snapshot is invalid"
+    );
 
     const expectInitialFailure = (mutate: (candidate: any) => void, rule?: string) => {
       const candidate = structuredClone(initial.registry);
@@ -8125,18 +8154,17 @@ describe("SENA repository governance", () => {
     expectInvalid({
       gitObjectDirectory: join(realGitDirectory, "task-writable-objects")
     });
-    const frozenSource = protectedCurrentnessRepairFrozenSourceForTest();
-    const frozenSeedHead = frozenSource.headSha;
-    const frozenSeedRegistry = frozenSource.registry;
-    const governanceTargetRoot = realpathSync(frozenSeedRegistry.repo);
-    const actualPrNumber = protectedCurrentnessRepairItemForTest(
-      frozenSeedRegistry
-    ).prNumber;
-    const initial = buildProtectedCurrentnessRepairInitialFixture(
-      frozenSeedRegistry,
-      frozenSeedHead,
-      actualPrNumber
+    const currentCandidateRegistry = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
+        "utf8"
+      )
     );
+    const governanceTargetRoot = realpathSync(currentCandidateRegistry.repo);
+    const actualPrNumber = protectedCurrentnessRepairItemForTest(
+      currentCandidateRegistry
+    ).prNumber;
+    const sourceHead = runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"]);
     const realIndexPath = runGit(projectRoot, [
       "rev-parse",
       "--path-format=absolute",
@@ -8180,7 +8208,10 @@ describe("SENA repository governance", () => {
       "--git-common-dir"
     ]);
     const realObjectDirectory = join(gitCommonDir, "objects");
-    const candidateBytes = `${JSON.stringify(initial.registry, null, 2)}\n`;
+    const candidateBytes = readFileSync(
+      join(projectRoot, "coordination", "repo-governance", "active-work.json"),
+      "utf8"
+    );
 
     const runTemporaryIndexGit = (
       args: string[],
@@ -8232,7 +8263,7 @@ describe("SENA repository governance", () => {
           "--no-optional-locks",
           "update-ref",
           `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`,
-          frozenSeedHead
+          sourceHead
         ],
         env
       );
@@ -8242,7 +8273,7 @@ describe("SENA repository governance", () => {
       );
       expect(
         runTemporaryIndexGit(["--no-optional-locks", "rev-parse", "HEAD"], env)
-      ).toBe(frozenSeedHead);
+      ).toBe(sourceHead);
       expect(
         runTemporaryIndexGit(
           ["--no-optional-locks", "diff", "--cached", "--name-only"],
@@ -8375,7 +8406,7 @@ describe("SENA repository governance", () => {
     );
     expect(partial.status).toBe(1);
     expect(partial.stderr).toContain(
-      "rule=protected-currentness-repair-index-path-set-mismatch"
+      "rule=evidenceflow-currentness-index-path-set-mismatch"
     );
 
     const unrelatedEnvironment = buildTemporaryIndex(
@@ -8389,7 +8420,7 @@ describe("SENA repository governance", () => {
     );
     expect(unrelated.status).toBe(1);
     expect(unrelated.stderr).toContain(
-      "rule=protected-currentness-repair-index-path-set-mismatch"
+      "rule=evidenceflow-currentness-index-path-set-mismatch"
     );
 
     for (const fixture of [exactEnvironment, partialEnvironment, unrelatedEnvironment]) {
@@ -8439,6 +8470,21 @@ describe("SENA repository governance", () => {
     const correction = buildProtectedCurrentnessRepairCorrectionFixture(
       protectedCurrentnessRepairPublishedInitialSourceForTest()
     );
+    // Keep this synthetic historical source current long enough to exercise the
+    // context-bound final transition. Production validation still uses the real
+    // wall clock and remains fail closed for overdue active records.
+    const fixtureNextReviewAt = "2099-01-01T00:00:00Z";
+    for (const entry of [
+      ...(correction.registry.workItems ?? []),
+      ...(correction.registry.branches ?? [])
+    ]) {
+      if (
+        entry.disposition === "active" ||
+        entry.disposition === "ready-for-pr"
+      ) {
+        entry.nextReviewAt = fixtureNextReviewAt;
+      }
+    }
     const tempRepo = temporaryRoot("protected-currentness-final-source");
     const registryPath = join(
       tempRepo,
@@ -8626,6 +8672,12 @@ describe("SENA repository governance", () => {
       ["write-policy", "--registry-from-index", "--staged"],
       { cwd: projectRoot, env: tempIndexEnvironment }
     );
+    const exactRegistry = runNode(
+      governanceScript,
+      ["registry", "--registry-from-index"],
+      { cwd: projectRoot, env: tempIndexEnvironment }
+    );
+    expect(exactRegistry.status, exactRegistry.stderr).toBe(0);
     expect(exact.status, exact.stderr).toBe(0);
     expect(exact.stdout).toContain("SENA_WRITE_POLICY pass staged=1");
 
@@ -8765,6 +8817,948 @@ describe("SENA repository governance", () => {
       runGit(projectRoot, ["for-each-ref", "--format=%(refname) %(objectname)"])
     ).toBe(realRefsBefore);
     expect(runGit(projectRoot, ["count-objects", "-v"])).toBe(realObjectCountBefore);
+  });
+
+  it("validates the exact additive EvidenceFlow currentness lifecycle transition", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?evidenceFlowCurrentness=${Date.now()}-${Math.random()}`
+    );
+    expect(typeof governance.validateEvidenceFlowCurrentnessLifecycleTransition).toBe(
+      "function"
+    );
+
+    const sourceHeadSha = "44a814721831bd369be34794eb3e13ad459d4b30";
+    const observedAt = "2026-09-02T08:14:52Z";
+    const nextReviewAt = "2026-09-03T08:14:52Z";
+    const candidatePaths = [
+      "coordination/repo-governance/active-work.json",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ];
+    const sourceBinding = {
+      headSha: sourceHeadSha,
+      treeSha: "998b6342c4e0fb4d527a68cd42610c994bcb29d2",
+      registryBlobSha: "9dda7977d067378bdb5ba40427039ce77f2d7f19",
+      verifierBlobSha: "5ef613dfff43b36eeeacf323e359a1897ded3f83",
+      governanceTestBlobSha: "154b283a351726fe3217cf75c50e7637e91bc1a5",
+      receiptPrefix: {
+        count: 42,
+        sha256: "276f6581fdf0a8e84f60b39be74160fc7d0358f1ef395f4c375faf39517ed885"
+      }
+    };
+    const authorizationBoundary = {
+      candidateCommitAuthorized: false,
+      candidatePushAuthorized: false,
+      pr38ReadyAuthorized: false,
+      pr38MergeAuthorized: false,
+      pr46MutationAuthorized: false,
+      pr82MutationAuthorized: false,
+      cleanupAuthorized: false,
+      localRefRetirementAuthorized: false,
+      retirementReceiptMintingAuthorized: false,
+      branchDeletionAuthorized: false,
+      worktreeRemovalAuthorized: false,
+      orphanWorktreeMutationAuthorized: false,
+      targetRefMutationAuthorized: false,
+      targetTagMutationAuthorized: false,
+      quarantineMutationAuthorized: false,
+      deploymentAuthorized: false,
+      providerMutationAuthorized: false,
+      resetAuthorized: false,
+      rebaseAuthorized: false,
+      stashAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      futureTask8Authorized: false
+    };
+    const authorization = {
+      mode: "explicit-owner-conversation-authorization",
+      status: "consumed-by-exact-evidenceflow-additive-currentness-candidate",
+      exactSentence: "授权 Task7.6 EvidenceFlow 加法式当前性修复生命周期。",
+      exactSentenceSha256:
+        "3d55f9909e6064f9bcf0d4660bde88b3579b900d6cd9cf2aac70e959dea1edb8",
+      requiredCandidatePaths: candidatePaths,
+      authorizedWorkItemTaskId: "SENA-EVIDENCEFLOW-V1-20260828",
+      authorizedBranch: "codex/sena-evidenceflow-v1-20260828",
+      observerHeartbeatMode: "observation-only-owner-heartbeats-byte-identical",
+      authorizationBoundary
+    };
+    const observation = {
+      observedAt,
+      nextReviewAt,
+      baseRef: "origin/main",
+      localHeadSha: "434a1aac542e60e793afef77fb35104cdb470d53",
+      localTreeSha: "66d986701619acc9281e61c7d62bbafd924981f1",
+      protectedMainSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      ahead: 16,
+      behind: 82,
+      stagedPathCount: 0,
+      unstagedTrackedPathCount: 76,
+      untrackedPathCount: 10,
+      totalChangedPathCount: 86,
+      allowedPathViolationCount: 0,
+      statusPorcelainV1Sha256:
+        "037d472704beb72408363f5b81bfe5be132405e5fc74edae9047dfdf265c708b",
+      fullDiffSha256:
+        "e6c725cfe31c8c30a6e0798de5ca2c4e2d343225085552224887d58b65ffa8c1",
+      cachedRemoteHeadSha: "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+      liveRemoteHeadSha: "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+      pullRequestNumber: 38,
+      pullRequestHeadSha: "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+      pullRequestState: "OPEN",
+      pullRequestIsDraft: true,
+      pullRequestReadyForReview: false,
+      pullRequestMergeable: "MERGEABLE",
+      pullRequestMergeStateStatus: "BEHIND",
+      pullRequestMergeAuthorized: false,
+      lockCount: 0,
+      activeProcessCount: 0,
+      cwdHandleCount: 0
+    };
+    const lifecycle = {
+      status: "evidenceflow-additive-currentness-observation-recorded",
+      mode: "strict-additive-observation-only",
+      sourceBinding,
+      authorization,
+      observation,
+      authorizationBoundary
+    };
+    const receipt = {
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "evidenceflow-additive-currentness-observation",
+      taskId: "SENA-EVIDENCEFLOW-V1-20260828",
+      ownerKey: "Codex-evidenceflow-01a04273",
+      scope: candidatePaths,
+      sourceBinding,
+      authorization,
+      observation,
+      authorizationBoundary: {
+        evidenceFlowCurrentnessObservationRecorded: true,
+        ...authorizationBoundary
+      }
+    };
+    const localEvidence =
+      "local EvidenceFlow owner head remains exact 434a1aac with tree 66d9867; against protected main 969a206 it is ahead 16/behind 82; staged 0, unstaged tracked 76, untracked 10, total changed 86, allowed-path violations 0; exact git status --porcelain=v1 SHA-256 037d4727 and git diff --binary HEAD -- . SHA-256 e6c725cf; observer currentness does not refresh the owner heartbeat";
+    const mergedEvidence =
+      "EvidenceFlow remains unmerged; Draft PR38 remote and PR head remain exact 40438885 while local owner head remains exact 434a1aac plus 76 tracked and 10 untracked bounded paths; against protected main 969a206 it is ahead 16/behind 82; no candidate commit/push/Ready/merge is authorized";
+    const liveEvidence =
+      "the 2026-09-02T08:14:52Z observation binds protected main 969a206, local head/tree 434a1aac/66d9867, cached/live remote and Draft PR38 head 40438885, PR38 OPEN/Draft/MERGEABLE/BEHIND, status 037d4727, diff e6c725cf, counts 0 staged/76 unstaged tracked/10 untracked/0 allowlist violations, and zero locks/process/cwd handles; product files and owner heartbeats remain untouched";
+    const closeout =
+      "Draft PR38 cached/live remote and PR head remain exact 40438885; local owner head/tree remain exact 434a1aac/66d9867 against protected main 969a206, ahead 16/behind 82, plus 76 unstaged tracked and 10 untracked bounded paths with full diff e6c725cf and status 037d4727. PR38 remains OPEN/Draft/MERGEABLE/BEHIND and candidate commit/push/Ready/merge remain false; this observer currentness does not refresh the owner heartbeat";
+    const task77ObservedAt = "2026-09-02T10:42:00Z";
+    const task77NextReviewAt = "2026-09-03T10:42:00Z";
+    const task77AuthorizationBoundary = {
+      candidateCommitAuthorizedAfterGates: true,
+      candidatePushToDraftPr82AuthorizedAfterGates: true,
+      pr82ReadyAuthorized: false,
+      pr82MergeAuthorized: false,
+      pr46MutationAuthorized: false,
+      localRefRetirementAuthorized: false,
+      retirementReceiptMintingAuthorized: false,
+      branchDeletionAuthorized: false,
+      worktreeRemovalAuthorized: false,
+      targetRefMutationAuthorized: false,
+      targetTagMutationAuthorized: false,
+      quarantineMutationAuthorized: false,
+      deploymentAuthorized: false,
+      providerMutationAuthorized: false,
+      resetAuthorized: false,
+      rebaseAuthorized: false,
+      stashAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false
+    };
+    const task77Authorization = {
+      mode: "cross-task-user-continuation-authorization",
+      status: "consumed-by-exact-task7.7-combined-currentness-candidate",
+      sourceThreadId: "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      targetThreadId: "01a04916-4ba7-7c11-8fee-7760f7bb3659",
+      requiredCandidatePaths: candidatePaths,
+      authorizedWorkItemTaskId: "SENA-BRANCH-RETIREMENT-20260829",
+      authorizedBranch: "codex/sena-branch-retirement-20260829",
+      ownerHeartbeatMode: "task-owner-currentness-without-ref-mutation",
+      authorizationBoundary: task77AuthorizationBoundary
+    };
+    const task77Observation = {
+      observedAt: task77ObservedAt,
+      nextReviewAt: task77NextReviewAt,
+      baseRef: "origin/main",
+      localHeadSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+      remoteHeadSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+      protectedMainSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      ahead: 8,
+      behind: 8,
+      stagedPathCount: 0,
+      unstagedPathCount: 0,
+      untrackedPathCount: 0,
+      statusPorcelainV1Sha256:
+        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      pullRequestNumber: 46,
+      pullRequestHeadSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+      pullRequestState: "OPEN",
+      pullRequestIsDraft: true,
+      pullRequestMergeable: "CONFLICTING",
+      pullRequestMergeStateStatus: "DIRTY",
+      remoteSameNameHeadCount: 0,
+      ordinaryArchiveBundleSha256:
+        "ada86c0801288d366533422fd887f7afaa502693ea1776ac5b7888e030fb8d51",
+      exactLedgerBundleCount: 8,
+      exactLedgerOwnerOnlyCount: 8,
+      exactLedgerCompleteHistoryVerifiedCount: 8,
+      activeProcessCount: 0,
+      cwdHandleCount: 0
+    };
+    const task77Lifecycle = {
+      status: "task7.7-combined-currentness-candidate",
+      mode: "branch-retirement-owner-currentness-plus-evidenceflow-observation",
+      authorization: task77Authorization,
+      observation: task77Observation,
+      authorizationBoundary: task77AuthorizationBoundary
+    };
+    const task77Receipt = {
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "task7.7-combined-currentness-candidate",
+      taskId: "SENA-BRANCH-RETIREMENT-20260829",
+      ownerKey: "Codex-branch-retirement-01a04916",
+      scope: candidatePaths,
+      authorization: task77Authorization,
+      observation: task77Observation,
+      authorizationBoundary: task77AuthorizationBoundary
+    };
+    const sourceRegistry = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        `${sourceHeadSha}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const buildCandidate = () => {
+      const candidate = structuredClone(sourceRegistry);
+      candidate.updatedAt = task77ObservedAt;
+      const item = candidate.workItems.find(
+        (entry: any) => entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+      );
+      item.aheadBehind = { baseRef: "origin/main", ahead: 16, behind: 82 };
+      item.lastObservedAt = observedAt;
+      item.nextReviewAt = nextReviewAt;
+      item.dirtyState =
+        "unstaged-bounded-76-tracked-10-untracked-currentness-observed-against-protected-main-969a206";
+      item.evidenceState = {
+        local: localEvidence,
+        ci: item.evidenceState.ci,
+        merged: mergedEvidence,
+        deployed: item.evidenceState.deployed,
+        live: liveEvidence
+      };
+      item.evidenceFlowAdditiveCurrentnessLifecycle = JSON.parse(
+        JSON.stringify(lifecycle)
+      );
+      const branch = candidate.branches.find(
+        (entry: any) => entry.name === "codex/sena-evidenceflow-v1-20260828"
+      );
+      branch.remoteObservedAt = observedAt;
+      branch.lastObservedAt = observedAt;
+      branch.nextReviewAt = nextReviewAt;
+      branch.closeout = closeout;
+      candidate.releaseReceipts.push(JSON.parse(JSON.stringify(receipt)));
+      const retirement = candidate.workItems.find(
+        (entry: any) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+      );
+      retirement.lastObservedAt = task77ObservedAt;
+      retirement.nextReviewAt = task77NextReviewAt;
+      const itemIndex = candidate.workItems.indexOf(item);
+      candidate.workItems[itemIndex] = Object.fromEntries(
+        Object.entries(item).flatMap(([key, value]) =>
+          key === "disposition"
+            ? [
+                [
+                  "task7_7CombinedCurrentnessLifecycle",
+                  JSON.parse(JSON.stringify(task77Lifecycle))
+                ],
+                [key, value]
+              ]
+            : [[key, value]]
+        )
+      );
+      const retirementBranch = candidate.branches.find(
+        (entry: any) => entry.name === "codex/sena-branch-retirement-20260829"
+      );
+      retirementBranch.remoteObservedAt = task77ObservedAt;
+      retirementBranch.lastObservedAt = task77ObservedAt;
+      retirementBranch.nextReviewAt = task77NextReviewAt;
+      candidate.releaseReceipts.push(JSON.parse(JSON.stringify(task77Receipt)));
+      return candidate;
+    };
+    const candidate = buildCandidate();
+    const sourceBefore = JSON.stringify(sourceRegistry);
+    const candidateBefore = JSON.stringify(candidate);
+
+    expect(
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        sourceRegistry,
+        candidate
+      )
+    ).toMatchObject({ status: lifecycle.status, observation });
+    expect(
+      governance.validateEvidenceFlowCurrentnessLifecycleSnapshot(candidate)
+    ).toMatchObject({ status: lifecycle.status, observation });
+    expect(
+      governance.assertEvidenceFlowCurrentnessLifecycleIndexPaths(candidatePaths)
+    ).toBe(true);
+    expect(JSON.stringify(sourceRegistry)).toBe(sourceBefore);
+    expect(JSON.stringify(candidate)).toBe(candidateBefore);
+
+    const expectCandidateFailure = (
+      mutate: (registry: any) => void,
+      rule: string
+    ) => {
+      const invalid = buildCandidate();
+      mutate(invalid);
+      expect(() =>
+        governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+          sourceRegistry,
+          invalid
+        )
+      ).toThrow(rule);
+    };
+    const item = (registry: any) => registry.workItems.find(
+      (entry: any) => entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+    );
+    const branch = (registry: any) => registry.branches.find(
+      (entry: any) => entry.name === "codex/sena-evidenceflow-v1-20260828"
+    );
+    const repairItem = (registry: any) => registry.workItems.find(
+      (entry: any) =>
+        entry.taskId === "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901"
+    );
+    const pr46Item = (registry: any) => registry.workItems.find(
+      (entry: any) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+
+    for (const mutate of [
+      (registry: any) => (registry.releaseReceipts[0].receiptKind = "prefix-drift"),
+      (registry: any) => registry.releaseReceipts.splice(0, 2,
+        registry.releaseReceipts[1], registry.releaseReceipts[0]),
+      (registry: any) => registry.releaseReceipts.pop(),
+      (registry: any) => registry.releaseReceipts.push(
+        JSON.parse(JSON.stringify(receipt))
+      ),
+      (registry: any) => registry.releaseReceipts.splice(
+        42,
+        0,
+        JSON.parse(JSON.stringify(receipt))
+      )
+    ]) {
+      expectCandidateFailure(
+        mutate,
+        "rule=evidenceflow-currentness-receipt-delta-invalid"
+      );
+    }
+    expectCandidateFailure((registry) => {
+      registry.releaseReceipts[42].scope.push("future-task-8.md");
+    }, "rule=evidenceflow-currentness-receipt-schema-invalid");
+    expectCandidateFailure((registry) => {
+      registry.releaseReceipts[42] = Object.fromEntries(
+        Object.entries(registry.releaseReceipts[42]).reverse()
+      );
+    }, "rule=evidenceflow-currentness-receipt-schema-invalid");
+    expectCandidateFailure((registry) => {
+      registry.releaseReceipts[43].scope.push("future-task-8.md");
+    }, "rule=task7.7-combined-currentness-receipt-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.authorization.exactSentence =
+        "授权 Task7.6 EvidenceFlow 加法式当前性修复生命周期!";
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.authorization
+        .exactSentenceSha256 = "f".repeat(64);
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.authorization
+        .authorizationBoundary.futureTask8Authorized = true;
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.status = "replayed";
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      const current = item(registry).evidenceFlowAdditiveCurrentnessLifecycle;
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle = Object.fromEntries(
+        Object.entries(current).reverse()
+      );
+    }, "rule=evidenceflow-currentness-lifecycle-schema-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.unknown = false;
+    }, "rule=evidenceflow-currentness-lifecycle-schema-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).lastHeartbeatAt = observedAt;
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+    expectCandidateFailure((registry) => {
+      branch(registry).lastOwnerHeartbeatAt = observedAt;
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+    expectCandidateFailure((registry) => {
+      item(registry).aheadBehind.behind = 81;
+    }, "rule=evidenceflow-currentness-field-scope-drift");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.observation
+        .statusPorcelainV1Sha256 = "f".repeat(64);
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.observation
+        .fullDiffSha256 = "f".repeat(64);
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.observation
+        .unstagedTrackedPathCount = 75;
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      item(registry).headSha = "f".repeat(40);
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+    expectCandidateFailure((registry) => {
+      branch(registry).remoteHeadSha = "f".repeat(40);
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+    expectCandidateFailure((registry) => {
+      branch(registry).prState = "MERGED";
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+    expectCandidateFailure((registry) => {
+      item(registry).nextReviewAt = "2026-09-03T08:14:51Z";
+    }, "rule=evidenceflow-currentness-field-scope-drift");
+    expectCandidateFailure((registry) => {
+      item(registry).evidenceFlowAdditiveCurrentnessLifecycle.observation
+        .nextReviewAt = "2026-09-03T08:14:51Z";
+    }, "rule=evidenceflow-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      pr46Item(registry).nextReviewAt = nextReviewAt;
+    }, "rule=evidenceflow-currentness-field-scope-drift");
+    expectCandidateFailure((registry) => {
+      item(registry).task7_7CombinedCurrentnessLifecycle.observation.nextReviewAt =
+        nextReviewAt;
+    }, "rule=task7.7-combined-currentness-lifecycle-invalid");
+    expectCandidateFailure((registry) => {
+      repairItem(registry).nextReviewAt = nextReviewAt;
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+    expectCandidateFailure((registry) => {
+      registry.policy.maxWriteWorktrees += 1;
+    }, "rule=evidenceflow-currentness-immutable-registry-drift");
+
+    const wrongSource = structuredClone(sourceRegistry);
+    wrongSource.updatedAt = observedAt;
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        wrongSource,
+        buildCandidate()
+      )
+    ).toThrow("rule=evidenceflow-currentness-source-invalid");
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        candidate,
+        buildCandidate()
+      )
+    ).toThrow("rule=evidenceflow-currentness-transition-replay");
+
+    const inherited = Object.create(buildCandidate());
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        sourceRegistry,
+        inherited
+      )
+    ).toThrow("rule=evidenceflow-currentness-candidate-noncanonical");
+    const inheritedLifecycle = buildCandidate();
+    Object.setPrototypeOf(
+      item(inheritedLifecycle).evidenceFlowAdditiveCurrentnessLifecycle,
+      { inherited: true }
+    );
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        sourceRegistry,
+        inheritedLifecycle
+      )
+    ).toThrow("rule=evidenceflow-currentness-candidate-noncanonical");
+    const toJsonLifecycle = buildCandidate();
+    Object.setPrototypeOf(
+      item(toJsonLifecycle).evidenceFlowAdditiveCurrentnessLifecycle,
+      { toJSON: () => ({}) }
+    );
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        sourceRegistry,
+        toJsonLifecycle
+      )
+    ).toThrow("rule=evidenceflow-currentness-candidate-noncanonical");
+    const proxied = buildCandidate();
+    item(proxied).evidenceFlowAdditiveCurrentnessLifecycle = new Proxy(
+      item(proxied).evidenceFlowAdditiveCurrentnessLifecycle,
+      {}
+    );
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        sourceRegistry,
+        proxied
+      )
+    ).toThrow("rule=evidenceflow-currentness-candidate-noncanonical");
+    const hostileOwnKeys = buildCandidate();
+    item(hostileOwnKeys).evidenceFlowAdditiveCurrentnessLifecycle = new Proxy(
+      item(hostileOwnKeys).evidenceFlowAdditiveCurrentnessLifecycle,
+      { ownKeys: () => ["status"] }
+    );
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleTransition(
+        sourceRegistry,
+        hostileOwnKeys
+      )
+    ).toThrow("rule=evidenceflow-currentness-candidate-noncanonical");
+
+    expect(() =>
+      governance.assertEvidenceFlowCurrentnessLifecycleIndexPaths([
+        ...candidatePaths,
+        "future-task-8.md"
+      ])
+    ).toThrow("rule=evidenceflow-currentness-index-path-set-mismatch");
+  });
+
+  it("accepts only exact EvidenceFlow-aware protected repair receipt sequences", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?evidenceFlowReceiptSequence=${Date.now()}-${Math.random()}`
+    );
+    const sourceHeadSha = "44a814721831bd369be34794eb3e13ad459d4b30";
+    const correctionWithoutEvidenceFlow = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        `${sourceHeadSha}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const correctionWithEvidenceFlow = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
+        "utf8"
+      )
+    );
+    const finalWithoutEvidenceFlow = buildProtectedCurrentnessRepairFinalFixture({
+      registry: correctionWithoutEvidenceFlow,
+      context: {}
+    }).registry;
+    const finalAfterEvidenceFlow = buildProtectedCurrentnessRepairFinalFixture({
+      registry: correctionWithEvidenceFlow,
+      context: {}
+    }).registry;
+    const suffixKinds = (registry: any) => registry.releaseReceipts
+      .slice(40)
+      .map((receipt: any) => receipt.receiptKind);
+
+    expect(suffixKinds(correctionWithoutEvidenceFlow)).toEqual([
+      governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT
+    ]);
+    expect(suffixKinds(correctionWithEvidenceFlow)).toEqual([
+      governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+      "evidenceflow-additive-currentness-observation",
+      "task7.7-combined-currentness-candidate"
+    ]);
+    expect(suffixKinds(finalWithoutEvidenceFlow)).toEqual([
+      governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+      governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+    ]);
+    expect(suffixKinds(finalAfterEvidenceFlow)).toEqual([
+      governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+      "evidenceflow-additive-currentness-observation",
+      "task7.7-combined-currentness-candidate",
+      governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+    ]);
+    expect(correctionWithEvidenceFlow.releaseReceipts).toHaveLength(44);
+    expect(finalAfterEvidenceFlow.releaseReceipts).toHaveLength(45);
+    expect(finalAfterEvidenceFlow.releaseReceipts.slice(0, 44)).toEqual(
+      correctionWithEvidenceFlow.releaseReceipts
+    );
+
+    const arbitraryTail = structuredClone(correctionWithEvidenceFlow);
+    arbitraryTail.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "bogus-future-authority",
+      authorizationBoundary: {
+        repairReadyAndProtectedMergeAuthorizedAfterFinalChecks: true
+      }
+    });
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleSnapshot(arbitraryTail)
+    ).toThrow("rule=evidenceflow-currentness-snapshot-invalid");
+    expect(() =>
+      governance.validateProtectedCurrentnessRepairLifecycleSnapshot(
+        arbitraryTail,
+        governance.PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+      )
+    ).toThrow("rule=protected-currentness-repair-correction-receipt-delta-invalid");
+
+    for (const registry of [
+      correctionWithoutEvidenceFlow,
+      correctionWithEvidenceFlow,
+      finalWithoutEvidenceFlow,
+      finalAfterEvidenceFlow
+    ]) {
+      expect(() =>
+        governance.validateProtectedCurrentnessRepairLifecycleSnapshot(
+          registry,
+          governance.PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+        )
+      ).not.toThrow();
+    }
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleSnapshot(
+        correctionWithEvidenceFlow
+      )
+    ).not.toThrow();
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleSnapshot(
+        finalAfterEvidenceFlow
+      )
+    ).not.toThrow();
+
+  });
+
+  it("validates the EvidenceFlow protected index transition without call-order state", async () => {
+    const candidatePaths = [
+      "coordination/repo-governance/active-work.json",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ];
+    const candidate = JSON.parse(
+      readFileSync(join(projectRoot, candidatePaths[0]), "utf8")
+    );
+    const alternateRoot = temporaryRoot("evidenceflow-pure-index");
+    const alternateGitDirectory = join(alternateRoot, "git");
+    const alternateIndex = join(alternateRoot, "index");
+    const alternateObjects = join(alternateRoot, "objects");
+    runGit(alternateRoot, [
+      "--no-optional-locks",
+      "init",
+      "--bare",
+      "-q",
+      alternateGitDirectory
+    ]);
+    mkdirSync(alternateObjects, { recursive: true });
+    const commonGitDirectory = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]);
+    const alternateEnvironment = {
+      GIT_DIR: alternateGitDirectory,
+      GIT_WORK_TREE: projectRoot,
+      GIT_INDEX_FILE: alternateIndex,
+      GIT_OBJECT_DIRECTORY: alternateObjects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(commonGitDirectory, "objects"),
+      GIT_OPTIONAL_LOCKS: "0",
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(candidate.repo)
+    };
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "symbolic-ref",
+        "HEAD",
+        `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`
+      ],
+      alternateEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "update-ref",
+        `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`,
+        "44a814721831bd369be34794eb3e13ad459d4b30"
+      ],
+      alternateEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "read-tree", "HEAD"],
+      alternateEnvironment
+    );
+    for (const path of candidatePaths) {
+      const mode = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "ls-files", "-s", path],
+        alternateEnvironment
+      ).split(/\s+/, 1)[0];
+      const blob = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+        alternateEnvironment,
+        readFileSync(join(projectRoot, path), "utf8")
+      );
+      runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `${mode},${blob},${path}`
+        ],
+        alternateEnvironment
+      );
+    }
+    expect(
+      runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "diff", "--cached", "--name-only"],
+        alternateEnvironment
+      ).split("\n")
+    ).toEqual(candidatePaths);
+    const realIndexPath = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "index"
+    ]);
+    const realIndexBefore = sha256File(realIndexPath);
+    const repairEnvironmentNames = [
+      "SENA_REPAIR_PR_NUMBER",
+      "SENA_REPAIR_INITIAL_HEAD",
+      "SENA_REPAIR_INITIAL_TREE",
+      "SENA_REPAIR_INITIAL_REGISTRY_BLOB",
+      "SENA_REPAIR_INITIAL_VERIFIER_BLOB",
+      "SENA_REPAIR_INITIAL_TEST_BLOB",
+      "SENA_REPAIR_INITIAL_BUILD_RUN_ID",
+      "SENA_REPAIR_INITIAL_REPOSITORY_SECURITY_RUN_IDS",
+      "SENA_REPAIR_INITIAL_CHECK_JOB_IDS",
+      "SENA_REPAIR_INITIAL_REQUIRED_CHECKS_PASSED",
+      "SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY",
+      "SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED",
+      "SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED"
+    ];
+    const previousRepairEnvironment = Object.fromEntries(
+      repairEnvironmentNames.map((name) => [name, process.env[name]])
+    );
+    const previousEnvironment = Object.fromEntries(
+      [...new Set([
+        ...Object.keys(alternateEnvironment),
+        ...repairEnvironmentNames
+      ])].map((name) => [name, process.env[name]])
+    );
+    Object.assign(process.env, alternateEnvironment);
+    try {
+      const governance = await import(
+        `${pathToFileURL(governanceScript).href}?evidenceFlowPureIndex=${Date.now()}-${Math.random()}`
+      );
+      expect(() =>
+        governance.validateProtectedCurrentnessRepairIndexTransition(candidate)
+      ).not.toThrow();
+      expect(() =>
+        governance.validateProtectedCurrentnessRepairIndexTransition(
+          structuredClone(candidate)
+        )
+      ).not.toThrow();
+
+      for (const protectedPath of candidatePaths.slice(1)) {
+        const protectedMode = runGitWithEnvironment(
+          projectRoot,
+          ["--no-optional-locks", "ls-files", "-s", protectedPath],
+          alternateEnvironment
+        ).split(/\s+/, 1)[0];
+        const protectedBlob = runGitWithEnvironment(
+          projectRoot,
+          ["--no-optional-locks", "rev-parse", `:${protectedPath}`],
+          alternateEnvironment
+        );
+        const mismatchedProtectedBlob = runGitWithEnvironment(
+          projectRoot,
+          ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+          alternateEnvironment,
+          `${readFileSync(join(projectRoot, protectedPath), "utf8")}\nindex-only-drift\n`
+        );
+        runGitWithEnvironment(
+          projectRoot,
+          [
+            "--no-optional-locks",
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            `${protectedMode},${mismatchedProtectedBlob},${protectedPath}`
+          ],
+          alternateEnvironment
+        );
+        expect(() =>
+          governance.validateProtectedCurrentnessRepairIndexTransition(candidate)
+        ).toThrow("rule=evidenceflow-currentness-index-blob-mismatch");
+        runGitWithEnvironment(
+          projectRoot,
+          [
+            "--no-optional-locks",
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            `${protectedMode},${protectedBlob},${protectedPath}`
+          ],
+          alternateEnvironment
+        );
+      }
+
+      const sourceTree = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "write-tree"],
+        alternateEnvironment
+      );
+      const sourceHead = runGitWithEnvironment(
+        projectRoot,
+        [
+          "-c",
+          "user.name=SENA EvidenceFlow transition test",
+          "-c",
+          "user.email=sena-evidenceflow@example.invalid",
+          "commit-tree",
+          sourceTree,
+          "-p",
+          "44a814721831bd369be34794eb3e13ad459d4b30",
+          "-m",
+          "legal EvidenceFlow currentness source"
+        ],
+        alternateEnvironment
+      );
+      runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "update-ref",
+          `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`,
+          sourceHead
+        ],
+        alternateEnvironment
+      );
+      const sourceEvidence = {
+        headSha: sourceHead,
+        treeSha: sourceTree,
+        registryBlobSha: runGitWithEnvironment(
+          projectRoot,
+          ["--no-optional-locks", "rev-parse", `${sourceHead}:${candidatePaths[0]}`],
+          alternateEnvironment
+        ),
+        verifierBlobSha: runGitWithEnvironment(
+          projectRoot,
+          ["--no-optional-locks", "rev-parse", `${sourceHead}:${candidatePaths[1]}`],
+          alternateEnvironment
+        ),
+        governanceTestBlobSha: runGitWithEnvironment(
+          projectRoot,
+          ["--no-optional-locks", "rev-parse", `${sourceHead}:${candidatePaths[2]}`],
+          alternateEnvironment
+        ),
+        buildRunId: 1,
+        repositorySecurityRunIds: [2, 3],
+        checkJobIds: [4, 5, 6],
+        requiredChecksPassed: true,
+        annotationsEmpty: true,
+        specReviewApproved: true,
+        qualityReviewApproved: true
+      };
+      const finalAfterEvidenceFlow = buildProtectedCurrentnessRepairFinalFixture(
+        { registry: candidate, context: {} },
+        sourceEvidence
+      ).registry;
+      const finalRegistryBlob = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+        alternateEnvironment,
+        `${JSON.stringify(finalAfterEvidenceFlow, null, 2)}\n`
+      );
+      runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `100644,${finalRegistryBlob},${candidatePaths[0]}`
+        ],
+        alternateEnvironment
+      );
+      Object.assign(process.env, {
+        SENA_REPAIR_PR_NUMBER: "82",
+        SENA_REPAIR_INITIAL_HEAD: sourceEvidence.headSha,
+        SENA_REPAIR_INITIAL_TREE: sourceEvidence.treeSha,
+        SENA_REPAIR_INITIAL_REGISTRY_BLOB: sourceEvidence.registryBlobSha,
+        SENA_REPAIR_INITIAL_VERIFIER_BLOB: sourceEvidence.verifierBlobSha,
+        SENA_REPAIR_INITIAL_TEST_BLOB: sourceEvidence.governanceTestBlobSha,
+        SENA_REPAIR_INITIAL_BUILD_RUN_ID: String(sourceEvidence.buildRunId),
+        SENA_REPAIR_INITIAL_REPOSITORY_SECURITY_RUN_IDS:
+          sourceEvidence.repositorySecurityRunIds.join(","),
+        SENA_REPAIR_INITIAL_CHECK_JOB_IDS: sourceEvidence.checkJobIds.join(","),
+        SENA_REPAIR_INITIAL_REQUIRED_CHECKS_PASSED: "true",
+        SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY: "true",
+        SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED: "true",
+        SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED: "true"
+      });
+      expect(() =>
+        governance.validateProtectedCurrentnessRepairIndexTransition(
+          finalAfterEvidenceFlow
+        )
+      ).not.toThrow();
+      const mismatchedFinalRegistry = structuredClone(finalAfterEvidenceFlow);
+      mismatchedFinalRegistry.updatedAt = "2026-09-02T08:14:53Z";
+      const mismatchedFinalRegistryBlob = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+        alternateEnvironment,
+        `${JSON.stringify(mismatchedFinalRegistry, null, 2)}\n`
+      );
+      runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `100644,${mismatchedFinalRegistryBlob},${candidatePaths[0]}`
+        ],
+        alternateEnvironment
+      );
+      expect(() =>
+        governance.validateProtectedCurrentnessRepairIndexTransition(
+          finalAfterEvidenceFlow
+        )
+      ).toThrow("rule=evidenceflow-currentness-index-blob-mismatch");
+      runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `100644,${finalRegistryBlob},${candidatePaths[0]}`
+        ],
+        alternateEnvironment
+      );
+    } finally {
+      for (const [name, value] of Object.entries(previousEnvironment)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+    for (const name of repairEnvironmentNames) {
+      expect(process.env[name]).toBe(previousRepairEnvironment[name]);
+    }
+    expect(sha256File(realIndexPath)).toBe(realIndexBefore);
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?evidenceFlowPathOrder=${Date.now()}-${Math.random()}`
+    );
+    expect(() =>
+      governance.assertEvidenceFlowCurrentnessLifecycleIndexPaths(
+        candidatePaths.slice(0, 2)
+      )
+    ).toThrow("rule=evidenceflow-currentness-index-path-set-mismatch");
+    expect(() =>
+      governance.assertEvidenceFlowCurrentnessLifecycleIndexPaths([
+        candidatePaths[1],
+        candidatePaths[0],
+        candidatePaths[2]
+      ])
+    ).toThrow("rule=evidenceflow-currentness-index-path-set-mismatch");
   });
 });
 
