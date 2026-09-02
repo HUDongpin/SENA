@@ -5,6 +5,7 @@ import {
   rmSync,
   writeFileSync,
   copyFileSync,
+  cpSync,
   readFileSync,
   symlinkSync,
   chmodSync,
@@ -400,6 +401,70 @@ const PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST = [
   "scripts/verify-sena-repo-governance.mjs",
   "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
 ];
+const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST =
+  "protected-currentness-activation-repair-additive-correction-candidate-awaiting-fresh-initial-checks";
+const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT_FOR_TEST =
+  "pr82-protected-currentness-activation-repair-additive-correction";
+const PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST =
+  "9ba53c3cad87e8368552ffe78be297ae2eae1e30";
+const PROTECTED_CURRENTNESS_REPAIR_SOURCE_TREE_FOR_TEST =
+  "6550a1e5495e0dd7278ec992653811e628ba57e4";
+const PROTECTED_CURRENTNESS_REPAIR_SOURCE_REGISTRY_BLOB_FOR_TEST =
+  "cb34a7b791d37fc1159dc27d707bdc9d0555857c";
+const PROTECTED_CURRENTNESS_REPAIR_SOURCE_VERIFIER_BLOB_FOR_TEST =
+  "86908caf725a1ca46eea59832277700fe9a1f295";
+const PROTECTED_CURRENTNESS_REPAIR_SOURCE_TEST_BLOB_FOR_TEST =
+  "a78372482b7f2b35ee976398d980c82701534559";
+const PROTECTED_CURRENTNESS_REPAIR_SOURCE_RECEIPT_PREFIX_FOR_TEST = {
+  count: 41,
+  sha256: "76a564be7fa51861f770691d38e4ca255d1fba1d34dd6e9d742edb56666dcea0"
+};
+const PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_SENTENCE_FOR_TEST =
+  "授权 Task7.5 加法式修复生命周期。";
+const PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_SHA256_FOR_TEST =
+  "f8780281642d5fe5c0e6ce0f6f40e6580b4e1d2a75d5e29b307b5b0d26cab496";
+const PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_KEYS_FOR_TEST = [
+  "mode",
+  "status",
+  "exactSentence",
+  "exactSentenceSha256",
+  "correctionSourceHeadSha",
+  "correctionSourceTreeSha",
+  "correctionSourceRegistryBlobSha",
+  "correctionSourceVerifierBlobSha",
+  "correctionSourceGovernanceTestBlobSha",
+  "correctionSourceReceiptPrefix",
+  "requiredCorrectionPaths",
+  "fixtureCorrectionMode",
+  "fixtureFrozenHeadSha",
+  "candidateHeadBindingMode",
+  "finalTransitionScope"
+];
+const PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_FOR_TEST = {
+  mode: "explicit-owner-conversation-authorization",
+  status: "consumed-by-exact-additive-correction-candidate",
+  exactSentence: PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_SENTENCE_FOR_TEST,
+  exactSentenceSha256: PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_SHA256_FOR_TEST,
+  correctionSourceHeadSha: PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST,
+  correctionSourceTreeSha: PROTECTED_CURRENTNESS_REPAIR_SOURCE_TREE_FOR_TEST,
+  correctionSourceRegistryBlobSha:
+    PROTECTED_CURRENTNESS_REPAIR_SOURCE_REGISTRY_BLOB_FOR_TEST,
+  correctionSourceVerifierBlobSha:
+    PROTECTED_CURRENTNESS_REPAIR_SOURCE_VERIFIER_BLOB_FOR_TEST,
+  correctionSourceGovernanceTestBlobSha:
+    PROTECTED_CURRENTNESS_REPAIR_SOURCE_TEST_BLOB_FOR_TEST,
+  correctionSourceReceiptPrefix:
+    PROTECTED_CURRENTNESS_REPAIR_SOURCE_RECEIPT_PREFIX_FOR_TEST,
+  requiredCorrectionPaths: [
+    ...PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST
+  ],
+  fixtureCorrectionMode:
+    "isolated-temporary-git-repository-with-exact-frozen-seed-head",
+  fixtureFrozenHeadSha: "922f5a4eabee972c61409439476766fb33f3537d",
+  candidateHeadBindingMode:
+    "post-commit-fresh-gates-then-registry-only-final-evidence",
+  finalTransitionScope: ["coordination/repo-governance/active-work.json"]
+};
 const PR81_FINAL_REQUIRED_EXECUTION_FOR_TEST = [
   "stage-only-active-work-and-pass-index-audit-write-policy-security-native-pre-commit-and-49-of-49-governance-tests",
   "commit-and-push-the-initial-registry-only-pr81-candidate-and-create-draft-pr81",
@@ -509,6 +574,7 @@ function buildProtectedCurrentnessRepairInitialFixture(
   item.prReadyForReview = false;
   item.mergeAuthorized = false;
   item.headSha = seedHeadSha;
+  item.prHeadSha = seedHeadSha;
   item.allowedPaths = [...PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE_FOR_TEST];
   item.protectedCurrentnessActivationRepairLifecycle = {
     status: "protected-currentness-activation-repair-candidate-awaiting-initial-checks",
@@ -591,13 +657,81 @@ function buildProtectedCurrentnessRepairInitialFixture(
   };
 }
 
-function buildProtectedCurrentnessRepairFinalFixture(initial: any) {
+function protectedCurrentnessRepairPublishedInitialSourceForTest() {
+  const registry = JSON.parse(
+    runGit(projectRoot, [
+      "--no-optional-locks",
+      "show",
+      `${PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+  return {
+    registry,
+    context: {
+      seedHeadSha: "922f5a4eabee972c61409439476766fb33f3537d",
+      seedTreeSha: "d983467042c336a3031ef91d94140491f7071346",
+      seedRegistryBlobSha: "461b607ca65a83bc9d23dd32a6a1ad4b3c526ad7",
+      pullRequestNumber: 82
+    }
+  };
+}
+
+function buildProtectedCurrentnessRepairCorrectionFixture(initial: any) {
   const registry = structuredClone(initial.registry);
   const item = protectedCurrentnessRepairItemForTest(registry);
+  const sourceLifecycle = item.protectedCurrentnessActivationRepairLifecycle;
+  item.protectedCurrentnessActivationRepairLifecycle = Object.fromEntries(
+    Object.entries(sourceLifecycle).flatMap(([key, value]) =>
+      key === "initialCandidateCompletionEvidence"
+        ? [
+            ["additiveCorrectionAuthorization", structuredClone(
+              PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_FOR_TEST
+            )],
+            [key, value]
+          ]
+        : [[key, value]]
+    )
+  );
   const lifecycle = item.protectedCurrentnessActivationRepairLifecycle;
-  lifecycle.status =
-    "protected-currentness-activation-repair-ready-pending-final-head-checks";
-  lifecycle.initialCandidateCompletionEvidence = {
+  lifecycle.status = PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST;
+  lifecycle.initialCandidateCompletionEvidence = null;
+  lifecycle.finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks = true;
+  lifecycle.repairReadyAndProtectedMergeAuthorizedAfterFinalChecks = false;
+  item.headSha = PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST;
+  item.prHeadSha = PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST;
+  item.aheadBehind = { baseRef: "origin/main", ahead: 6, behind: 0 };
+  const branch = protectedCurrentnessRepairBranchForTest(registry);
+  branch.headSha = PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST;
+  branch.remoteHeadSha = PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST;
+  branch.prHeadSha = PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST;
+  registry.releaseReceipts.push({
+    schemaVersion: "sena-registry-reconciliation-receipt/v1",
+    receiptKind: PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT_FOR_TEST,
+    taskId: item.taskId,
+    ownerKey: item.ownerKey,
+    scope: [...PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST],
+    additiveCorrectionAuthorization: structuredClone(
+      PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_FOR_TEST
+    ),
+    authorizationBoundary: {
+      finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks: true
+    }
+  });
+  return {
+    registry,
+    context: {
+      seedHeadSha: PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST,
+      seedTreeSha: PROTECTED_CURRENTNESS_REPAIR_SOURCE_TREE_FOR_TEST,
+      seedRegistryBlobSha:
+        PROTECTED_CURRENTNESS_REPAIR_SOURCE_REGISTRY_BLOB_FOR_TEST,
+      pullRequestNumber: 82
+    }
+  };
+}
+
+function buildProtectedCurrentnessRepairFinalFixture(
+  correction: any,
+  completionEvidence: any = {
     headSha: "a".repeat(40),
     treeSha: "b".repeat(40),
     registryBlobSha: "c".repeat(40),
@@ -610,10 +744,19 @@ function buildProtectedCurrentnessRepairFinalFixture(initial: any) {
     annotationsEmpty: true,
     specReviewApproved: true,
     qualityReviewApproved: true
-  };
+  }
+) {
+  const registry = structuredClone(correction.registry);
+  const item = protectedCurrentnessRepairItemForTest(registry);
+  const lifecycle = item.protectedCurrentnessActivationRepairLifecycle;
+  lifecycle.status =
+    "protected-currentness-activation-repair-ready-pending-final-head-checks";
+  lifecycle.initialCandidateCompletionEvidence = structuredClone(completionEvidence);
   lifecycle.finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks = false;
   lifecycle.repairReadyAndProtectedMergeAuthorizedAfterFinalChecks = true;
   item.headSha = lifecycle.initialCandidateCompletionEvidence.headSha;
+  item.prHeadSha = lifecycle.initialCandidateCompletionEvidence.headSha;
+  item.aheadBehind = { baseRef: "origin/main", ahead: 7, behind: 0 };
   const branch = protectedCurrentnessRepairBranchForTest(registry);
   branch.headSha = lifecycle.initialCandidateCompletionEvidence.headSha;
   branch.remoteHeadSha = lifecycle.initialCandidateCompletionEvidence.headSha;
@@ -631,6 +774,9 @@ function buildProtectedCurrentnessRepairFinalFixture(initial: any) {
     ownerKey: item.ownerKey,
     scope: ["coordination/repo-governance/active-work.json"],
     ...structuredClone(lifecycle.initialCandidateCompletionEvidence),
+    additiveCorrectionAuthorization: structuredClone(
+      PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_FOR_TEST
+    ),
     authorizationBoundary: {
       repairReadyAndProtectedMergeAuthorizedAfterFinalChecks: true
     }
@@ -638,7 +784,11 @@ function buildProtectedCurrentnessRepairFinalFixture(initial: any) {
   return {
     registry,
     context: {
-      ...initial.context,
+      ...correction.context,
+      seedHeadSha: lifecycle.initialCandidateCompletionEvidence.headSha,
+      seedTreeSha: lifecycle.initialCandidateCompletionEvidence.treeSha,
+      seedRegistryBlobSha:
+        lifecycle.initialCandidateCompletionEvidence.registryBlobSha,
       ...lifecycle.initialCandidateCompletionEvidence
     }
   };
@@ -817,13 +967,14 @@ function extendSyntheticProtectedMainFixtureWithRepair(
     frozenSource.headSha,
     82
   );
+  const correction = buildProtectedCurrentnessRepairCorrectionFixture(initial);
   const registryPath = join(
     fixture.root,
     "coordination",
     "repo-governance",
     "active-work.json"
   );
-  writeFileSync(registryPath, `${JSON.stringify(initial.registry, null, 2)}\n`);
+  writeFileSync(registryPath, `${JSON.stringify(correction.registry, null, 2)}\n`);
   for (const [relativePath, contents] of [
     [
       "coordination/repo-governance/pr82-protected-currentness-activation-repair-design.md",
@@ -844,7 +995,7 @@ function extendSyntheticProtectedMainFixtureWithRepair(
     writeFileSync(absolutePath, contents);
   }
   runGit(fixture.root, ["add", ...PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE_FOR_TEST]);
-  runGit(fixture.root, ["commit", "-q", "-m", "repair initial candidate"]);
+  runGit(fixture.root, ["commit", "-q", "-m", "repair correction candidate"]);
   const repairInitialHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
   const repairInitialTree = runGit(fixture.root, ["rev-parse", "HEAD^{tree}"]);
   const repairInitialRegistryBlob = runGit(fixture.root, [
@@ -859,7 +1010,7 @@ function extendSyntheticProtectedMainFixtureWithRepair(
     "rev-parse",
     "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
   ]);
-  const final = buildProtectedCurrentnessRepairFinalFixture(initial);
+  const final = buildProtectedCurrentnessRepairFinalFixture(correction);
   const repairItem = protectedCurrentnessRepairItemForTest(final.registry);
   const repairBranch = protectedCurrentnessRepairBranchForTest(final.registry);
   const repairLifecycle = repairItem.protectedCurrentnessActivationRepairLifecycle;
@@ -881,6 +1032,7 @@ function extendSyntheticProtectedMainFixtureWithRepair(
     governanceTestBlobSha: repairInitialTestBlob
   });
   repairItem.headSha = repairInitialHead;
+  repairItem.prHeadSha = repairInitialHead;
   repairBranch.headSha = repairInitialHead;
   repairBranch.remoteHeadSha = repairInitialHead;
   repairBranch.prHeadSha = repairInitialHead;
@@ -5313,6 +5465,511 @@ describe("SENA repository governance", () => {
     expect(report.errors).toEqual([]);
     expect(report.status).toBe("pass");
     expect(report.ownerBlockers).toEqual([]);
+
+    const realGitDirectory = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]);
+    const mixedPartialControlPlane = runNode(
+      governanceScript,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      {
+        env: {
+          GIT_DIR: realGitDirectory,
+          GIT_INDEX_FILE: candidateIndex,
+          GIT_OPTIONAL_LOCKS: "0"
+        }
+      }
+    );
+    expect(mixedPartialControlPlane.status).toBe(1);
+    expect(mixedPartialControlPlane.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+  });
+
+  it("accepts only the independently resolved canonical native Git hook environment", async () => {
+    const gitDirectory = realpathSync(runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--absolute-git-dir"
+    ]));
+    const commonDirectory = realpathSync(runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]));
+    const indexPath = realpathSync(join(gitDirectory, "index"));
+    const canonicalEnvironment: Record<string, string> = {
+      GIT_DIR: gitDirectory,
+      GIT_WORK_TREE: projectRoot,
+      GIT_INDEX_FILE: indexPath,
+      GIT_OPTIONAL_LOCKS: "0",
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+      SENA_REPAIR_PR_NUMBER: "82"
+    };
+    const realIndexSha256Before = sha256File(indexPath);
+    const realRefsBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ]);
+    const realObjectCountBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "count-objects",
+      "-v"
+    ]);
+
+    const audit = runNode(
+      governanceScript,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      { env: canonicalEnvironment }
+    );
+    expect(audit.status, audit.stderr).toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({ status: "pass", errors: [] });
+    const writePolicy = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      { env: canonicalEnvironment }
+    );
+    expect(writePolicy.status, writePolicy.stderr).toBe(0);
+    expect(writePolicy.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    const hook = spawnSync("sh", ["-x", join(projectRoot, ".githooks", "pre-commit")], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      env: { ...process.env, ...canonicalEnvironment },
+      maxBuffer: 16 * 1024 * 1024
+    });
+    expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
+    expect(hook.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    expect(hook.stdout).toContain("SENA_SECURITY_GATE pass");
+
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.resolveCanonicalNativeGitControlPlaneContext).toBe(
+      "function"
+    );
+    expect(
+      governance.resolveCanonicalNativeGitControlPlaneContext(
+        projectRoot,
+        canonicalEnvironment
+      )
+    ).toEqual({
+      controlRoot: realpathSync(dirname(commonDirectory)),
+      workTree: projectRoot,
+      gitDirectory,
+      commonDirectory,
+      indexPath
+    });
+    expect(
+      governance.resolveCanonicalNativeGitControlPlaneContext(projectRoot, {
+        ...canonicalEnvironment,
+        GIT_COMMON_DIR: commonDirectory
+      })
+    ).toEqual({
+      controlRoot: realpathSync(dirname(commonDirectory)),
+      workTree: projectRoot,
+      gitDirectory,
+      commonDirectory,
+      indexPath
+    });
+    const commonDirectoryOnly = runNode(
+      governanceScript,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      {
+        env: {
+          GIT_COMMON_DIR: gitDirectory,
+          GIT_OPTIONAL_LOCKS: "0"
+        }
+      }
+    );
+    expect(commonDirectoryOnly.status).toBe(1);
+    expect(commonDirectoryOnly.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+
+    const rootRepository = temporaryRoot("canonical-native-root-repository");
+    runGit(rootRepository, ["--no-optional-locks", "init", "-q"]);
+    runGit(rootRepository, ["--no-optional-locks", "read-tree", "--empty"]);
+    const rootGitDirectory = realpathSync(join(rootRepository, ".git"));
+    const rootIndexPath = realpathSync(join(rootGitDirectory, "index"));
+    expect(
+      governance.resolveCanonicalNativeGitControlPlaneContext(rootRepository, {
+        GIT_DIR: rootGitDirectory,
+        GIT_WORK_TREE: rootRepository,
+        GIT_INDEX_FILE: rootIndexPath,
+        SENA_GOVERNANCE_TARGET_ROOT: rootRepository
+      })
+    ).toEqual({
+      controlRoot: rootRepository,
+      workTree: rootRepository,
+      gitDirectory: rootGitDirectory,
+      commonDirectory: rootGitDirectory,
+      indexPath: rootIndexPath
+    });
+
+    const rootCommonDirectory = join(rootRepository, "common-git-directory");
+    mkdirSync(rootCommonDirectory, { recursive: true });
+    writeFileSync(join(rootGitDirectory, "commondir"), "../common-git-directory\n");
+    expect(
+      governance.resolveCanonicalNativeGitControlPlaneContext(rootRepository, {
+        GIT_DIR: rootGitDirectory,
+        GIT_WORK_TREE: rootRepository,
+        GIT_INDEX_FILE: rootIndexPath,
+        GIT_COMMON_DIR: rootCommonDirectory,
+        SENA_GOVERNANCE_TARGET_ROOT: rootRepository
+      })
+    ).toEqual({
+      controlRoot: rootRepository,
+      workTree: rootRepository,
+      gitDirectory: rootGitDirectory,
+      commonDirectory: rootCommonDirectory,
+      indexPath: rootIndexPath
+    });
+    writeFileSync(
+      join(rootGitDirectory, "commondir"),
+      "../common-git-directory\nunexpected-second-line\n"
+    );
+    expect(
+      governance.resolveCanonicalNativeGitControlPlaneContext(rootRepository, {
+        GIT_DIR: rootGitDirectory,
+        GIT_WORK_TREE: rootRepository,
+        GIT_INDEX_FILE: rootIndexPath,
+        GIT_COMMON_DIR: rootCommonDirectory,
+        SENA_GOVERNANCE_TARGET_ROOT: rootRepository
+      })
+    ).toBeUndefined();
+
+    const negativeEnvironments: Array<[string, Record<string, string>]> = [
+      ["wrong Git directory", {
+        ...canonicalEnvironment,
+        GIT_DIR: commonDirectory
+      }],
+      ["wrong worktree", {
+        ...canonicalEnvironment,
+        GIT_WORK_TREE: realpathSync(dirname(commonDirectory))
+      }],
+      ["wrong index", {
+        ...canonicalEnvironment,
+        GIT_INDEX_FILE: realpathSync(join(commonDirectory, "index"))
+      }],
+      ["object directory injection", {
+        ...canonicalEnvironment,
+        GIT_OBJECT_DIRECTORY: realpathSync(join(commonDirectory, "objects"))
+      }],
+      ["alternate object injection", {
+        ...canonicalEnvironment,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: realpathSync(
+          join(commonDirectory, "objects")
+        )
+      }],
+      ["wrong common directory", {
+        ...canonicalEnvironment,
+        GIT_COMMON_DIR: gitDirectory
+      }]
+    ];
+    for (const [label, environment] of negativeEnvironments) {
+      expect.soft(
+        governance.resolveCanonicalNativeGitControlPlaneContext(
+          projectRoot,
+          environment
+        ),
+        label
+      ).toBeUndefined();
+      const result = runNode(
+        governanceScript,
+        ["audit", "--pre-commit", "--registry-from-index"],
+        { env: environment }
+      );
+      expect.soft(result.status, label).toBe(1);
+      expect.soft(result.stderr, label).toContain(
+        "rule=isolated-governance-control-root-context-invalid"
+      );
+    }
+    expect(sha256File(indexPath)).toBe(realIndexSha256Before);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ])).toBe(realRefsBefore);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "count-objects",
+      "-v"
+    ])).toBe(realObjectCountBefore);
+  });
+
+  it("accepts the exact observed native commit hook tuple without trusting absent optional paths", async () => {
+    const gitDirectory = realpathSync(runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--absolute-git-dir"
+    ]));
+    const commonDirectory = realpathSync(runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]));
+    const indexPath = realpathSync(join(gitDirectory, "index"));
+    const exactObservedEnvironment: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
+      PATH: process.env.PATH,
+      TMPDIR: process.env.TMPDIR,
+      NPM_CONFIG_CACHE: process.env.NPM_CONFIG_CACHE,
+      GIT_AUTHOR_NAME: "SENA Native Hook Test",
+      GIT_AUTHOR_EMAIL: "sena-native-hook@example.invalid",
+      GIT_AUTHOR_DATE: "2026-09-02T12:00:00+08:00",
+      GIT_EXEC_PATH: "/tmp/sena-synthetic-git-exec-path",
+      GIT_DIR: gitDirectory,
+      GIT_INDEX_FILE: indexPath,
+      GIT_EDITOR: ":",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_PAGER: "cat",
+      GIT_PREFIX: "",
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+      SENA_REPAIR_PR_NUMBER: "82"
+    };
+    expect(exactObservedEnvironment).not.toHaveProperty("GIT_WORK_TREE");
+    expect(exactObservedEnvironment).not.toHaveProperty("GIT_COMMON_DIR");
+
+    const runExactNode = (environment: NodeJS.ProcessEnv) => spawnSync(
+      process.execPath,
+      [governanceScript, "audit", "--pre-commit", "--registry-from-index"],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        env: environment,
+        maxBuffer: 16 * 1024 * 1024
+      }
+    );
+    const exactAudit = runExactNode(exactObservedEnvironment);
+    expect(exactAudit.status, exactAudit.stderr).toBe(0);
+    expect(JSON.parse(exactAudit.stdout)).toMatchObject({ status: "pass", errors: [] });
+
+    const hook = spawnSync("sh", [join(projectRoot, ".githooks", "pre-commit")], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      env: exactObservedEnvironment,
+      maxBuffer: 16 * 1024 * 1024
+    });
+    expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
+    expect(hook.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    expect(hook.stdout).toContain("SENA_SECURITY_GATE pass");
+
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(
+      governance.resolveCanonicalNativeGitControlPlaneContext(
+        projectRoot,
+        exactObservedEnvironment
+      )
+    ).toEqual({
+      controlRoot: realpathSync(dirname(commonDirectory)),
+      workTree: projectRoot,
+      gitDirectory,
+      commonDirectory,
+      indexPath
+    });
+
+    const negativeEnvironments: Array<[string, NodeJS.ProcessEnv]> = [
+      ["absent worktree with wrong Git directory", {
+        ...exactObservedEnvironment,
+        GIT_DIR: commonDirectory
+      }],
+      ["absent worktree with wrong index", {
+        ...exactObservedEnvironment,
+        GIT_INDEX_FILE: realpathSync(join(commonDirectory, "index"))
+      }],
+      ["injected wrong worktree", {
+        ...exactObservedEnvironment,
+        GIT_WORK_TREE: realpathSync(dirname(commonDirectory))
+      }]
+    ];
+    for (const [label, environment] of negativeEnvironments) {
+      expect.soft(
+        governance.resolveCanonicalNativeGitControlPlaneContext(
+          projectRoot,
+          environment
+        ),
+        label
+      ).toBeUndefined();
+      const result = runExactNode(environment);
+      expect.soft(result.status, label).toBe(1);
+      expect.soft(result.stderr, label).toContain(
+        "rule=isolated-governance-control-root-context-invalid"
+      );
+    }
+  });
+
+  it("allows observed native author metadata only as discarded caller presence", async () => {
+    const gitDirectory = realpathSync(runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--absolute-git-dir"
+    ]));
+    const indexPath = realpathSync(join(gitDirectory, "index"));
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.governanceGitEnvironment).toBe("function");
+    const sanitized = governance.governanceGitEnvironment({
+      PATH: "/usr/bin:/bin",
+      GIT_AUTHOR_NAME: "SENA Native Hook Test",
+      GIT_AUTHOR_EMAIL: "sena-native-hook@example.invalid",
+      GIT_AUTHOR_DATE: "2026-09-02T12:00:00+08:00",
+      GIT_EXEC_PATH: "/tmp/sena-synthetic-git-exec-path",
+      GIT_DIR: gitDirectory,
+      GIT_INDEX_FILE: indexPath,
+      GIT_EDITOR: ":",
+      GIT_OPTIONAL_LOCKS: "1",
+      GIT_PAGER: "less",
+      GIT_PREFIX: "",
+      GIT_REFLOG_ACTION: "commit"
+    });
+    expect(sanitized).toMatchObject({
+      PATH: "/usr/bin:/bin",
+      GIT_DIR: gitDirectory,
+      GIT_INDEX_FILE: indexPath,
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_PAGER: "cat",
+      GIT_TERMINAL_PROMPT: "0"
+    });
+    for (const discardedName of [
+      "GIT_AUTHOR_NAME",
+      "GIT_AUTHOR_EMAIL",
+      "GIT_AUTHOR_DATE",
+      "GIT_EXEC_PATH",
+      "GIT_EDITOR",
+      "GIT_PREFIX",
+      "GIT_REFLOG_ACTION"
+    ]) {
+      expect(sanitized).not.toHaveProperty(discardedName);
+    }
+  });
+
+  it("rejects every caller-controlled Git evidence-shaping environment variable", () => {
+    const gitDirectory = realpathSync(runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--absolute-git-dir"
+    ]));
+    const indexPath = realpathSync(join(gitDirectory, "index"));
+    const canonicalEnvironment: Record<string, string> = {
+      GIT_DIR: gitDirectory,
+      GIT_WORK_TREE: projectRoot,
+      GIT_INDEX_FILE: indexPath,
+      GIT_OPTIONAL_LOCKS: "0",
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+      SENA_REPAIR_PR_NUMBER: "82"
+    };
+    const indexSha256Before = sha256File(indexPath);
+    const refsBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ]);
+    const objectCountBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "count-objects",
+      "-v"
+    ]);
+    const statusBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-uall"
+    ]);
+    const matrix: Array<[string, Record<string, string>]> = [
+      ["dynamic config tuple", {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.hooksPath",
+        GIT_CONFIG_VALUE_0: "/tmp/reviewer-hooks"
+      }],
+      ["config parameters", {
+        GIT_CONFIG_PARAMETERS: "'core.hooksPath=/tmp/reviewer-hooks'"
+      }],
+      ["config file selector", { GIT_CONFIG: "/dev/null" }],
+      ["global config selector", { GIT_CONFIG_GLOBAL: "/dev/null" }],
+      ["system config selector", { GIT_CONFIG_SYSTEM: "/dev/null" }],
+      ["system config disable", { GIT_CONFIG_NOSYSTEM: "1" }],
+      ["namespace", { GIT_NAMESPACE: "reviewer-namespace" }],
+      ["replace ref base", { GIT_REPLACE_REF_BASE: "refs/reviewer-replace/" }],
+      ["replace objects disable", { GIT_NO_REPLACE_OBJECTS: "1" }],
+      ["graft file", { GIT_GRAFT_FILE: "/dev/null" }],
+      ["shallow file", { GIT_SHALLOW_FILE: "/dev/null" }],
+      ["external diff", { GIT_EXTERNAL_DIFF: "/usr/bin/false" }],
+      ["literal pathspec", { GIT_LITERAL_PATHSPECS: "1" }],
+      ["glob pathspec", { GIT_GLOB_PATHSPECS: "1" }],
+      ["case-insensitive pathspec", { GIT_ICASE_PATHSPECS: "1" }],
+      ["repository ceiling", { GIT_CEILING_DIRECTORIES: projectRoot }],
+      ["SSH transport", { GIT_SSH_COMMAND: "/usr/bin/false" }],
+      ["terminal prompt", { GIT_TERMINAL_PROMPT: "0" }],
+      ["unobserved hook cwd", { GIT_HOOK_CWD: "/tmp/sena-hook-cwd" }],
+      ["unobserved committer tuple", {
+        GIT_COMMITTER_NAME: "SENA Unobserved Committer",
+        GIT_COMMITTER_EMAIL: "sena-unobserved-committer@example.invalid",
+        GIT_COMMITTER_DATE: "2026-09-02T12:00:00+08:00"
+      }]
+    ];
+    for (const [label, injected] of matrix) {
+      const result = runNode(
+        governanceScript,
+        ["audit", "--pre-commit", "--registry-from-index"],
+        { env: { ...canonicalEnvironment, ...injected } }
+      );
+      expect.soft(result.status, label).toBe(1);
+      expect.soft(result.stderr, label).toContain(
+        "rule=governance-git-environment-invalid"
+      );
+    }
+    expect(sha256File(indexPath)).toBe(indexSha256Before);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ])).toBe(refsBefore);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "count-objects",
+      "-v"
+    ])).toBe(objectCountBefore);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-uall"
+    ])).toBe(statusBefore);
+  });
+
+  it("rejects forbidden Git environment names before resolving an invalid target", () => {
+    const missingTarget = join(
+      temporaryRoot("git-environment-priority"),
+      "nonexistent-target"
+    );
+    expect(existsSync(missingTarget)).toBe(false);
+    const result = spawnSync(
+      "/usr/bin/env",
+      [
+        "-i",
+        `TMPDIR=${process.env.TMPDIR}`,
+        `NPM_CONFIG_CACHE=${process.env.NPM_CONFIG_CACHE}`,
+        "GIT_CONFIG_COUNT=1",
+        `SENA_GOVERNANCE_TARGET_ROOT=${missingTarget}`,
+        process.execPath,
+        governanceScript,
+        "help"
+      ],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024
+      }
+    );
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("rule=governance-git-environment-invalid");
+    expect(result.stderr).not.toContain("ENOENT");
   });
 
   it("enforces rescue bundle custody instead of trusting the ledger text", () => {
@@ -5838,9 +6495,16 @@ describe("SENA repository governance", () => {
       if (status === governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS) {
         return [governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT];
       }
+      if (status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST) {
+        return [
+          governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+          governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT
+        ];
+      }
       if (status === governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS) {
         return [
           governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+          governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
           governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
         ];
       }
@@ -5899,23 +6563,73 @@ describe("SENA repository governance", () => {
     );
     expectPhaseAwareRepairReceipts(currentRegistry);
     expectPhaseAwareRepairReceipts(indexedRegistry);
+    expect(
+      currentItem.protectedCurrentnessActivationRepairLifecycle.status
+    ).toBe(PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST);
+    expect(currentItem.prHeadSha).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST
+    );
+    const orphanCorrectionRegistry = structuredClone(currentRegistry);
+    delete protectedCurrentnessRepairItemForTest(
+      orphanCorrectionRegistry
+    ).protectedCurrentnessActivationRepairLifecycle;
+    const orphanCorrectionReceipt = structuredClone(
+      currentRegistry.releaseReceipts.find(
+        (receipt: any) =>
+          receipt.receiptKind ===
+          PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT_FOR_TEST
+      )
+    );
+    orphanCorrectionReceipt.taskId = "OUTSIDE-NAMED-PROTECTED-REPAIR-BRANCH";
+    orphanCorrectionReceipt.ownerKey = "outside-protected-repair-owner";
+    orphanCorrectionRegistry.releaseReceipts = orphanCorrectionRegistry.releaseReceipts
+      .filter((receipt: any) => ![
+        "pr82-protected-currentness-activation-repair-candidate",
+        PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT_FOR_TEST,
+        "pr82-protected-currentness-activation-repair-final-authorization"
+      ].includes(receipt.receiptKind))
+      .concat(orphanCorrectionReceipt);
+    const orphanCorrectionRoot = temporaryRoot(
+      "protected-currentness-orphan-correction-receipt"
+    );
+    const orphanCorrectionPath = join(orphanCorrectionRoot, "active-work.json");
+    writeFileSync(
+      orphanCorrectionPath,
+      `${JSON.stringify(orphanCorrectionRegistry, null, 2)}\n`
+    );
+    const orphanCorrectionResult = runNode(governanceScript, [
+      "registry",
+      "--registry",
+      orphanCorrectionPath
+    ]);
+    expect(orphanCorrectionResult.status).toBe(1);
+    expect(orphanCorrectionResult.stderr).toContain(
+      "rule=protected-currentness-repair-lifecycle-missing"
+    );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
       designPlanSeedHead,
       actualPrNumber
     );
-    const final = buildProtectedCurrentnessRepairFinalFixture(initial);
+    const publishedInitial = protectedCurrentnessRepairPublishedInitialSourceForTest();
+    const correction = buildProtectedCurrentnessRepairCorrectionFixture(publishedInitial);
+    const final = buildProtectedCurrentnessRepairFinalFixture(correction);
     const initialLifecycle = protectedCurrentnessRepairItemForTest(
       initial.registry
+    ).protectedCurrentnessActivationRepairLifecycle;
+    const correctionLifecycle = protectedCurrentnessRepairItemForTest(
+      correction.registry
     ).protectedCurrentnessActivationRepairLifecycle;
     const finalLifecycle = protectedCurrentnessRepairItemForTest(
       final.registry
     ).protectedCurrentnessActivationRepairLifecycle;
     expectPhaseAwareRepairReceipts(initial.registry);
+    expectPhaseAwareRepairReceipts(correction.registry);
     expectPhaseAwareRepairReceipts(final.registry);
     const fixturePrefixCount = initialLifecycle.designPlanSeedReceiptPrefix.count;
     expect(initial.registry.releaseReceipts).toHaveLength(fixturePrefixCount + 1);
-    expect(final.registry.releaseReceipts).toHaveLength(fixturePrefixCount + 2);
+    expect(correction.registry.releaseReceipts).toHaveLength(fixturePrefixCount + 2);
+    expect(final.registry.releaseReceipts).toHaveLength(fixturePrefixCount + 3);
     expect(final.registry.releaseReceipts.at(-1)).toMatchObject({
       schemaVersion: "sena-registry-reconciliation-receipt/v1",
       receiptKind: governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
@@ -5934,6 +6648,10 @@ describe("SENA repository governance", () => {
         .protectedCurrentnessActivationRepairDesignLifecycle
     ).toEqual(currentItem.protectedCurrentnessActivationRepairDesignLifecycle);
     expect(
+      protectedCurrentnessRepairItemForTest(correction.registry)
+        .protectedCurrentnessActivationRepairDesignLifecycle
+    ).toEqual(currentItem.protectedCurrentnessActivationRepairDesignLifecycle);
+    expect(
       protectedCurrentnessRepairItemForTest(final.registry)
         .protectedCurrentnessActivationRepairDesignLifecycle
     ).toEqual(currentItem.protectedCurrentnessActivationRepairDesignLifecycle);
@@ -5947,12 +6665,31 @@ describe("SENA repository governance", () => {
     ).toBe("protected-currentness-activation-repair-candidate-awaiting-initial-checks");
     expect(
       governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-        initial.registry,
+        publishedInitial.registry,
+        correction.registry,
+        correction.context
+      ).lifecycle.status
+    ).toBe(PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST);
+    expect(
+      governance.validateProtectedCurrentnessRepairLifecycleSnapshot(
         final.registry,
-        final.context
+        governance.PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
       ).lifecycle.status
     ).toBe("protected-currentness-activation-repair-ready-pending-final-head-checks");
+    expect(() =>
+      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+        correction.registry,
+        final.registry,
+        final.context
+      )
+    ).toThrow(
+      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    );
     expect(governance.protectedCurrentnessRepairTrueBooleanPaths(initialLifecycle)).toEqual([
+      "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks",
+      "oneShot"
+    ]);
+    expect(governance.protectedCurrentnessRepairTrueBooleanPaths(correctionLifecycle)).toEqual([
       "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks",
       "oneShot"
     ]);
@@ -6006,6 +6743,11 @@ describe("SENA repository governance", () => {
       ])
     ).toBe(true);
     expect(
+      governance.assertProtectedCurrentnessRepairIndexPaths(correctionLifecycle, [
+        ...PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST
+      ])
+    ).toBe(true);
+    expect(
       governance.assertProtectedCurrentnessRepairIndexPaths(finalLifecycle, [
         "coordination/repo-governance/active-work.json"
       ])
@@ -6022,19 +6764,66 @@ describe("SENA repository governance", () => {
       ])
     ).toThrow("rule=protected-currentness-repair-index-path-set-mismatch");
     const cleanIndexRoot = temporaryRoot("protected-currentness-clean-index");
+    const cleanGitDirectory = join(cleanIndexRoot, "git");
+    const cleanObjectDirectory = join(cleanIndexRoot, "objects");
+    const canonicalGitDirectory = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]);
+    const currentHead = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "HEAD"
+    ]);
+    runGit(cleanIndexRoot, [
+      "--no-optional-locks",
+      "init",
+      "--bare",
+      "-q",
+      cleanGitDirectory
+    ]);
+    mkdirSync(cleanObjectDirectory, { recursive: true });
     const cleanIndexEnvironment: Record<string, string> = {
+      GIT_DIR: cleanGitDirectory,
+      GIT_WORK_TREE: projectRoot,
       GIT_INDEX_FILE: join(cleanIndexRoot, "index"),
+      GIT_OBJECT_DIRECTORY: cleanObjectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(canonicalGitDirectory, "objects"),
       GIT_OPTIONAL_LOCKS: "0",
+      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(currentRegistry.repo),
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
       SENA_REPAIR_PR_NUMBER: String(actualPrNumber)
     };
     runGitWithEnvironment(
-      projectRoot,
+      cleanIndexRoot,
+      [
+        "--no-optional-locks",
+        "symbolic-ref",
+        "HEAD",
+        `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`
+      ],
+      cleanIndexEnvironment
+    );
+    runGitWithEnvironment(
+      cleanIndexRoot,
+      [
+        "--no-optional-locks",
+        "update-ref",
+        `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`,
+        currentHead
+      ],
+      cleanIndexEnvironment
+    );
+    runGitWithEnvironment(
+      cleanIndexRoot,
       ["--no-optional-locks", "read-tree", "HEAD"],
       cleanIndexEnvironment
     );
     expect(
       runGitWithEnvironment(
-        projectRoot,
+        cleanIndexRoot,
         ["--no-optional-locks", "diff", "--cached", "--name-only"],
         cleanIndexEnvironment
       )
@@ -6059,12 +6848,24 @@ describe("SENA repository governance", () => {
       );
       return rule ? assertion.toThrow(rule) : assertion.toThrow();
     };
+    const expectCorrectionFailure = (mutate: (candidate: any) => void, rule?: string) => {
+      const candidate = structuredClone(correction.registry);
+      mutate(candidate);
+      const assertion = expect(() =>
+        governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+          publishedInitial.registry,
+          candidate,
+          correction.context
+        )
+      );
+      return rule ? assertion.toThrow(rule) : assertion.toThrow();
+    };
     const expectFinalFailure = (mutate: (candidate: any) => void, rule?: string) => {
       const candidate = structuredClone(final.registry);
       mutate(candidate);
       const assertion = expect(() =>
         governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-          initial.registry,
+          correction.registry,
           candidate,
           final.context
         )
@@ -6075,6 +6876,13 @@ describe("SENA repository governance", () => {
     expect(() =>
       governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
         designPlanSeedRegistry,
+        final.registry,
+        initial.context
+      )
+    ).toThrow("rule=protected-currentness-repair-transition-source-invalid");
+    expect(() =>
+      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+        publishedInitial.registry,
         final.registry,
         final.context
       )
@@ -6088,11 +6896,275 @@ describe("SENA repository governance", () => {
     ).toThrow("rule=protected-currentness-repair-transition-source-invalid");
     expect(() =>
       governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+        correction.registry,
+        structuredClone(correction.registry),
+        correction.context
+      )
+    ).toThrow("rule=protected-currentness-repair-transition-source-invalid");
+    expect(() =>
+      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+        correction.registry,
+        initial.registry,
+        initial.context
+      )
+    ).toThrow("rule=protected-currentness-repair-transition-source-invalid");
+    expect(() =>
+      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
         final.registry,
         structuredClone(final.registry),
         final.context
       )
     ).toThrow("rule=protected-currentness-repair-transition-replay");
+
+    expect(governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST
+    );
+    expect(governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT_FOR_TEST
+    );
+    expect(governance.PROTECTED_CURRENTNESS_REPAIR_ADDITIVE_CORRECTION_AUTHORIZATION).toEqual(
+      PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_FOR_TEST
+    );
+    const correctionAuthorization = correctionLifecycle.additiveCorrectionAuthorization;
+    expect(Object.keys(correctionAuthorization)).toEqual(
+      PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_KEYS_FOR_TEST
+    );
+    expect(Object.keys(correctionAuthorization.correctionSourceReceiptPrefix)).toEqual([
+      "count",
+      "sha256"
+    ]);
+    expect(correctionAuthorization).toEqual(
+      PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_FOR_TEST
+    );
+    expect(finalLifecycle.additiveCorrectionAuthorization).toEqual(
+      correctionAuthorization
+    );
+    expect(JSON.stringify(finalLifecycle.additiveCorrectionAuthorization)).toBe(
+      JSON.stringify(correctionAuthorization)
+    );
+    const authorizationBooleanPaths = (value: any, path = ""): string[] => {
+      if (!value || typeof value !== "object") return [];
+      return Object.entries(value).flatMap(([key, nested]) => {
+        const nextPath = path ? `${path}.${key}` : key;
+        return typeof nested === "boolean"
+          ? [nextPath]
+          : authorizationBooleanPaths(nested, nextPath);
+      });
+    };
+    expect(authorizationBooleanPaths(correctionAuthorization)).toEqual([]);
+    expect(
+      createHash("sha256")
+        .update(correctionAuthorization.exactSentence)
+        .digest("hex")
+    ).toBe(correctionAuthorization.exactSentenceSha256);
+    expect(
+      createHash("sha256")
+        .update(JSON.stringify(publishedInitial.registry.releaseReceipts.slice(0, 41)))
+        .digest("hex")
+    ).toBe(PROTECTED_CURRENTNESS_REPAIR_SOURCE_RECEIPT_PREFIX_FOR_TEST.sha256);
+    expect(publishedInitial.registry.releaseReceipts.slice(0, 41)).toEqual(
+      correction.registry.releaseReceipts.slice(0, 41)
+    );
+    expect(publishedInitial.registry.releaseReceipts.slice(0, 41)).toEqual(
+      designPlanSeedRegistry.releaseReceipts.concat(initial.registry.releaseReceipts.at(-1))
+    );
+    const correctionReceipt = correction.registry.releaseReceipts.at(-1);
+    expect(Object.keys(correctionReceipt)).toEqual([
+      "schemaVersion",
+      "receiptKind",
+      "taskId",
+      "ownerKey",
+      "scope",
+      "additiveCorrectionAuthorization",
+      "authorizationBoundary"
+    ]);
+    expect(correctionReceipt.scope).toEqual(
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST
+    );
+    expect(correctionReceipt.additiveCorrectionAuthorization).toEqual(
+      correctionAuthorization
+    );
+    expect(correctionReceipt.authorizationBoundary).toEqual({
+      finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks: true
+    });
+    for (const forbiddenFutureField of [
+      "headSha",
+      "treeSha",
+      "registryBlobSha",
+      "verifierBlobSha",
+      "governanceTestBlobSha",
+      "buildRunId",
+      "repositorySecurityRunIds",
+      "checkJobIds"
+    ]) {
+      expect(correctionReceipt).not.toHaveProperty(forbiddenFutureField);
+    }
+    expect(
+      protectedCurrentnessRepairItemForTest(publishedInitial.registry)
+        .protectedCurrentnessActivationRepairLifecycle
+    ).not.toHaveProperty("additiveCorrectionAuthorization");
+    expect(
+      protectedCurrentnessRepairItemForTest(correction.registry)
+        .protectedCurrentnessActivationRepairLifecycle
+        .initialCandidateCompletionEvidence
+    ).toBeNull();
+    expect(protectedCurrentnessRepairItemForTest(correction.registry).headSha).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST
+    );
+    expect(protectedCurrentnessRepairItemForTest(correction.registry).prHeadSha).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST
+    );
+    expect(protectedCurrentnessRepairBranchForTest(correction.registry).headSha).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST
+    );
+    const pr46Binding = (registry: any) => registry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    ).finalBaseHandshakeAuthorization;
+    expect(JSON.stringify(pr46Binding(correction.registry))).toBe(
+      JSON.stringify(pr46Binding(publishedInitial.registry))
+    );
+    expect(JSON.stringify(pr46Binding(final.registry))).toBe(
+      JSON.stringify(pr46Binding(correction.registry))
+    );
+    const finalReceipt = final.registry.releaseReceipts.at(-1);
+    expect(Object.keys(finalReceipt)).toEqual([
+      "schemaVersion",
+      "receiptKind",
+      "taskId",
+      "ownerKey",
+      "scope",
+      "headSha",
+      "treeSha",
+      "registryBlobSha",
+      "verifierBlobSha",
+      "governanceTestBlobSha",
+      "buildRunId",
+      "repositorySecurityRunIds",
+      "checkJobIds",
+      "requiredChecksPassed",
+      "annotationsEmpty",
+      "specReviewApproved",
+      "qualityReviewApproved",
+      "additiveCorrectionAuthorization",
+      "authorizationBoundary"
+    ]);
+    expect(finalReceipt.headSha).toBe(final.context.headSha);
+    expect(protectedCurrentnessRepairItemForTest(final.registry).prHeadSha).toBe(
+      final.context.headSha
+    );
+    expect(finalReceipt.additiveCorrectionAuthorization.correctionSourceHeadSha).toBe(
+      PROTECTED_CURRENTNESS_REPAIR_SOURCE_HEAD_FOR_TEST
+    );
+    expect(finalReceipt.additiveCorrectionAuthorization).toEqual(correctionAuthorization);
+    expect(
+      protectedCurrentnessRepairItemForTest(publishedInitial.registry).aheadBehind
+    ).toEqual({ baseRef: "origin/main", ahead: 5, behind: 0 });
+    expect(
+      protectedCurrentnessRepairItemForTest(correction.registry).aheadBehind
+    ).toEqual({ baseRef: "origin/main", ahead: 6, behind: 0 });
+    expect(
+      protectedCurrentnessRepairItemForTest(final.registry).aheadBehind
+    ).toEqual({ baseRef: "origin/main", ahead: 7, behind: 0 });
+
+    expectCorrectionFailure((candidate) => {
+      protectedCurrentnessRepairItemForTest(
+        candidate
+      ).protectedCurrentnessActivationRepairLifecycle.additiveCorrectionAuthorization
+        .unknown = "rejected";
+    }, "rule=protected-currentness-repair-additive-correction-authorization-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      candidate.releaseReceipts.at(-1).additiveCorrectionAuthorization
+        .unknown = "rejected";
+    }, "rule=protected-currentness-repair-additive-correction-authorization-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      const lifecycle = protectedCurrentnessRepairItemForTest(
+        candidate
+      ).protectedCurrentnessActivationRepairLifecycle;
+      lifecycle.additiveCorrectionAuthorization = Object.fromEntries(
+        Object.entries(lifecycle.additiveCorrectionAuthorization).reverse()
+      );
+    }, "rule=protected-currentness-repair-additive-correction-authorization-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      const authorization = protectedCurrentnessRepairItemForTest(
+        candidate
+      ).protectedCurrentnessActivationRepairLifecycle.additiveCorrectionAuthorization;
+      authorization.correctionSourceReceiptPrefix = Object.fromEntries(
+        Object.entries(authorization.correctionSourceReceiptPrefix).reverse()
+      );
+    }, "rule=protected-currentness-repair-additive-correction-authorization-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      const receipt = candidate.releaseReceipts.pop();
+      candidate.releaseReceipts.push(
+        Object.fromEntries(Object.entries(receipt).reverse())
+      );
+    }, "rule=protected-currentness-repair-receipt-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      protectedCurrentnessRepairItemForTest(
+        candidate
+      ).protectedCurrentnessActivationRepairLifecycle.additiveCorrectionAuthorization
+        .exactSentence = `${PROTECTED_CURRENTNESS_REPAIR_AUTHORIZATION_SENTENCE_FOR_TEST} `;
+    }, "rule=protected-currentness-repair-additive-correction-authorization-invalid");
+    expectCorrectionFailure((candidate) => {
+      delete protectedCurrentnessRepairItemForTest(
+        candidate
+      ).protectedCurrentnessActivationRepairLifecycle.additiveCorrectionAuthorization;
+    }, "rule=protected-currentness-repair-lifecycle-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      candidate.releaseReceipts.at(-1).authorizationBoundary.cleanupAllowed = false;
+    }, "rule=protected-currentness-repair-authorization-boundary-schema-invalid");
+    expectCorrectionFailure((candidate) => {
+      protectedCurrentnessRepairItemForTest(
+        candidate
+      ).protectedCurrentnessActivationRepairLifecycle.status = "unknown-correction-state";
+    }, "rule=protected-currentness-repair-status-invalid");
+    expectCorrectionFailure((candidate) => {
+      protectedCurrentnessRepairItemForTest(candidate).prHeadSha = "f".repeat(40);
+    }, "rule=protected-currentness-repair-pr-state-invalid");
+    for (const aheadBehind of [
+      { baseRef: "refs/heads/not-main", ahead: 6, behind: 0 },
+      { baseRef: "origin/main", ahead: -1, behind: 0 },
+      { baseRef: "origin/main", ahead: 6, behind: -1 },
+      { baseRef: "origin/main", ahead: 5, behind: 0 },
+      { baseRef: "origin/main", ahead: 7, behind: 0 },
+      { baseRef: "origin/main", ahead: 6, behind: 1 }
+    ]) {
+      expectCorrectionFailure((candidate) => {
+        protectedCurrentnessRepairItemForTest(candidate).aheadBehind = aheadBehind;
+      }, "rule=protected-currentness-repair-correction-ahead-behind-invalid");
+    }
+    const coordinatedCorrectionSource = structuredClone(publishedInitial.registry);
+    const coordinatedCorrectionCandidate = structuredClone(correction.registry);
+    protectedCurrentnessRepairItemForTest(coordinatedCorrectionSource).aheadBehind = {
+      baseRef: "refs/heads/not-main",
+      ahead: 5,
+      behind: 0
+    };
+    protectedCurrentnessRepairItemForTest(coordinatedCorrectionCandidate).aheadBehind = {
+      baseRef: "refs/heads/not-main",
+      ahead: 6,
+      behind: 0
+    };
+    expect(() =>
+      governance.validateProtectedCurrentnessRepairCorrectionDelta(
+        coordinatedCorrectionSource,
+        coordinatedCorrectionCandidate,
+        correction.context
+      )
+    ).toThrow();
+    expectCorrectionFailure((candidate) => candidate.releaseReceipts.pop());
+    expectCorrectionFailure((candidate) =>
+      candidate.releaseReceipts.push(structuredClone(candidate.releaseReceipts.at(-1)))
+    );
+    expectCorrectionFailure((candidate) => {
+      const last = candidate.releaseReceipts.length - 1;
+      [candidate.releaseReceipts[last - 1], candidate.releaseReceipts[last]] = [
+        candidate.releaseReceipts[last],
+        candidate.releaseReceipts[last - 1]
+      ];
+    });
+    expectCorrectionFailure((candidate) =>
+      candidate.releaseReceipts.at(-1).scope.push("scope-expanded.txt")
+    );
 
     expectInitialFailure((candidate) => {
       protectedCurrentnessRepairItemForTest(
@@ -6241,6 +7313,40 @@ describe("SENA repository governance", () => {
       protectedCurrentnessRepairItemForTest(candidate).prNumber = actualPrNumber + 1;
     });
     expectFinalFailure((candidate) => {
+      protectedCurrentnessRepairItemForTest(candidate).prHeadSha = "f".repeat(40);
+    }, "rule=protected-currentness-repair-pr-state-invalid");
+    for (const aheadBehind of [
+      { baseRef: "refs/heads/not-main", ahead: 7, behind: 0 },
+      { baseRef: "origin/main", ahead: -1, behind: 0 },
+      { baseRef: "origin/main", ahead: 7, behind: -1 },
+      { baseRef: "origin/main", ahead: 6, behind: 0 },
+      { baseRef: "origin/main", ahead: 8, behind: 0 },
+      { baseRef: "origin/main", ahead: 7, behind: 1 }
+    ]) {
+      expectFinalFailure((candidate) => {
+        protectedCurrentnessRepairItemForTest(candidate).aheadBehind = aheadBehind;
+      }, "rule=protected-currentness-repair-final-ahead-behind-invalid");
+    }
+    const coordinatedFinalSource = structuredClone(correction.registry);
+    const coordinatedFinalCandidate = structuredClone(final.registry);
+    protectedCurrentnessRepairItemForTest(coordinatedFinalSource).aheadBehind = {
+      baseRef: "refs/heads/not-main",
+      ahead: 6,
+      behind: 0
+    };
+    protectedCurrentnessRepairItemForTest(coordinatedFinalCandidate).aheadBehind = {
+      baseRef: "refs/heads/not-main",
+      ahead: 7,
+      behind: 0
+    };
+    expect(() =>
+      governance.validateProtectedCurrentnessRepairFinalDelta(
+        coordinatedFinalSource,
+        coordinatedFinalCandidate,
+        final.context
+      )
+    ).toThrow("rule=protected-currentness-repair-final-ahead-behind-invalid");
+    expectFinalFailure((candidate) => {
       protectedCurrentnessRepairBranchForTest(candidate).headSha = "f".repeat(40);
     });
     expectFinalFailure((candidate) => {
@@ -6298,7 +7404,7 @@ describe("SENA repository governance", () => {
     }, "rule=protected-currentness-repair-final-action-set-invalid");
     expect(() =>
       governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-        initial.registry,
+        correction.registry,
         final.registry,
         { ...final.context, verifierBlobSha: "f".repeat(40) }
       )
@@ -6508,7 +7614,10 @@ describe("SENA repository governance", () => {
       seedHead,
       82
     );
-    const final = buildProtectedCurrentnessRepairFinalFixture(initial);
+    const correction = buildProtectedCurrentnessRepairCorrectionFixture(
+      protectedCurrentnessRepairPublishedInitialSourceForTest()
+    );
+    const final = buildProtectedCurrentnessRepairFinalFixture(correction);
     const normalizedContainers = [
       [
         "repair workItem aheadBehind",
@@ -6596,7 +7705,7 @@ describe("SENA repository governance", () => {
         let failure: unknown;
         try {
           governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-            initial.registry,
+            correction.registry,
             candidate,
             final.context
           );
@@ -6618,7 +7727,7 @@ describe("SENA repository governance", () => {
         };
         expect.soft(
           () => governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-            initial.registry,
+            correction.registry,
             wrongContainer,
             final.context
           ),
@@ -6638,13 +7747,15 @@ describe("SENA repository governance", () => {
     };
     expect(() =>
       governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-        initial.registry,
+        correction.registry,
         currentnessOnly,
         final.context
       )
-    ).not.toThrow();
+    ).toThrow(
+      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    );
 
-    const sourceWithExistingTrue = structuredClone(initial.registry);
+    const sourceWithExistingTrue = structuredClone(correction.registry);
     const candidateWithExistingTrue = structuredClone(final.registry);
     for (const registry of [sourceWithExistingTrue, candidateWithExistingTrue]) {
       protectedCurrentnessRepairItemForTest(
@@ -6659,7 +7770,9 @@ describe("SENA repository governance", () => {
         candidateWithExistingTrue,
         final.context
       )
-    ).not.toThrow();
+    ).toThrow(
+      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    );
 
     const movedPathCandidate = structuredClone(final.registry);
     protectedCurrentnessRepairItemForTest(
@@ -6696,7 +7809,7 @@ describe("SENA repository governance", () => {
       ]
     ] as Array<[string, string[], string[]]>;
     for (const [label, nestedSegments, flatSegments] of structurallyDistinctPathPairs) {
-      const nestedSource = structuredClone(initial.registry);
+      const nestedSource = structuredClone(correction.registry);
       const flatCandidate = structuredClone(final.registry);
       setTrueAtSegments(
         protectedCurrentnessRepairItemForTest(nestedSource).evidenceState,
@@ -6717,7 +7830,7 @@ describe("SENA repository governance", () => {
         "rule=protected-currentness-repair-mutable-authorization-delta-invalid"
       );
 
-      const flatSource = structuredClone(initial.registry);
+      const flatSource = structuredClone(correction.registry);
       const nestedCandidate = structuredClone(final.registry);
       setTrueAtSegments(
         protectedCurrentnessRepairItemForTest(flatSource).evidenceState,
@@ -6741,28 +7854,39 @@ describe("SENA repository governance", () => {
   });
 
   it("requires exact own keys on every workItem aheadBehind record", () => {
-    const fixtureRoot = temporaryRoot("ahead-behind-exact-own-keys");
-    const registryPath = join(fixtureRoot, "active-work.json");
-    const registry = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
+    const currentRegistryPath = join(
+      projectRoot,
+      "coordination",
+      "repo-governance",
+      "active-work.json"
     );
-    protectedCurrentnessRepairItemForTest(
-      registry
-    ).aheadBehind.unreviewedObservation = false;
-    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    for (const [label, mutate] of [
+      ["unknown key", (aheadBehind: any) => {
+        aheadBehind.unreviewedObservation = false;
+      }],
+      ["negative ahead", (aheadBehind: any) => {
+        aheadBehind.ahead = -1;
+      }],
+      ["negative behind", (aheadBehind: any) => {
+        aheadBehind.behind = -1;
+      }]
+    ] as Array<[string, (aheadBehind: any) => void]>) {
+      const fixtureRoot = temporaryRoot(`ahead-behind-${label.replaceAll(" ", "-")}`);
+      const registryPath = join(fixtureRoot, "active-work.json");
+      const registry = JSON.parse(readFileSync(currentRegistryPath, "utf8"));
+      mutate(protectedCurrentnessRepairItemForTest(registry).aheadBehind);
+      writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
-    const result = runNode(governanceScript, [
-      "registry",
-      "--registry",
-      registryPath
-    ]);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      "has invalid aheadBehind values"
-    );
+      const result = runNode(governanceScript, [
+        "registry",
+        "--registry",
+        registryPath
+      ]);
+      expect.soft(result.status, label).toBe(1);
+      expect.soft(result.stderr, label).toContain(
+        "has invalid aheadBehind values"
+      );
+    }
   });
 
   it("rejects drift from the immutable protected currentness repair seed", async () => {
@@ -6945,10 +8069,66 @@ describe("SENA repository governance", () => {
     ).toThrow("rule=protected-currentness-repair-custody-identity-invalid");
   });
 
-  it("enforces protected repair source-to-index wiring through a temporary index", () => {
+  it("enforces protected repair source-to-index wiring through a temporary index", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.validateIsolatedGovernanceControlRootContext).toBe(
+      "function"
+    );
+    const canonicalRegistryRepositoryRoot = realpathSync(
+      protectedCurrentnessRepairFrozenSourceForTest().registry.repo
+    );
+    const isolatedParent = join(
+      canonicalRegistryRepositoryRoot,
+      ".tmp",
+      "sena-pure-isolated-control"
+    );
+    const realGitDirectory = join(canonicalRegistryRepositoryRoot, ".git");
+    const linkedWorktreeIndex = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-path",
+      "index"
+    ]);
+    const valid = {
+      canonicalRegistryRepositoryRoot,
+      requestedControlRoot: canonicalRegistryRepositoryRoot,
+      targetRoot: projectRoot,
+      gitWorkTree: projectRoot,
+      gitDirectory: join(isolatedParent, "git"),
+      gitCommonDirectory: join(isolatedParent, "git"),
+      gitIndex: join(isolatedParent, "index"),
+      gitObjectDirectory: join(isolatedParent, "objects"),
+      alternateObjectDirectories: [join(realGitDirectory, "objects")]
+    };
+    expect(
+      governance.validateIsolatedGovernanceControlRootContext(valid)
+    ).toBe(true);
+    const expectInvalid = (overrides: Record<string, unknown>) => {
+      expect(() =>
+        governance.validateIsolatedGovernanceControlRootContext({
+          ...valid,
+          ...overrides
+        })
+      ).toThrow("rule=isolated-governance-control-root-context-invalid");
+    };
+    const broaderControlRoot = dirname(canonicalRegistryRepositoryRoot);
+    expectInvalid({
+      requestedControlRoot: broaderControlRoot,
+      alternateObjectDirectories: [join(broaderControlRoot, ".git", "objects")]
+    });
+    expectInvalid({
+      gitDirectory: realGitDirectory,
+      gitCommonDirectory: realGitDirectory
+    });
+    expectInvalid({ gitIndex: linkedWorktreeIndex });
+    expectInvalid({
+      gitObjectDirectory: join(realGitDirectory, "task-writable-objects")
+    });
     const frozenSource = protectedCurrentnessRepairFrozenSourceForTest();
     const frozenSeedHead = frozenSource.headSha;
     const frozenSeedRegistry = frozenSource.registry;
+    const governanceTargetRoot = realpathSync(frozenSeedRegistry.repo);
     const actualPrNumber = protectedCurrentnessRepairItemForTest(
       frozenSeedRegistry
     ).prNumber;
@@ -6969,6 +8149,30 @@ describe("SENA repository governance", () => {
       "diff",
       "--cached",
       "--name-only"
+    ]);
+    const realHeadBefore = runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"]);
+    const realBranchBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "HEAD"
+    ]);
+    const realRefsBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ]);
+    const realObjectCountBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "count-objects",
+      "-v"
+    ]);
+    const realStatusBefore = runGit(projectRoot, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-uall"
     ]);
     const gitCommonDir = runGit(projectRoot, [
       "rev-parse",
@@ -6997,21 +8201,48 @@ describe("SENA repository governance", () => {
     };
     const buildTemporaryIndex = (label: string, stagedPaths: string[]) => {
       const root = temporaryRoot(label);
+      const temporaryGitDirectory = join(root, "git");
       const temporaryIndexPath = join(root, "index");
       const temporaryObjectDirectory = join(root, "objects");
+      runGit(root, ["--no-optional-locks", "init", "--bare", "-q", temporaryGitDirectory]);
       mkdirSync(temporaryObjectDirectory, { recursive: true });
       const env = {
         ...process.env,
+        GIT_DIR: temporaryGitDirectory,
+        GIT_WORK_TREE: projectRoot,
         GIT_INDEX_FILE: temporaryIndexPath,
         GIT_OBJECT_DIRECTORY: temporaryObjectDirectory,
         GIT_ALTERNATE_OBJECT_DIRECTORIES: realObjectDirectory,
         GIT_OPTIONAL_LOCKS: "0",
+        SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+        SENA_GOVERNANCE_CONTROL_ROOT: governanceTargetRoot,
         SENA_REPAIR_PR_NUMBER: String(actualPrNumber)
       };
       runTemporaryIndexGit(
-        ["--no-optional-locks", "read-tree", frozenSeedHead],
+        [
+          "--no-optional-locks",
+          "symbolic-ref",
+          "HEAD",
+          `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`
+        ],
         env
       );
+      runTemporaryIndexGit(
+        [
+          "--no-optional-locks",
+          "update-ref",
+          `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`,
+          frozenSeedHead
+        ],
+        env
+      );
+      runTemporaryIndexGit(
+        ["--no-optional-locks", "read-tree", "HEAD"],
+        env
+      );
+      expect(
+        runTemporaryIndexGit(["--no-optional-locks", "rev-parse", "HEAD"], env)
+      ).toBe(frozenSeedHead);
       expect(
         runTemporaryIndexGit(
           ["--no-optional-locks", "diff", "--cached", "--name-only"],
@@ -7044,17 +8275,92 @@ describe("SENA repository governance", () => {
           env
         );
       }
-      return env;
+      return { env, temporaryGitDirectory };
     };
 
     const exactEnvironment = buildTemporaryIndex(
       "protected-currentness-exact-index",
       PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST
     );
+    const exactRegistry = runNode(
+      governanceScript,
+      ["registry", "--registry-from-index"],
+      { env: exactEnvironment.env }
+    );
+    expect(exactRegistry.status, exactRegistry.stderr).toBe(0);
+    const missingExplicitControlEnvironment: NodeJS.ProcessEnv = {
+      ...exactEnvironment.env
+    };
+    delete missingExplicitControlEnvironment.SENA_GOVERNANCE_CONTROL_ROOT;
+    const incompleteIsolationSignals = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      { env: missingExplicitControlEnvironment }
+    );
+    expect(incompleteIsolationSignals.status).toBe(1);
+    expect(incompleteIsolationSignals.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+    const incompleteControlPlane = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      {
+        env: {
+          ...exactEnvironment.env,
+          GIT_ALTERNATE_OBJECT_DIRECTORIES: ""
+        }
+      }
+    );
+    expect(incompleteControlPlane.status).toBe(1);
+    expect(incompleteControlPlane.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+    const escapedControlRoot = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      {
+        env: {
+          ...exactEnvironment.env,
+          SENA_GOVERNANCE_CONTROL_ROOT: tmpdir()
+        }
+      }
+    );
+    expect(escapedControlRoot.status).toBe(1);
+    expect(escapedControlRoot.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+    const filesystemRootControl = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      {
+        env: {
+          ...exactEnvironment.env,
+          SENA_GOVERNANCE_CONTROL_ROOT: "/"
+        }
+      }
+    );
+    expect(filesystemRootControl.status).toBe(1);
+    expect(filesystemRootControl.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+    const broaderAncestorControl = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      {
+        env: {
+          ...exactEnvironment.env,
+          SENA_GOVERNANCE_CONTROL_ROOT: dirname(governanceTargetRoot)
+        }
+      }
+    );
+    expect(broaderAncestorControl.status).toBe(1);
+    expect(broaderAncestorControl.stderr).toContain(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
     const exact = runNode(
       governanceScript,
       ["write-policy", "--registry-from-index", "--staged"],
-      { env: exactEnvironment }
+      { env: exactEnvironment.env }
     );
     expect(exact.status, exact.stderr).toBe(0);
     expect(exact.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
@@ -7065,7 +8371,7 @@ describe("SENA repository governance", () => {
     const partial = runNode(
       governanceScript,
       ["write-policy", "--registry-from-index", "--staged"],
-      { env: partialEnvironment }
+      { env: partialEnvironment.env }
     );
     expect(partial.status).toBe(1);
     expect(partial.stderr).toContain(
@@ -7079,12 +8385,16 @@ describe("SENA repository governance", () => {
     const unrelated = runNode(
       governanceScript,
       ["write-policy", "--registry-from-index", "--staged"],
-      { env: unrelatedEnvironment }
+      { env: unrelatedEnvironment.env }
     );
     expect(unrelated.status).toBe(1);
     expect(unrelated.stderr).toContain(
       "rule=protected-currentness-repair-index-path-set-mismatch"
     );
+
+    for (const fixture of [exactEnvironment, partialEnvironment, unrelatedEnvironment]) {
+      rmSync(fixture.temporaryGitDirectory, { recursive: true, force: true });
+    }
 
     expect(sha256File(realIndexPath)).toBe(realIndexSha256Before);
     expect(
@@ -7095,6 +8405,28 @@ describe("SENA repository governance", () => {
         "--name-only"
       ])
     ).toBe(realCachedPathsBefore);
+    expect(runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"]))
+      .toBe(realHeadBefore);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "HEAD"
+    ])).toBe(realBranchBefore);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ])).toBe(realRefsBefore);
+    expect(runGit(projectRoot, ["--no-optional-locks", "count-objects", "-v"]))
+      .toBe(realObjectCountBefore);
+    expect(runGit(projectRoot, [
+      "--no-optional-locks",
+      "status",
+      "--porcelain=v1",
+      "-uall"
+    ])).toBe(realStatusBefore);
   });
 
   it("reaches context-bound final repair validation through a temporary index", () => {
@@ -7104,12 +8436,9 @@ describe("SENA repository governance", () => {
     const actualPrNumber = protectedCurrentnessRepairItemForTest(
       frozenSeedRegistry
     ).prNumber;
-    const initial = buildProtectedCurrentnessRepairInitialFixture(
-      frozenSeedRegistry,
-      frozenSeedHead,
-      actualPrNumber
+    const correction = buildProtectedCurrentnessRepairCorrectionFixture(
+      protectedCurrentnessRepairPublishedInitialSourceForTest()
     );
-    const final = buildProtectedCurrentnessRepairFinalFixture(initial);
     const tempRepo = temporaryRoot("protected-currentness-final-source");
     const registryPath = join(
       tempRepo,
@@ -7119,25 +8448,60 @@ describe("SENA repository governance", () => {
     );
     mkdirSync(dirname(registryPath), { recursive: true });
 
-    for (const registry of [initial.registry, final.registry]) {
-      registry.repo = tempRepo;
-      registry.policy.hookCustodyPath = join(tempRepo, ".githooks");
-      for (const item of registry.workItems) {
-        item.repo = tempRepo;
-        item.worktreePath = tempRepo;
-        item.cwd = tempRepo;
-      }
-    }
-
     runGit(tempRepo, ["init", "-q"]);
     runGit(tempRepo, ["config", "user.name", "SENA final transition test"]);
     runGit(tempRepo, ["config", "user.email", "sena-final@example.invalid"]);
     runGit(tempRepo, ["branch", "-M", PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST]);
-    writeFileSync(registryPath, `${JSON.stringify(initial.registry, null, 2)}\n`);
-    runGit(tempRepo, ["add", "coordination/repo-governance/active-work.json"]);
-    runGit(tempRepo, ["commit", "-q", "-m", "legal initial lifecycle source"]);
+    writeFileSync(registryPath, `${JSON.stringify(correction.registry, null, 2)}\n`);
+    const verifierPath = join(tempRepo, "scripts", "verify-sena-repo-governance.mjs");
+    const governanceTestPath = join(
+      tempRepo,
+      "sena-hk-template",
+      "lib",
+      "sena",
+      "__tests__",
+      "repo-governance.test.ts"
+    );
+    mkdirSync(dirname(verifierPath), { recursive: true });
+    mkdirSync(dirname(governanceTestPath), { recursive: true });
+    writeFileSync(verifierPath, "temporary correction verifier source\n");
+    writeFileSync(governanceTestPath, "temporary correction governance test source\n");
+    runGit(tempRepo, [
+      "add",
+      "coordination/repo-governance/active-work.json",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ]);
+    runGit(tempRepo, ["commit", "-q", "-m", "legal correction lifecycle source"]);
 
     const sourceHead = runGit(tempRepo, ["rev-parse", "HEAD"]);
+    const sourceEvidence = {
+      headSha: sourceHead,
+      treeSha: runGit(tempRepo, ["rev-parse", "HEAD^{tree}"]),
+      registryBlobSha: runGit(tempRepo, [
+        "rev-parse",
+        "HEAD:coordination/repo-governance/active-work.json"
+      ]),
+      verifierBlobSha: runGit(tempRepo, [
+        "rev-parse",
+        "HEAD:scripts/verify-sena-repo-governance.mjs"
+      ]),
+      governanceTestBlobSha: runGit(tempRepo, [
+        "rev-parse",
+        "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ]),
+      buildRunId: 1,
+      repositorySecurityRunIds: [2, 3],
+      checkJobIds: [4, 5, 6],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+    const final = buildProtectedCurrentnessRepairFinalFixture(
+      correction,
+      sourceEvidence
+    );
     const sourceIndexPath = runGit(tempRepo, [
       "rev-parse",
       "--path-format=absolute",
@@ -7145,22 +8509,43 @@ describe("SENA repository governance", () => {
       "index"
     ]);
     const temporaryIndexRoot = temporaryRoot("protected-currentness-final-index");
+    const temporaryGitDirectory = join(temporaryIndexRoot, "git");
     const temporaryIndexPath = join(temporaryIndexRoot, "index");
     const temporaryObjectDirectory = join(temporaryIndexRoot, "objects");
+    runGit(temporaryIndexRoot, [
+      "--no-optional-locks",
+      "init",
+      "--bare",
+      "-q",
+      temporaryGitDirectory
+    ]);
     mkdirSync(temporaryObjectDirectory, { recursive: true });
     copyFileSync(sourceIndexPath, temporaryIndexPath);
     const tempRepoObjectDirectory = join(
       runGit(tempRepo, ["rev-parse", "--path-format=absolute", "--git-common-dir"]),
       "objects"
     );
+    cpSync(tempRepoObjectDirectory, temporaryObjectDirectory, {
+      recursive: true,
+      force: true
+    });
+    const canonicalGitDirectory = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]);
     const finalBytes = `${JSON.stringify(final.registry, null, 2)}\n`;
     const tempIndexEnvironment = {
       ...process.env,
+      GIT_DIR: temporaryGitDirectory,
+      GIT_WORK_TREE: projectRoot,
       GIT_INDEX_FILE: temporaryIndexPath,
       GIT_OBJECT_DIRECTORY: temporaryObjectDirectory,
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: tempRepoObjectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(canonicalGitDirectory, "objects"),
       GIT_OPTIONAL_LOCKS: "0",
-      SENA_GOVERNANCE_TARGET_ROOT: tempRepo,
+      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(correction.registry.repo),
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
       SENA_REPAIR_PR_NUMBER: String(actualPrNumber),
       SENA_REPAIR_INITIAL_HEAD: final.context.headSha,
       SENA_REPAIR_INITIAL_TREE: final.context.treeSha,
@@ -7176,7 +8561,27 @@ describe("SENA repository governance", () => {
       SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED: "true",
       SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED: "true"
     };
-    const hashResult = spawnSync("git", ["hash-object", "-w", "--stdin"], {
+    runGitWithEnvironment(
+      temporaryIndexRoot,
+      [
+        "--no-optional-locks",
+        "symbolic-ref",
+        "HEAD",
+        `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`
+      ],
+      tempIndexEnvironment
+    );
+    runGitWithEnvironment(
+      temporaryIndexRoot,
+      [
+        "--no-optional-locks",
+        "update-ref",
+        `refs/heads/${PROTECTED_CURRENTNESS_REPAIR_BRANCH_FOR_TEST}`,
+        sourceHead
+      ],
+      tempIndexEnvironment
+    );
+    const hashResult = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
       cwd: tempRepo,
       encoding: "utf8",
       env: tempIndexEnvironment,
@@ -7187,6 +8592,7 @@ describe("SENA repository governance", () => {
     const updateResult = spawnSync(
       "git",
       [
+        "--no-optional-locks",
         "update-index",
         "--add",
         "--cacheinfo",
@@ -7218,10 +8624,103 @@ describe("SENA repository governance", () => {
     const exact = runNode(
       governanceScript,
       ["write-policy", "--registry-from-index", "--staged"],
-      { cwd: tempRepo, env: tempIndexEnvironment }
+      { cwd: projectRoot, env: tempIndexEnvironment }
     );
     expect(exact.status, exact.stderr).toBe(0);
     expect(exact.stdout).toContain("SENA_WRITE_POLICY pass staged=1");
+
+    const driftCommit = spawnSync(
+      "git",
+      [
+        "--no-optional-locks",
+        "commit-tree",
+        sourceEvidence.treeSha,
+        "-p",
+        sourceHead
+      ],
+      {
+        cwd: projectRoot,
+        input: "coherently drifted non-source correction evidence\n",
+        encoding: "utf8",
+        env: tempIndexEnvironment
+      }
+    );
+    expect(driftCommit.status, driftCommit.stderr).toBe(0);
+    const driftHead = driftCommit.stdout.trim();
+    expect(
+      runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "cat-file", "-t", driftHead],
+        tempIndexEnvironment
+      )
+    ).toBe("commit");
+    const driftEvidence = {
+      ...sourceEvidence,
+      headSha: driftHead
+    };
+    const driftFinal = buildProtectedCurrentnessRepairFinalFixture(
+      correction,
+      driftEvidence
+    );
+    const driftBytes = `${JSON.stringify(driftFinal.registry, null, 2)}\n`;
+    const driftHash = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
+      cwd: tempRepo,
+      encoding: "utf8",
+      env: tempIndexEnvironment,
+      input: driftBytes
+    });
+    expect(driftHash.status, driftHash.stderr).toBe(0);
+    const driftUpdate = spawnSync(
+      "git",
+      [
+        "--no-optional-locks",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${driftHash.stdout.trim()},coordination/repo-governance/active-work.json`
+      ],
+      { cwd: tempRepo, encoding: "utf8", env: tempIndexEnvironment }
+    );
+    expect(driftUpdate.status, driftUpdate.stderr).toBe(0);
+    const coherentlyDrifted = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      {
+        cwd: tempRepo,
+        env: {
+          ...tempIndexEnvironment,
+          SENA_REPAIR_INITIAL_HEAD: driftEvidence.headSha,
+          SENA_REPAIR_INITIAL_TREE: driftEvidence.treeSha,
+          SENA_REPAIR_INITIAL_REGISTRY_BLOB: driftEvidence.registryBlobSha,
+          SENA_REPAIR_INITIAL_VERIFIER_BLOB: driftEvidence.verifierBlobSha,
+          SENA_REPAIR_INITIAL_TEST_BLOB: driftEvidence.governanceTestBlobSha,
+          SENA_REPAIR_INITIAL_BUILD_RUN_ID: String(driftEvidence.buildRunId),
+          SENA_REPAIR_INITIAL_REPOSITORY_SECURITY_RUN_IDS:
+            driftEvidence.repositorySecurityRunIds.join(","),
+          SENA_REPAIR_INITIAL_CHECK_JOB_IDS: driftEvidence.checkJobIds.join(","),
+          SENA_REPAIR_INITIAL_REQUIRED_CHECKS_PASSED: "true",
+          SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY: "true",
+          SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED: "true",
+          SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED: "true"
+        }
+      }
+    );
+    expect(coherentlyDrifted.status).toBe(1);
+    expect(coherentlyDrifted.stderr).toContain(
+      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    );
+    const restoreFinalIndex = spawnSync(
+      "git",
+      [
+        "--no-optional-locks",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${finalRegistryBlob},coordination/repo-governance/active-work.json`
+      ],
+      { cwd: tempRepo, encoding: "utf8", env: tempIndexEnvironment }
+    );
+    expect(restoreFinalIndex.status, restoreFinalIndex.stderr).toBe(0);
 
     const mismatched = runNode(
       governanceScript,
@@ -7949,18 +9448,28 @@ describe("protected activation completion and PR46 repair rebinding", () => {
       initial.context
     )).toBe(true);
 
-    const final = buildProtectedCurrentnessRepairFinalFixture(initial);
-    expect(governance.validateProtectedCurrentnessRepairFinalDelta(
-      initial.registry,
+    const correction = buildProtectedCurrentnessRepairCorrectionFixture(
+      protectedCurrentnessRepairPublishedInitialSourceForTest()
+    );
+    const final = buildProtectedCurrentnessRepairFinalFixture(correction);
+    expect(governance.validateProtectedCurrentnessRepairCorrectionDelta(
+      protectedCurrentnessRepairPublishedInitialSourceForTest().registry,
+      correction.registry,
+      correction.context
+    )).toBe(true);
+    expect(() => governance.validateProtectedCurrentnessRepairFinalDelta(
+      correction.registry,
       final.registry,
       final.context
-    )).toBe(true);
+    )).toThrow(
+      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    );
     const driftedFinal = structuredClone(final.registry);
     driftedFinal.workItems.find(
       (entry: { taskId?: string }) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
     ).finalBaseHandshakeAuthorization.currentConflictPathCount = 2;
     expect(() => governance.validateProtectedCurrentnessRepairFinalDelta(
-      initial.registry,
+      correction.registry,
       driftedFinal,
       final.context
     )).toThrow("rule=protected-currentness-repair-final-delta-invalid");

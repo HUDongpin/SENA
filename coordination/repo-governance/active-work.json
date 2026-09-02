@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-01T08:09:26Z",
+  "updatedAt": "2026-09-02T00:28:00Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -4852,10 +4852,10 @@
       "branch": "codex/sena-protected-currentness-activation-repair-20260901",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr80-post-main-closeout-20260901",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "922f5a4eabee972c61409439476766fb33f3537d",
+      "headSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 5,
+        "ahead": 6,
         "behind": 0
       },
       "allowedPaths": [
@@ -4866,9 +4866,9 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-01T06:44:53Z",
-      "lastHeartbeatAt": "2026-09-01T08:09:26Z",
-      "lastObservedAt": "2026-09-01T08:09:26Z",
-      "nextReviewAt": "2026-09-02T08:09:26Z",
+      "lastHeartbeatAt": "2026-09-02T00:28:00Z",
+      "lastObservedAt": "2026-09-02T00:28:00Z",
+      "nextReviewAt": "2026-09-03T00:28:00Z",
       "expectedCloseAt": "owner-gated:tasks-2-5-local-tdd-and-independent-initial-candidate-review",
       "prNumber": 82,
       "plannedPullRequestNumber": 82,
@@ -4876,12 +4876,12 @@
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "a25ff64c9386448f4e61f8c71cebec6c23b5bdfa",
+      "prHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
       "prBase": "main",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN",
       "noPrReason": null,
-      "dirtyState": "registry-only-post-publication-reconciliation-staged-then-clean-forward-advance",
+      "dirtyState": "additive-correction-candidate-exact-three-path-awaiting-fresh-initial-checks",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
@@ -5058,16 +5058,16 @@
         "archiveTagMutationAuthorized": false
       },
       "evidenceState": {
-        "local": "the historical published design-plan seed a25ff64 remains exact seed-only evidence; exact 922f5a4 is the recorded pre-candidate/post-publication-reconciled design-plan source snapshot and candidate parent/source observation, not a claim about local, remote, or PR head state after candidate publication; under lifecycle status protected-currentness-activation-repair-candidate-awaiting-initial-checks, the exact three-path initial candidate is local-only and awaits immutable approval plus initial exact-head publication and CI gates",
-        "ci": "the three recorded successful zero-annotation seed workflow jobs bind the historical a25ff64 design-plan seed only and are not current-candidate CI evidence; the reconciled 922f5a4 source and exact three-path initial candidate await initial exact-head publication and CI gates",
-        "merged": "the recorded source snapshot observes PR82 OPEN/Draft at exact head 922f5a4 and base main 969a206, MERGEABLE/CLEAN, but not Ready or merged, and observes PR81 merge 969a206 as protected main; the lifecycle awaits exact-head publication and CI gates and makes no post-publication currentness claim until completion evidence",
+        "local": "exact 9ba53c3 is the frozen source and parent for one exact three-path additive correction candidate; the candidate records no future correction head, tree, blobs, CI, reviews, Ready transition, or merge; the exact owner conversation sentence is external authority, while its SHA-256 is only a transcription-integrity digest and is not a cryptographic signature",
+        "ci": "the successful checks and reviews recorded for exact initial head 9ba53c3 are source evidence only; the additive correction completion head must obtain fresh exact-head build, both repository-security checks, zero-annotation readback, and independent specification and quality reviews before any registry-only final transition",
+        "merged": "PR82 remains OPEN and Draft at exact source head 9ba53c3 against protected base 969a206, MERGEABLE/CLEAN, but is neither Ready nor merged; this correction candidate preserves the sole future final-metadata action and grants no current Ready or protected-merge authority",
         "deployed": "not in scope and not authorized",
-        "live": "the recorded source snapshot observes live main at exact 969a206, local/upstream/live-remote/PR82 heads at exact 922f5a4, PR46 at exact e24c635 OPEN/Draft/CONFLICTING/DIRTY, and EvidenceFlow plus all preservation objects unchanged at that observation; the lifecycle makes no post-publication currentness claim until completion evidence"
+        "live": "the correction-source observation binds local, cached upstream, live remote, and PR82 to exact 9ba53c3 with source tree 6550a1e, registry blob cb34a7b, verifier blob 86908ca, test blob a783724, and receipt prefix 41 digest 76a564b; these remain phase-stable source identities after later publication and are not claims about a future correction head; PR46, EvidenceFlow, root custody, and all preservation objects remain byte-for-byte outside this transition"
       },
       "disposition": "active",
       "freezeException": "governance-preservation",
       "protectedCurrentnessActivationRepairLifecycle": {
-        "status": "protected-currentness-activation-repair-candidate-awaiting-initial-checks",
+        "status": "protected-currentness-activation-repair-additive-correction-candidate-awaiting-fresh-initial-checks",
         "oneShot": true,
         "pullRequestNumber": 82,
         "protectedBaseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
@@ -5092,6 +5092,32 @@
           "scripts/verify-sena-repo-governance.mjs",
           "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
+        "additiveCorrectionAuthorization": {
+          "mode": "explicit-owner-conversation-authorization",
+          "status": "consumed-by-exact-additive-correction-candidate",
+          "exactSentence": "授权 Task7.5 加法式修复生命周期。",
+          "exactSentenceSha256": "f8780281642d5fe5c0e6ce0f6f40e6580b4e1d2a75d5e29b307b5b0d26cab496",
+          "correctionSourceHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+          "correctionSourceTreeSha": "6550a1e5495e0dd7278ec992653811e628ba57e4",
+          "correctionSourceRegistryBlobSha": "cb34a7b791d37fc1159dc27d707bdc9d0555857c",
+          "correctionSourceVerifierBlobSha": "86908caf725a1ca46eea59832277700fe9a1f295",
+          "correctionSourceGovernanceTestBlobSha": "a78372482b7f2b35ee976398d980c82701534559",
+          "correctionSourceReceiptPrefix": {
+            "count": 41,
+            "sha256": "76a564be7fa51861f770691d38e4ca255d1fba1d34dd6e9d742edb56666dcea0"
+          },
+          "requiredCorrectionPaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "fixtureCorrectionMode": "isolated-temporary-git-repository-with-exact-frozen-seed-head",
+          "fixtureFrozenHeadSha": "922f5a4eabee972c61409439476766fb33f3537d",
+          "candidateHeadBindingMode": "post-commit-fresh-gates-then-registry-only-final-evidence",
+          "finalTransitionScope": [
+            "coordination/repo-governance/active-work.json"
+          ]
+        },
         "initialCandidateCompletionEvidence": null,
         "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks": true,
         "repairReadyAndProtectedMergeAuthorizedAfterFinalChecks": false,
@@ -6070,29 +6096,29 @@
       "owner": "Codex protected currentness and activation repair designer",
       "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "922f5a4eabee972c61409439476766fb33f3537d",
+      "headSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
       "upstream": "origin/codex/sena-protected-currentness-activation-repair-20260901",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "922f5a4eabee972c61409439476766fb33f3537d",
-      "remoteObservedAt": "2026-09-01T08:09:26Z",
+      "remoteHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+      "remoteObservedAt": "2026-09-02T00:28:00Z",
       "pr": 82,
       "plannedPullRequestNumber": 82,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "922f5a4eabee972c61409439476766fb33f3537d",
+      "prHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
       "prBase": "main",
       "noPrReason": null,
-      "lastOwnerHeartbeatAt": "2026-09-01T08:09:26Z",
-      "lastObservedAt": "2026-09-01T08:09:26Z",
-      "lastCommitAt": "2026-09-01T15:41:51+08:00",
-      "nextReviewAt": "2026-09-02T08:09:26Z",
+      "lastOwnerHeartbeatAt": "2026-09-02T00:28:00Z",
+      "lastObservedAt": "2026-09-02T00:28:00Z",
+      "lastCommitAt": "2026-09-02T05:07:19+08:00",
+      "nextReviewAt": "2026-09-03T00:28:00Z",
       "expectedCloseAt": "owner-gated:tasks-2-5-local-tdd-and-independent-initial-candidate-review",
       "disposition": "active",
-      "closeout": "the recorded source snapshot observes PR82 OPEN/Draft at exact local/upstream/remote/PR head 922f5a4 against base main 969a206 and MERGEABLE/CLEAN; under lifecycle status protected-currentness-activation-repair-candidate-awaiting-initial-checks, the exact three-path initial candidate is local-only and awaits immutable approval plus initial exact-head publication and CI gates, and the snapshot makes no post-publication currentness claim until completion evidence; candidate push, Ready, merge, PR46 mutation, cleanup, deletion, ref/branch/worktree/orphan/target/tag/quarantine, provider, deployment, and history mutation remain unauthorized",
+      "closeout": "the additive correction candidate is source-bound to exact local/cached/live/PR82 head 9ba53c3 and exact three-path scope, while PR82 remains OPEN/Draft and MERGEABLE/CLEAN; it records no future correction head or fresh gate result and preserves only the conditional registry-only final-metadata action after the correction head passes fresh checks and reviews; Ready, merge, PR46 mutation, cleanup, deletion, ref/branch/worktree/orphan/target/tag/quarantine, provider, deployment, and history mutation remain unauthorized",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN",
       "prStateObservationMode": "monotonic"
@@ -9409,6 +9435,46 @@
         "scripts/verify-sena-repo-governance.mjs",
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
+      "authorizationBoundary": {
+        "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks": true
+      }
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "pr82-protected-currentness-activation-repair-additive-correction",
+      "taskId": "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901",
+      "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
+      "scope": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "additiveCorrectionAuthorization": {
+        "mode": "explicit-owner-conversation-authorization",
+        "status": "consumed-by-exact-additive-correction-candidate",
+        "exactSentence": "授权 Task7.5 加法式修复生命周期。",
+        "exactSentenceSha256": "f8780281642d5fe5c0e6ce0f6f40e6580b4e1d2a75d5e29b307b5b0d26cab496",
+        "correctionSourceHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+        "correctionSourceTreeSha": "6550a1e5495e0dd7278ec992653811e628ba57e4",
+        "correctionSourceRegistryBlobSha": "cb34a7b791d37fc1159dc27d707bdc9d0555857c",
+        "correctionSourceVerifierBlobSha": "86908caf725a1ca46eea59832277700fe9a1f295",
+        "correctionSourceGovernanceTestBlobSha": "a78372482b7f2b35ee976398d980c82701534559",
+        "correctionSourceReceiptPrefix": {
+          "count": 41,
+          "sha256": "76a564be7fa51861f770691d38e4ca255d1fba1d34dd6e9d742edb56666dcea0"
+        },
+        "requiredCorrectionPaths": [
+          "coordination/repo-governance/active-work.json",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "fixtureCorrectionMode": "isolated-temporary-git-repository-with-exact-frozen-seed-head",
+        "fixtureFrozenHeadSha": "922f5a4eabee972c61409439476766fb33f3537d",
+        "candidateHeadBindingMode": "post-commit-fresh-gates-then-registry-only-final-evidence",
+        "finalTransitionScope": [
+          "coordination/repo-governance/active-work.json"
+        ]
+      },
       "authorizationBoundary": {
         "finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks": true
       }

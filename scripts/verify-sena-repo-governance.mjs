@@ -23,6 +23,41 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual, types } from "node:util";
 
+const GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_AUTHOR_DATE",
+  "GIT_AUTHOR_EMAIL",
+  "GIT_AUTHOR_NAME",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_EDITOR",
+  "GIT_EXEC_PATH",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_OPTIONAL_LOCKS",
+  "GIT_PAGER",
+  "GIT_PREFIX",
+  "GIT_REFLOG_ACTION",
+  "GIT_WORK_TREE"
+]);
+
+export function validateGovernanceGitEnvironment(environment) {
+  if (!environment || typeof environment !== "object" || Array.isArray(environment)) {
+    throw new Error("rule=governance-git-environment-invalid");
+  }
+  for (const name of Object.keys(environment)) {
+    if (
+      name.startsWith("GIT_") &&
+      !GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST.has(name)
+    ) {
+      throw new Error("rule=governance-git-environment-invalid");
+    }
+  }
+  return true;
+}
+
+validateGovernanceGitEnvironment(process.env);
+
 const protectedActivationNativeStructuredClone =
   globalThis.structuredClone.bind(globalThis);
 
@@ -161,8 +196,38 @@ function fail(message, code = 1) {
   process.exit(code);
 }
 
+const GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_WORK_TREE"
+];
+
+export function governanceGitEnvironment(environment) {
+  validateGovernanceGitEnvironment(environment);
+  const sanitized = Object.fromEntries(
+    Object.entries(environment).filter(([name]) => !name.startsWith("GIT_"))
+  );
+  for (const name of GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT) {
+    if (typeof environment[name] === "string") {
+      sanitized[name] = environment[name];
+    }
+  }
+  sanitized.GIT_CONFIG_GLOBAL = "/dev/null";
+  sanitized.GIT_CONFIG_SYSTEM = "/dev/null";
+  sanitized.GIT_CONFIG_NOSYSTEM = "1";
+  sanitized.GIT_OPTIONAL_LOCKS = "0";
+  sanitized.GIT_PAGER = "cat";
+  sanitized.GIT_TERMINAL_PROMPT = "0";
+  return sanitized;
+}
+
+const GOVERNANCE_GIT_ENVIRONMENT = governanceGitEnvironment(process.env);
+
 function git(args, options = {}) {
-  const gitEnvironment = { ...process.env };
+  const gitEnvironment = { ...GOVERNANCE_GIT_ENVIRONMENT };
   for (const variable of options.unsetEnv ?? []) delete gitEnvironment[variable];
   const result = spawnSync("git", args, {
     cwd: options.cwd ?? REPO_ROOT,
@@ -186,7 +251,316 @@ function gitText(args, options = {}) {
   return String(git(args, options).stdout ?? "");
 }
 
-const CONTROL_ROOT = dirname(resolve(gitText(["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim()));
+function gitDerivedControlRoot() {
+  return dirname(
+    resolve(
+      gitText(["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim()
+    )
+  );
+}
+
+export function validateIsolatedGovernanceControlRootContext(context) {
+  const fail = () => {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  };
+  if (!isPlainRecord(context)) fail();
+  const {
+    canonicalRegistryRepositoryRoot,
+    requestedControlRoot,
+    targetRoot,
+    gitWorkTree,
+    gitDirectory,
+    gitCommonDirectory,
+    gitIndex,
+    gitObjectDirectory,
+    alternateObjectDirectories
+  } = context;
+  const requiredPaths = [
+    canonicalRegistryRepositoryRoot,
+    requestedControlRoot,
+    targetRoot,
+    gitWorkTree,
+    gitDirectory,
+    gitCommonDirectory,
+    gitIndex,
+    gitObjectDirectory
+  ];
+  if (
+    requiredPaths.some(
+      (value) =>
+        typeof value !== "string" ||
+        value.length === 0 ||
+        resolve(value) !== value
+    ) ||
+    !Array.isArray(alternateObjectDirectories) ||
+    alternateObjectDirectories.some(
+      (value) =>
+        typeof value !== "string" ||
+        value.length === 0 ||
+        resolve(value) !== value
+    )
+  ) {
+    fail();
+  }
+  const canonicalRealGitDirectory = join(
+    canonicalRegistryRepositoryRoot,
+    ".git"
+  );
+  const isolatedParent = dirname(gitDirectory);
+  if (
+    requestedControlRoot !== canonicalRegistryRepositoryRoot ||
+    targetRoot !== gitWorkTree ||
+    !pathIsWithin(canonicalRegistryRepositoryRoot, targetRoot) ||
+    gitCommonDirectory !== gitDirectory ||
+    dirname(gitIndex) !== isolatedParent ||
+    dirname(gitObjectDirectory) !== isolatedParent ||
+    pathIsWithin(targetRoot, isolatedParent) ||
+    pathIsWithin(canonicalRealGitDirectory, isolatedParent) ||
+    pathIsWithin(targetRoot, gitDirectory) ||
+    pathIsWithin(targetRoot, gitIndex) ||
+    pathIsWithin(targetRoot, gitObjectDirectory) ||
+    pathIsWithin(canonicalRealGitDirectory, gitDirectory) ||
+    pathIsWithin(canonicalRealGitDirectory, gitIndex) ||
+    pathIsWithin(canonicalRealGitDirectory, gitObjectDirectory) ||
+    alternateObjectDirectories.length !== 1 ||
+    alternateObjectDirectories[0] !== join(canonicalRealGitDirectory, "objects")
+  ) {
+    fail();
+  }
+  return true;
+}
+
+function exactNativeGitPathFile(path, prefix = "") {
+  const marker = readFileSync(path, "utf8");
+  const expression = prefix === "gitdir: "
+    ? /^gitdir: ([^\r\n]+)\r?\n?$/
+    : /^([^\r\n]+)\r?\n?$/;
+  const match = marker.match(expression);
+  if (!match || match[1].length === 0) {
+    throw new Error("invalid native Git path file");
+  }
+  return match[1];
+}
+
+export function resolveCanonicalNativeGitControlPlaneContext(
+  scriptRepoRoot,
+  environment
+) {
+  try {
+    if (
+      typeof scriptRepoRoot !== "string" ||
+      scriptRepoRoot.length === 0 ||
+      !environment ||
+      typeof environment !== "object" ||
+      Array.isArray(environment) ||
+      Object.hasOwn(environment, "SENA_GOVERNANCE_CONTROL_ROOT") ||
+      Object.hasOwn(environment, "GIT_OBJECT_DIRECTORY") ||
+      Object.hasOwn(environment, "GIT_ALTERNATE_OBJECT_DIRECTORIES")
+    ) {
+      return undefined;
+    }
+    const workTree = realpathSync(resolve(scriptRepoRoot));
+    const gitMarker = join(workTree, ".git");
+    const gitMarkerStat = lstatSync(gitMarker);
+    let gitDirectory;
+    let commonDirectory;
+    if (gitMarkerStat.isDirectory() && !gitMarkerStat.isSymbolicLink()) {
+      gitDirectory = realpathSync(gitMarker);
+      const commonMarker = join(gitDirectory, "commondir");
+      if (existsSync(commonMarker)) {
+        const commonMarkerStat = lstatSync(commonMarker);
+        if (!commonMarkerStat.isFile() || commonMarkerStat.isSymbolicLink()) {
+          return undefined;
+        }
+        commonDirectory = realpathSync(
+          resolve(
+            gitDirectory,
+            exactNativeGitPathFile(commonMarker)
+          )
+        );
+      } else {
+        commonDirectory = gitDirectory;
+      }
+    } else if (gitMarkerStat.isFile() && !gitMarkerStat.isSymbolicLink()) {
+      gitDirectory = realpathSync(
+        resolve(
+          workTree,
+          exactNativeGitPathFile(gitMarker, "gitdir: ")
+        )
+      );
+      if (!statSync(gitDirectory).isDirectory()) {
+        return undefined;
+      }
+      const commonMarker = join(gitDirectory, "commondir");
+      const commonMarkerStat = lstatSync(commonMarker);
+      if (!commonMarkerStat.isFile() || commonMarkerStat.isSymbolicLink()) {
+        return undefined;
+      }
+      commonDirectory = realpathSync(
+        resolve(
+          gitDirectory,
+          exactNativeGitPathFile(commonMarker)
+        )
+      );
+    } else {
+      return undefined;
+    }
+    const indexMarker = join(gitDirectory, "index");
+    const indexMarkerStat = lstatSync(indexMarker);
+    if (!indexMarkerStat.isFile() || indexMarkerStat.isSymbolicLink()) {
+      return undefined;
+    }
+    const indexPath = realpathSync(indexMarker);
+    const requiredEnvironmentPaths = [
+      environment.SENA_GOVERNANCE_TARGET_ROOT,
+      environment.GIT_DIR,
+      environment.GIT_INDEX_FILE
+    ];
+    if (
+      requiredEnvironmentPaths.some(
+        (value) =>
+          typeof value !== "string" ||
+          value.length === 0 ||
+          resolve(value) !== value
+      ) ||
+      realpathSync(environment.SENA_GOVERNANCE_TARGET_ROOT) !== workTree ||
+      realpathSync(environment.GIT_DIR) !== gitDirectory ||
+      realpathSync(environment.GIT_INDEX_FILE) !== indexPath ||
+      (Object.hasOwn(environment, "GIT_WORK_TREE") &&
+        (
+          typeof environment.GIT_WORK_TREE !== "string" ||
+          environment.GIT_WORK_TREE.length === 0 ||
+          resolve(environment.GIT_WORK_TREE) !== environment.GIT_WORK_TREE ||
+          realpathSync(environment.GIT_WORK_TREE) !== workTree
+        )) ||
+      (Object.hasOwn(environment, "GIT_COMMON_DIR") &&
+        (
+          typeof environment.GIT_COMMON_DIR !== "string" ||
+          environment.GIT_COMMON_DIR.length === 0 ||
+          resolve(environment.GIT_COMMON_DIR) !== environment.GIT_COMMON_DIR ||
+          realpathSync(environment.GIT_COMMON_DIR) !== commonDirectory
+        ))
+    ) {
+      return undefined;
+    }
+    return {
+      controlRoot: realpathSync(dirname(commonDirectory)),
+      workTree,
+      gitDirectory,
+      commonDirectory,
+      indexPath
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function isolatedGovernanceControlRootFromEnvironment() {
+  const canonicalNativeContext = resolveCanonicalNativeGitControlPlaneContext(
+    SCRIPT_REPO_ROOT,
+    process.env
+  );
+  if (canonicalNativeContext) return canonicalNativeContext.controlRoot;
+  const requestedControlRoot = process.env.SENA_GOVERNANCE_CONTROL_ROOT;
+  const isolationEnvironmentNames = [
+    "SENA_GOVERNANCE_CONTROL_ROOT",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES"
+  ];
+  const isolationSignalPresent = isolationEnvironmentNames.some(
+    (name) => Object.hasOwn(process.env, name)
+  );
+  const legacyTargetRootOnly =
+    !isolationSignalPresent &&
+    typeof process.env.SENA_GOVERNANCE_TARGET_ROOT === "string" &&
+    process.env.SENA_GOVERNANCE_TARGET_ROOT.length > 0;
+  if (!isolationSignalPresent) {
+    if (legacyTargetRootOnly) {
+      try {
+        const requestedTargetRoot = realpathSync(
+          resolve(process.env.SENA_GOVERNANCE_TARGET_ROOT)
+        );
+        const gitDerivedWorkTree = realpathSync(
+          resolve(gitText(["rev-parse", "--show-toplevel"]).trim())
+        );
+        if (requestedTargetRoot !== gitDerivedWorkTree) {
+          throw new Error("target root differs from Git worktree");
+        }
+      } catch {
+        throw new Error(
+          "rule=isolated-governance-control-root-context-invalid"
+        );
+      }
+    }
+    return gitDerivedControlRoot();
+  }
+  const requiredEnvironment = [
+    requestedControlRoot,
+    process.env.SENA_GOVERNANCE_TARGET_ROOT,
+    process.env.GIT_DIR,
+    process.env.GIT_WORK_TREE,
+    process.env.GIT_INDEX_FILE,
+    process.env.GIT_OBJECT_DIRECTORY,
+    process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+  ];
+  try {
+    if (
+      requiredEnvironment.some(
+        (value) => typeof value !== "string" || value.length === 0
+      )
+    ) {
+      throw new Error("incomplete isolated control-plane environment");
+    }
+    const controlRoot = realpathSync(resolve(requestedControlRoot));
+    const targetRoot = realpathSync(resolve(process.env.SENA_GOVERNANCE_TARGET_ROOT));
+    const gitWorkTree = realpathSync(resolve(process.env.GIT_WORK_TREE));
+    const gitDirectory = realpathSync(resolve(process.env.GIT_DIR));
+    const gitIndex = realpathSync(resolve(process.env.GIT_INDEX_FILE));
+    const gitObjectDirectory = realpathSync(
+      resolve(process.env.GIT_OBJECT_DIRECTORY)
+    );
+    const alternateObjectDirectories = process.env.GIT_ALTERNATE_OBJECT_DIRECTORIES
+      .split(":")
+      .filter(Boolean)
+      .map((entry) => realpathSync(resolve(entry)));
+    const gitCommonDirectory = realpathSync(
+      resolve(
+        gitText([
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir"
+        ]).trim()
+      )
+    );
+    const canonicalRegistryRepositoryRoot = realpathSync(
+      resolve(JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo)
+    );
+    if (targetRoot !== REPO_ROOT) {
+      throw new Error("isolated target root mismatch");
+    }
+    validateIsolatedGovernanceControlRootContext({
+      canonicalRegistryRepositoryRoot,
+      requestedControlRoot: controlRoot,
+      targetRoot,
+      gitWorkTree,
+      gitDirectory,
+      gitCommonDirectory,
+      gitIndex,
+      gitObjectDirectory,
+      alternateObjectDirectories
+    });
+    return controlRoot;
+  } catch {
+    throw new Error(
+      "rule=isolated-governance-control-root-context-invalid"
+    );
+  }
+}
+
+const CONTROL_ROOT = isolatedGovernanceControlRootFromEnvironment();
 
 function parseArguments(argv) {
   const [command = "audit", ...rest] = argv;
@@ -2108,6 +2482,8 @@ export const PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY =
   "Codex-protected-currentness-activation-repair-01a05865";
 export const PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS =
   "protected-currentness-activation-repair-candidate-awaiting-initial-checks";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS =
+  "protected-currentness-activation-repair-additive-correction-candidate-awaiting-fresh-initial-checks";
 export const PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS =
   "protected-currentness-activation-repair-ready-pending-final-head-checks";
 export const PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION =
@@ -2116,6 +2492,8 @@ export const PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION =
   "repairReadyAndProtectedMergeAuthorizedAfterFinalChecks";
 export const PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT =
   "pr82-protected-currentness-activation-repair-candidate";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT =
+  "pr82-protected-currentness-activation-repair-additive-correction";
 export const PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT =
   "pr82-protected-currentness-activation-repair-final-authorization";
 export const PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE = [
@@ -2143,6 +2521,71 @@ export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_RECEIPT_SHA256 =
   "27b1aa53a7daa7e1c8fd1403f9e0e51bcd7811dd3a074eca636f1fa907cae0ef";
 export const PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_REGISTRY_SHA256 =
   "0707e433e51614485d4f21dbc51646123578e53647fb684969c74edd6a580ecb";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA =
+  "9ba53c3cad87e8368552ffe78be297ae2eae1e30";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TREE_SHA =
+  "6550a1e5495e0dd7278ec992653811e628ba57e4";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_BLOB_SHA =
+  "cb34a7b791d37fc1159dc27d707bdc9d0555857c";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_VERIFIER_BLOB_SHA =
+  "86908caf725a1ca46eea59832277700fe9a1f295";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TEST_BLOB_SHA =
+  "a78372482b7f2b35ee976398d980c82701534559";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_COUNT = 41;
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_SHA256 =
+  "76a564be7fa51861f770691d38e4ca255d1fba1d34dd6e9d742edb56666dcea0";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_CANONICAL_SHA256 =
+  "75f6248f1287103fb701fb2c7f566e52612dc4f50f57d7aae8f6a8d9c39a9466";
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_FILE_SHA256 =
+  "554c7a746e45a3f534eda119187b3dc85e17c38976fe2a8cb10992cd20c4ca60";
+export const PROTECTED_CURRENTNESS_REPAIR_ADDITIVE_CORRECTION_AUTHORIZATION_KEYS = [
+  "mode",
+  "status",
+  "exactSentence",
+  "exactSentenceSha256",
+  "correctionSourceHeadSha",
+  "correctionSourceTreeSha",
+  "correctionSourceRegistryBlobSha",
+  "correctionSourceVerifierBlobSha",
+  "correctionSourceGovernanceTestBlobSha",
+  "correctionSourceReceiptPrefix",
+  "requiredCorrectionPaths",
+  "fixtureCorrectionMode",
+  "fixtureFrozenHeadSha",
+  "candidateHeadBindingMode",
+  "finalTransitionScope"
+];
+export const PROTECTED_CURRENTNESS_REPAIR_ADDITIVE_CORRECTION_AUTHORIZATION =
+  Object.freeze({
+    mode: "explicit-owner-conversation-authorization",
+    status: "consumed-by-exact-additive-correction-candidate",
+    exactSentence: "授权 Task7.5 加法式修复生命周期。",
+    exactSentenceSha256:
+      "f8780281642d5fe5c0e6ce0f6f40e6580b4e1d2a75d5e29b307b5b0d26cab496",
+    correctionSourceHeadSha:
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA,
+    correctionSourceTreeSha:
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TREE_SHA,
+    correctionSourceRegistryBlobSha:
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_BLOB_SHA,
+    correctionSourceVerifierBlobSha:
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_VERIFIER_BLOB_SHA,
+    correctionSourceGovernanceTestBlobSha:
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TEST_BLOB_SHA,
+    correctionSourceReceiptPrefix: Object.freeze({
+      count: PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_COUNT,
+      sha256: PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_SHA256
+    }),
+    requiredCorrectionPaths: Object.freeze([
+      ...PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE
+    ]),
+    fixtureCorrectionMode:
+      "isolated-temporary-git-repository-with-exact-frozen-seed-head",
+    fixtureFrozenHeadSha: PROTECTED_CURRENTNESS_REPAIR_FROZEN_SEED_HEAD_SHA,
+    candidateHeadBindingMode:
+      "post-commit-fresh-gates-then-registry-only-final-evidence",
+    finalTransitionScope: Object.freeze([...PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE])
+  });
 
 const PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE = Object.freeze({
   headSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
@@ -2181,6 +2624,11 @@ export const PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS = [
   "stashAuthorized",
   "forceAuthorized",
   "historyRewriteAuthorized"
+];
+export const PROTECTED_CURRENTNESS_REPAIR_CORRECTED_LIFECYCLE_KEYS = [
+  ...PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS.slice(0, 12),
+  "additiveCorrectionAuthorization",
+  ...PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS.slice(12)
 ];
 const PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS = [
   "headSha",
@@ -2850,6 +3298,15 @@ function assertProtectedCurrentnessRepairOwnKeys(value, expectedKeys, rule) {
   if (!exactOwnKeys(value, expectedKeys)) throw new Error(rule);
 }
 
+function assertProtectedCurrentnessRepairOrderedOwnKeys(value, expectedKeys, rule) {
+  if (
+    !isPlainRecord(value) ||
+    !sameJson(Object.keys(value), expectedKeys)
+  ) {
+    throw new Error(rule);
+  }
+}
+
 export function protectedCurrentnessRepairTrueBooleanPaths(value, path = []) {
   if (!value || typeof value !== "object") return [];
   const paths = [];
@@ -3004,25 +3461,135 @@ export function validateProtectedCurrentnessRepairFrozenInitialSource(
   return true;
 }
 
+export function validateProtectedCurrentnessRepairAdditiveCorrectionAuthorization(
+  authorization
+) {
+  assertProtectedCurrentnessRepairOrderedOwnKeys(
+    authorization,
+    PROTECTED_CURRENTNESS_REPAIR_ADDITIVE_CORRECTION_AUTHORIZATION_KEYS,
+    "rule=protected-currentness-repair-additive-correction-authorization-schema-invalid"
+  );
+  assertProtectedCurrentnessRepairOrderedOwnKeys(
+    authorization.correctionSourceReceiptPrefix,
+    ["count", "sha256"],
+    "rule=protected-currentness-repair-additive-correction-authorization-schema-invalid"
+  );
+  if (
+    !sameJson(
+      authorization,
+      PROTECTED_CURRENTNESS_REPAIR_ADDITIVE_CORRECTION_AUTHORIZATION
+    ) ||
+    protectedCurrentnessRepairTrueBooleanPaths(authorization).length !== 0 ||
+    sha256Buffer(Buffer.from(authorization.exactSentence)) !==
+      authorization.exactSentenceSha256
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-additive-correction-authorization-invalid"
+    );
+  }
+  return true;
+}
+
+export function validateProtectedCurrentnessRepairCorrectionSource(sourceRegistry) {
+  const sourceReceipts = sourceRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(sourceReceipts) ||
+    sourceReceipts.length !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_COUNT ||
+    protectedCurrentnessRepairReceiptPrefixSha256(
+      sourceReceipts,
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_COUNT
+    ) !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_RECEIPT_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_CANONICAL_SHA256 ||
+    !gitObjectExists(
+      `${PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA}^{commit}`
+    )
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-additive-correction-source-invalid"
+    );
+  }
+  let treeSha;
+  let registryBlobSha;
+  let verifierBlobSha;
+  let governanceTestBlobSha;
+  let registryFileSha256;
+  let committedRegistry;
+  try {
+    treeSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA}^{tree}`
+    ]).trim();
+    registryBlobSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+    ]).trim();
+    verifierBlobSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+    ]).trim();
+    governanceTestBlobSha = gitText([
+      "rev-parse",
+      `${PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+    ]).trim();
+    registryFileSha256 = sha256Buffer(
+      git(
+        [
+          "show",
+          `${PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+        ],
+        { binary: true }
+      ).stdout
+    );
+    committedRegistry = loadRegistryFromCommit(
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA
+    ).parsed;
+  } catch {
+    throw new Error(
+      "rule=protected-currentness-repair-additive-correction-source-invalid"
+    );
+  }
+  if (
+    treeSha !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TREE_SHA ||
+    registryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_BLOB_SHA ||
+    verifierBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_VERIFIER_BLOB_SHA ||
+    governanceTestBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TEST_BLOB_SHA ||
+    registryFileSha256 !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_FILE_SHA256 ||
+    !sameJson(committedRegistry, sourceRegistry)
+  ) {
+    throw new Error(
+      "rule=protected-currentness-repair-additive-correction-source-invalid"
+    );
+  }
+  return true;
+}
+
 function validateProtectedCurrentnessRepairReceipt(
   receipt,
   expectedKind,
   expectedScope,
   expectedAction,
-  evidence = null
+  evidence = null,
+  additiveCorrectionAuthorization = null
 ) {
-  const expectedKeys = evidence
-    ? [
+  const expectedKeys = [
         "schemaVersion",
         "receiptKind",
         "taskId",
         "ownerKey",
         "scope",
-        ...PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS,
+        ...(evidence ? PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS : []),
+        ...(additiveCorrectionAuthorization
+          ? ["additiveCorrectionAuthorization"]
+          : []),
         "authorizationBoundary"
-      ]
-    : PROTECTED_CURRENTNESS_REPAIR_RECEIPT_BASE_KEYS;
-  assertProtectedCurrentnessRepairOwnKeys(
+      ];
+  assertProtectedCurrentnessRepairOrderedOwnKeys(
     receipt,
     expectedKeys,
     "rule=protected-currentness-repair-receipt-schema-invalid"
@@ -3051,6 +3618,21 @@ function validateProtectedCurrentnessRepairReceipt(
     receipt.authorizationBoundary[expectedAction] !== true
   ) {
     throw new Error("rule=protected-currentness-repair-transition-receipt-invalid");
+  }
+  if (additiveCorrectionAuthorization) {
+    validateProtectedCurrentnessRepairAdditiveCorrectionAuthorization(
+      receipt.additiveCorrectionAuthorization
+    );
+    if (
+      !sameJson(
+        receipt.additiveCorrectionAuthorization,
+        additiveCorrectionAuthorization
+      )
+    ) {
+      throw new Error(
+        "rule=protected-currentness-repair-additive-correction-authorization-invalid"
+      );
+    }
   }
   if (
     evidence &&
@@ -3133,10 +3715,91 @@ export function validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
   return true;
 }
 
-function validateProtectedCurrentnessRepairPrState(item, branch, lifecycle) {
+export function validateProtectedCurrentnessRepairFinalEvidenceAgainstSourceGit(
+  sourceRegistry,
+  evidence,
+  context
+) {
+  validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
+    evidence,
+    context
+  );
+  const fail = () => {
+    throw new Error(
+      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    );
+  };
+  let actualHeadSha;
+  let actualTreeSha;
+  let actualRegistryBlobSha;
+  let actualVerifierBlobSha;
+  let actualGovernanceTestBlobSha;
+  let committedSourceRegistry;
+  try {
+    actualHeadSha = gitText(["rev-parse", "HEAD"]).trim();
+    if (
+      context?.seedHeadSha !== evidence.headSha ||
+      context?.seedTreeSha !== evidence.treeSha ||
+      context?.seedRegistryBlobSha !== evidence.registryBlobSha ||
+      actualHeadSha !== evidence.headSha ||
+      !gitObjectExists(`${evidence.headSha}^{commit}`) ||
+      !gitObjectExists(`${evidence.treeSha}^{tree}`) ||
+      !gitObjectExists(`${evidence.registryBlobSha}^{blob}`) ||
+      !gitObjectExists(`${evidence.verifierBlobSha}^{blob}`) ||
+      !gitObjectExists(`${evidence.governanceTestBlobSha}^{blob}`)
+    ) {
+      fail();
+    }
+    actualTreeSha = gitText([
+      "rev-parse",
+      `${actualHeadSha}^{tree}`
+    ]).trim();
+    actualRegistryBlobSha = gitText([
+      "rev-parse",
+      `${actualHeadSha}:${REGISTRY_REPO_PATH}`
+    ]).trim();
+    actualVerifierBlobSha = gitText([
+      "rev-parse",
+      `${actualHeadSha}:scripts/verify-sena-repo-governance.mjs`
+    ]).trim();
+    actualGovernanceTestBlobSha = gitText([
+      "rev-parse",
+      `${actualHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+    ]).trim();
+    committedSourceRegistry = loadRegistryFromCommit(actualHeadSha).parsed;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message ===
+        "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+    ) {
+      throw error;
+    }
+    fail();
+  }
+  if (
+    actualTreeSha !== evidence.treeSha ||
+    actualRegistryBlobSha !== evidence.registryBlobSha ||
+    actualVerifierBlobSha !== evidence.verifierBlobSha ||
+    actualGovernanceTestBlobSha !== evidence.governanceTestBlobSha ||
+    !sameJson(committedSourceRegistry, sourceRegistry)
+  ) {
+    fail();
+  }
+  return true;
+}
+
+function validateProtectedCurrentnessRepairPrState(
+  item,
+  branch,
+  lifecycle,
+  options = {}
+) {
   const expectedHead = lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS
     ? lifecycle.designPlanSeedHeadSha
-    : lifecycle.initialCandidateCompletionEvidence?.headSha;
+    : lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
+      ? lifecycle.additiveCorrectionAuthorization?.correctionSourceHeadSha
+      : lifecycle.initialCandidateCompletionEvidence?.headSha;
   if (
     item.noPrReason !== null ||
     branch.upstream !== `origin/${PROTECTED_CURRENTNESS_REPAIR_BRANCH}` ||
@@ -3157,6 +3820,11 @@ function validateProtectedCurrentnessRepairPrState(item, branch, lifecycle) {
     item.prReadyForReview !== false ||
     item.mergeAuthorized !== false ||
     item.headSha !== expectedHead ||
+    (item.prHeadSha !== expectedHead &&
+      !(
+        lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
+        options.allowExactFrozenLegacyInitialPrHead === true
+      )) ||
     !sameJson(item.allowedPaths, PROTECTED_CURRENTNESS_REPAIR_OVERALL_SCOPE) ||
     branch.pr !== lifecycle.pullRequestNumber ||
     branch.plannedPullRequestNumber !== lifecycle.pullRequestNumber ||
@@ -3180,7 +3848,8 @@ function validateProtectedCurrentnessRepairPrState(item, branch, lifecycle) {
 export function validateProtectedCurrentnessRepairLifecycleSnapshot(
   registry,
   mode,
-  context = null
+  context = null,
+  options = {}
 ) {
   if (
     mode !== PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY &&
@@ -3194,9 +3863,18 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
   if (!item || !branch || !lifecycle) {
     throw new Error("rule=protected-currentness-repair-lifecycle-missing");
   }
+  if (
+    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
+    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS &&
+    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
+  ) {
+    throw new Error("rule=protected-currentness-repair-status-invalid");
+  }
   assertProtectedCurrentnessRepairOwnKeys(
     lifecycle,
-    PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS,
+    lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS
+      ? PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS
+      : PROTECTED_CURRENTNESS_REPAIR_CORRECTED_LIFECYCLE_KEYS,
     "rule=protected-currentness-repair-lifecycle-schema-invalid"
   );
   assertProtectedCurrentnessRepairOwnKeys(
@@ -3262,13 +3940,6 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
   ) {
     throw new Error("rule=protected-currentness-repair-lifecycle-core-invalid");
   }
-  if (
-    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
-    lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
-  ) {
-    throw new Error("rule=protected-currentness-repair-status-invalid");
-  }
-
   const receipts = registry.releaseReceipts ?? [];
   const prefixCount = lifecycle.designPlanSeedReceiptPrefix.count;
   if (
@@ -3300,7 +3971,44 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     ) {
       throw new Error("rule=protected-currentness-repair-initial-action-set-invalid");
     }
+  } else if (lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS) {
+    validateProtectedCurrentnessRepairAdditiveCorrectionAuthorization(
+      lifecycle.additiveCorrectionAuthorization
+    );
+    if (receipts.length !== prefixCount + 2) {
+      throw new Error(
+        "rule=protected-currentness-repair-correction-receipt-delta-invalid"
+      );
+    }
+    validateProtectedCurrentnessRepairReceipt(
+      initialReceipt,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION
+    );
+    validateProtectedCurrentnessRepairReceipt(
+      receipts[prefixCount + 1],
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION,
+      null,
+      lifecycle.additiveCorrectionAuthorization
+    );
+    if (
+      lifecycle.initialCandidateCompletionEvidence !== null ||
+      lifecycle[PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION] !== true ||
+      lifecycle[PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION] !== false ||
+      !sameJson(protectedCurrentnessRepairTrueBooleanPaths(lifecycle), [
+        PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION,
+        "oneShot"
+      ])
+    ) {
+      throw new Error("rule=protected-currentness-repair-correction-action-set-invalid");
+    }
   } else {
+    validateProtectedCurrentnessRepairAdditiveCorrectionAuthorization(
+      lifecycle.additiveCorrectionAuthorization
+    );
     assertProtectedCurrentnessRepairOwnKeys(
       lifecycle.initialCandidateCompletionEvidence,
       PROTECTED_CURRENTNESS_REPAIR_EVIDENCE_KEYS,
@@ -3317,7 +4025,7 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     ) {
       throw new Error("rule=protected-currentness-repair-final-action-set-invalid");
     }
-    if (receipts.length !== prefixCount + 2) {
+    if (receipts.length !== prefixCount + 3) {
       throw new Error("rule=protected-currentness-repair-final-receipt-delta-invalid");
     }
     validateProtectedCurrentnessRepairReceipt(
@@ -3328,10 +4036,19 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     );
     validateProtectedCurrentnessRepairReceipt(
       receipts[prefixCount + 1],
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_ACTION,
+      null,
+      lifecycle.additiveCorrectionAuthorization
+    );
+    validateProtectedCurrentnessRepairReceipt(
+      receipts[prefixCount + 2],
       PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION,
-      lifecycle.initialCandidateCompletionEvidence
+      lifecycle.initialCandidateCompletionEvidence,
+      lifecycle.additiveCorrectionAuthorization
     );
     if (mode === PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND) {
       validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
@@ -3344,14 +4061,14 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       );
     }
   }
-  validateProtectedCurrentnessRepairPrState(item, branch, lifecycle);
+  validateProtectedCurrentnessRepairPrState(item, branch, lifecycle, options);
   return { item, branch, lifecycle };
 }
 
 const REPAIR_INITIAL_MUTABLE_RECORDS = {
   repairWorkItem: [
     "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
-    "expectedCloseAt", "dirtyState", "evidenceState",
+    "expectedCloseAt", "dirtyState", "evidenceState", "prHeadSha",
     "protectedCurrentnessActivationRepairLifecycle"
   ],
   repairBranch: [
@@ -3929,10 +4646,29 @@ export function validateProtectedCurrentnessRepairInitialDelta(
   return true;
 }
 
+const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_MUTABLE_ITEM_FIELDS = [
+  "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
+  "dirtyState", "evidenceState", "prHeadSha"
+];
 const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_ITEM_FIELDS = [
   "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
-  "dirtyState", "evidenceState"
+  "dirtyState", "evidenceState", "prHeadSha"
 ];
+const PROTECTED_CURRENTNESS_REPAIR_INITIAL_AHEAD_BEHIND = Object.freeze({
+  baseRef: "origin/main",
+  ahead: 5,
+  behind: 0
+});
+const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_AHEAD_BEHIND = Object.freeze({
+  baseRef: "origin/main",
+  ahead: 6,
+  behind: 0
+});
+const PROTECTED_CURRENTNESS_REPAIR_FINAL_AHEAD_BEHIND = Object.freeze({
+  baseRef: "origin/main",
+  ahead: 7,
+  behind: 0
+});
 const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_LIFECYCLE_FIELDS = [
   "status",
   "initialCandidateCompletionEvidence",
@@ -3945,6 +4681,133 @@ const PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_BRANCH_FIELDS = [
   "lastObservedAt", "lastCommitAt", "nextReviewAt", "closeout", "mergeable",
   "mergeStateStatus"
 ];
+
+const PROTECTED_CURRENTNESS_REPAIR_CORRECTION_MUTABLE_LIFECYCLE_FIELDS = [
+  "status",
+  "additiveCorrectionAuthorization"
+];
+
+function normalizedRepairCorrectionImmutableRegistrySha256(registry) {
+  const copy = protectedActivationControlledExactClone(
+    registry,
+    "rule=protected-currentness-repair-registry-normalization-invalid"
+  );
+  copy.updatedAt = "<repair-correction-owned>";
+  copy.workItems = (copy.workItems ?? []).map((entry) => {
+    if (entry.taskId !== PROTECTED_CURRENTNESS_REPAIR_TASK_ID) return entry;
+    const redactedLifecycle = redactProtectedCurrentnessRepairFields(
+      entry.protectedCurrentnessActivationRepairLifecycle,
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_MUTABLE_LIFECYCLE_FIELDS,
+      "repair-correction-lifecycle"
+    );
+    return redactProtectedCurrentnessRepairFields(
+      {
+        ...entry,
+        protectedCurrentnessActivationRepairLifecycle: Object.fromEntries(
+          PROTECTED_CURRENTNESS_REPAIR_CORRECTED_LIFECYCLE_KEYS.map((field) => [
+            field,
+            redactedLifecycle[field]
+          ])
+        )
+      },
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_MUTABLE_ITEM_FIELDS,
+      "repair-correction-item"
+    );
+  });
+  copy.branches = (copy.branches ?? []).map((entry) =>
+    entry.name === PROTECTED_CURRENTNESS_REPAIR_BRANCH
+      ? redactProtectedCurrentnessRepairFields(
+          entry,
+          PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_BRANCH_FIELDS,
+          "repair-correction-branch"
+        )
+      : entry
+  );
+  copy.releaseReceipts = (copy.releaseReceipts ?? []).filter(
+    (entry) => entry?.receiptKind !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT
+  );
+  return sha256Buffer(Buffer.from(JSON.stringify(copy)));
+}
+
+export function validateProtectedCurrentnessRepairCorrectionDelta(
+  sourceRegistry,
+  candidateRegistry,
+  context
+) {
+  validateProtectedCurrentnessRepairCorrectionSource(sourceRegistry);
+  const source = validateProtectedCurrentnessRepairLifecycleSnapshot(
+    sourceRegistry,
+    PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY,
+    null,
+    { allowExactFrozenLegacyInitialPrHead: true }
+  );
+  const candidate = validateProtectedCurrentnessRepairLifecycleSnapshot(
+    candidateRegistry,
+    PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+  );
+  const correctionAheadBehindValid =
+    sameJson(
+      source.item.aheadBehind,
+      PROTECTED_CURRENTNESS_REPAIR_INITIAL_AHEAD_BEHIND
+    ) &&
+    sameJson(
+      candidate.item.aheadBehind,
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_AHEAD_BEHIND
+    ) &&
+    source.lifecycle.protectedBaseSha ===
+      PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha &&
+    candidate.lifecycle.protectedBaseSha ===
+      PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha;
+  const sourceReceipts = sourceRegistry.releaseReceipts ?? [];
+  const candidateReceipts = candidateRegistry.releaseReceipts ?? [];
+  const immutableLifecycleFields = PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS.filter(
+    (field) =>
+      !PROTECTED_CURRENTNESS_REPAIR_CORRECTION_MUTABLE_LIFECYCLE_FIELDS.includes(
+        field
+      )
+  );
+  const introducesMutableAuthorization =
+    protectedCurrentnessRepairIntroducesMutableAuthorization(
+      sourceRegistry,
+      candidateRegistry,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_AUTHORIZATION_CONTAINERS
+    );
+  if (introducesMutableAuthorization) {
+    throw new Error(
+      "rule=protected-currentness-repair-mutable-authorization-delta-invalid"
+    );
+  }
+  if (!correctionAheadBehindValid) {
+    throw new Error(
+      "rule=protected-currentness-repair-correction-ahead-behind-invalid"
+    );
+  }
+  if (
+    !context ||
+    context.pullRequestNumber !==
+      PROTECTED_CURRENTNESS_REPAIR_FROZEN_PULL_REQUEST_NUMBER ||
+    context.seedHeadSha !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_HEAD_SHA ||
+    context.seedTreeSha !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_TREE_SHA ||
+    context.seedRegistryBlobSha !==
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_BLOB_SHA ||
+    source.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS ||
+    candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS ||
+    !immutableLifecycleFields.every((field) =>
+      sameJson(source.lifecycle[field], candidate.lifecycle[field])
+    ) ||
+    candidateReceipts.length !== sourceReceipts.length + 1 ||
+    !sourceReceipts.every((receipt, index) =>
+      sameJson(receipt, candidateReceipts[index])
+    ) ||
+    normalizedRepairCorrectionImmutableRegistrySha256(sourceRegistry) !==
+      normalizedRepairCorrectionImmutableRegistrySha256(candidateRegistry)
+  ) {
+    throw new Error("rule=protected-currentness-repair-correction-delta-invalid");
+  }
+  return true;
+}
 
 function normalizedRepairFinalImmutableRegistrySha256(registry) {
   const copy = protectedActivationControlledExactClone(
@@ -3997,9 +4860,23 @@ export function validateProtectedCurrentnessRepairFinalDelta(
     PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_CONTEXT_BOUND,
     context
   );
+  const finalAheadBehindValid =
+    sameJson(
+      source.item.aheadBehind,
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_AHEAD_BEHIND
+    ) &&
+    sameJson(
+      candidate.item.aheadBehind,
+      PROTECTED_CURRENTNESS_REPAIR_FINAL_AHEAD_BEHIND
+    ) &&
+    source.lifecycle.protectedBaseSha ===
+      PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha &&
+    candidate.lifecycle.protectedBaseSha ===
+      PROTECTED_CURRENTNESS_REPAIR_PROTECTED_BASE.headSha;
   const sourceReceipts = sourceRegistry.releaseReceipts ?? [];
   const candidateReceipts = candidateRegistry.releaseReceipts ?? [];
-  const immutableLifecycleFields = PROTECTED_CURRENTNESS_REPAIR_LIFECYCLE_KEYS.filter(
+  const immutableLifecycleFields =
+    PROTECTED_CURRENTNESS_REPAIR_CORRECTED_LIFECYCLE_KEYS.filter(
     (field) => !PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_LIFECYCLE_FIELDS.includes(field)
   );
   const sourceNormalizedSha256 =
@@ -4012,8 +4889,18 @@ export function validateProtectedCurrentnessRepairFinalDelta(
       candidateRegistry,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_MUTABLE_AUTHORIZATION_CONTAINERS
     );
+  if (introducesMutableAuthorization) {
+    throw new Error(
+      "rule=protected-currentness-repair-mutable-authorization-delta-invalid"
+    );
+  }
+  if (!finalAheadBehindValid) {
+    throw new Error(
+      "rule=protected-currentness-repair-final-ahead-behind-invalid"
+    );
+  }
   if (
-    source.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS ||
+    source.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS ||
     candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS ||
     !immutableLifecycleFields.every((field) =>
       sameJson(source.lifecycle[field], candidate.lifecycle[field])
@@ -4021,16 +4908,15 @@ export function validateProtectedCurrentnessRepairFinalDelta(
     candidateReceipts.length !== sourceReceipts.length + 1 ||
     !sourceReceipts.every((receipt, index) => sameJson(receipt, candidateReceipts[index])) ||
     sourceNormalizedSha256 !== candidateNormalizedSha256 ||
-    introducesMutableAuthorization
+    !sameJson(
+      source.lifecycle.additiveCorrectionAuthorization,
+      candidate.lifecycle.additiveCorrectionAuthorization
+    )
   ) {
-    if (introducesMutableAuthorization) {
-      throw new Error(
-        "rule=protected-currentness-repair-mutable-authorization-delta-invalid"
-      );
-    }
     throw new Error("rule=protected-currentness-repair-final-delta-invalid");
   }
-  validateProtectedCurrentnessRepairInitialEvidenceAgainstContext(
+  validateProtectedCurrentnessRepairFinalEvidenceAgainstSourceGit(
+    sourceRegistry,
     candidate.lifecycle.initialCandidateCompletionEvidence,
     context
   );
@@ -4067,8 +4953,21 @@ export function protectedCurrentnessRepairLifecycleResolutionFromRegistries(
   if (sourceLifecycle.status === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS) {
     throw new Error("rule=protected-currentness-repair-transition-replay");
   }
+  if (sourceLifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS) {
+    if (
+      candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
+    ) {
+      throw new Error("rule=protected-currentness-repair-transition-source-invalid");
+    }
+    validateProtectedCurrentnessRepairCorrectionDelta(
+      sourceRegistry,
+      candidateRegistry,
+      context
+    );
+    return candidate;
+  }
   if (
-    sourceLifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS ||
+    sourceLifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS ||
     candidate.lifecycle.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
   ) {
     throw new Error("rule=protected-currentness-repair-transition-source-invalid");
@@ -4125,6 +5024,8 @@ export function assertProtectedCurrentnessRepairIndexPaths(lifecycle, paths) {
   if (!Array.isArray(paths) || paths.length === 0) return true;
   const expected = lifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS
     ? PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE
+    : lifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
+      ? PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE
     : lifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS
       ? PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE
       : null;
@@ -4438,7 +5339,9 @@ function validateRegistry(registry) {
       !exactPlainJsonOwnKeys(item.aheadBehind, ["baseRef", "ahead", "behind"]) ||
       typeof item.aheadBehind.baseRef !== "string" ||
       !Number.isInteger(item.aheadBehind.ahead) ||
-      !Number.isInteger(item.aheadBehind.behind)
+      item.aheadBehind.ahead < 0 ||
+      !Number.isInteger(item.aheadBehind.behind) ||
+      item.aheadBehind.behind < 0
     ) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} has invalid aheadBehind values`);
     }
@@ -4758,14 +5661,23 @@ function validateRegistry(registry) {
   const hasProtectedCurrentnessRepairReceipt = (registry.releaseReceipts ?? []).some(
     (entry) => [
       PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
     ].includes(entry?.receiptKind)
   );
   if (hasProtectedCurrentnessRepairLifecycle || hasProtectedCurrentnessRepairReceipt) {
     try {
+      const repairLifecycle = protectedCurrentnessRepairWorkItem(registry)
+        ?.protectedCurrentnessActivationRepairLifecycle;
+      const allowExactFrozenLegacyInitialPrHead =
+        repairLifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
+        sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
+          PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_CANONICAL_SHA256;
       validateProtectedCurrentnessRepairLifecycleSnapshot(
         registry,
-        PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY
+        PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY,
+        null,
+        { allowExactFrozenLegacyInitialPrHead }
       );
     } catch (error) {
       errors.push(
