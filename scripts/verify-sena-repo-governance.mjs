@@ -3818,6 +3818,12 @@ function validateProtectedCurrentnessRepairPrState(
   if (task78Compatibility) {
     validateTask78FinalCompatibilityLifecycle(task78Compatibility);
   }
+  const task79Compatibility = item?.[
+    TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY
+  ];
+  if (task79Compatibility) {
+    validateTask79TestPhaseCompatibilityLifecycle(task79Compatibility);
+  }
   const pr82PushCorrectionActive = Boolean(
     pr82PushCorrection &&
       lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
@@ -3826,13 +3832,21 @@ function validateProtectedCurrentnessRepairPrState(
     task78Compatibility &&
       lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
   );
-  const expectedLocalHead = task78CompatibilityActive
-    ? TASK78_FINAL_COMPATIBILITY_SOURCE_HEAD_SHA
+  const task79CompatibilityActive = Boolean(
+    task79Compatibility &&
+      lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
+  );
+  const expectedLocalHead = task79CompatibilityActive
+    ? TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA
+    : task78CompatibilityActive
+      ? TASK78_FINAL_COMPATIBILITY_SOURCE_HEAD_SHA
     : pr82PushCorrectionActive
       ? TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA
       : expectedHead;
-  const expectedRemoteHead = task78CompatibilityActive
-    ? TASK78_FINAL_COMPATIBILITY_SOURCE_HEAD_SHA
+  const expectedRemoteHead = task79CompatibilityActive
+    ? TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA
+    : task78CompatibilityActive
+      ? TASK78_FINAL_COMPATIBILITY_SOURCE_HEAD_SHA
     : pr82PushCorrectionActive
       ? EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA
       : expectedHead;
@@ -3999,6 +4013,10 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     ...exactCorrectionWithTask77Pr82PushSequence,
     TASK78_FINAL_COMPATIBILITY_RECEIPT_KIND
   ];
+  const exactCorrectionWithTask79CompatibilitySequence = [
+    ...exactCorrectionWithTask78CompatibilitySequence,
+    TASK79_TEST_PHASE_COMPATIBILITY_RECEIPT_KIND
+  ];
   const exactFinalSequence = [
     ...exactCorrectionSequence,
     PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
@@ -4015,6 +4033,10 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
   ];
   const exactFinalAfterTask78CompatibilitySequence = [
     ...exactCorrectionWithTask78CompatibilitySequence,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
+  const exactFinalAfterTask79CompatibilitySequence = [
+    ...exactCorrectionWithTask79CompatibilitySequence,
     PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
   ];
   if (
@@ -4062,11 +4084,16 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       suffixReceiptKinds,
       exactCorrectionWithTask78CompatibilitySequence
     );
+    const correctionHasTask79Compatibility = sameJson(
+      suffixReceiptKinds,
+      exactCorrectionWithTask79CompatibilitySequence
+    );
     if (
       !sameJson(suffixReceiptKinds, exactCorrectionSequence) &&
       !correctionHasEvidenceFlow &&
       !correctionHasTask77Pr82Push &&
-      !correctionHasTask78Compatibility
+      !correctionHasTask78Compatibility &&
+      !correctionHasTask79Compatibility
     ) {
       throw new Error(
         "rule=protected-currentness-repair-correction-receipt-delta-invalid"
@@ -4075,7 +4102,8 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     if (
       correctionHasEvidenceFlow ||
       correctionHasTask77Pr82Push ||
-      correctionHasTask78Compatibility
+      correctionHasTask78Compatibility ||
+      correctionHasTask79Compatibility
     ) {
       validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
     }
@@ -4136,18 +4164,24 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       suffixReceiptKinds,
       exactFinalAfterTask78CompatibilitySequence
     );
+    const finalHasTask79Compatibility = sameJson(
+      suffixReceiptKinds,
+      exactFinalAfterTask79CompatibilitySequence
+    );
     if (
       !sameJson(suffixReceiptKinds, exactFinalSequence) &&
       !finalHasEvidenceFlow &&
       !finalHasTask77Pr82Push &&
-      !finalHasTask78Compatibility
+      !finalHasTask78Compatibility &&
+      !finalHasTask79Compatibility
     ) {
       throw new Error("rule=protected-currentness-repair-final-receipt-delta-invalid");
     }
     if (
       finalHasEvidenceFlow ||
       finalHasTask77Pr82Push ||
-      finalHasTask78Compatibility
+      finalHasTask78Compatibility ||
+      finalHasTask79Compatibility
     ) {
       validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
     }
@@ -4167,8 +4201,10 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     );
     validateProtectedCurrentnessRepairReceipt(
       receipts[prefixCount + (
-        finalHasTask78Compatibility
-          ? 6
+        finalHasTask79Compatibility
+          ? 7
+          : finalHasTask78Compatibility
+            ? 6
           : finalHasTask77Pr82Push
             ? 5
             : finalHasEvidenceFlow
@@ -4820,8 +4856,24 @@ const PROTECTED_CURRENTNESS_REPAIR_TASK78_FINAL_AHEAD_BEHIND = Object.freeze({
   ahead: 10,
   behind: 0
 });
+const PROTECTED_CURRENTNESS_REPAIR_TASK79_SOURCE_AHEAD_BEHIND = Object.freeze({
+  baseRef: "origin/main",
+  ahead: 10,
+  behind: 0
+});
+const PROTECTED_CURRENTNESS_REPAIR_TASK79_FINAL_AHEAD_BEHIND = Object.freeze({
+  baseRef: "origin/main",
+  ahead: 11,
+  behind: 0
+});
 
 export function protectedCurrentnessRepairFinalAheadBehindExpectations(item) {
+  if (item?.[TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY]) {
+    return {
+      source: PROTECTED_CURRENTNESS_REPAIR_TASK79_SOURCE_AHEAD_BEHIND,
+      final: PROTECTED_CURRENTNESS_REPAIR_TASK79_FINAL_AHEAD_BEHIND
+    };
+  }
   if (item?.[TASK78_FINAL_COMPATIBILITY_LIFECYCLE_KEY]) {
     return {
       source: PROTECTED_CURRENTNESS_REPAIR_TASK78_SOURCE_AHEAD_BEHIND,
@@ -5308,6 +5360,29 @@ export function validateProtectedCurrentnessRepairIndexTransition(candidateRegis
     if (sourceHasTask78Compatibility && !candidateHasTask78Compatibility) {
       throw new Error("rule=task7.8-final-compatibility-snapshot-invalid");
     }
+    const sourceHasTask79Compatibility = Boolean(
+      task77Pr82WorkItem(sourceRegistry)?.[
+        TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY
+      ]
+    );
+    const candidateHasTask79Compatibility = Boolean(
+      task77Pr82WorkItem(candidateRegistry)?.[
+        TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY
+      ]
+    );
+    if (candidateHasTask79Compatibility && !sourceHasTask79Compatibility) {
+      if (headSha !== TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA) {
+        throw new Error("rule=task7.9-test-phase-compatibility-source-head-mismatch");
+      }
+      validateTask79TestPhaseCompatibilityTransition(
+        sourceRegistry,
+        candidateRegistry
+      );
+      return;
+    }
+    if (sourceHasTask79Compatibility && !candidateHasTask79Compatibility) {
+      throw new Error("rule=task7.9-test-phase-compatibility-snapshot-invalid");
+    }
   }
   protectedCurrentnessRepairLifecycleResolutionFromRegistries(
     sourceRegistry,
@@ -5373,6 +5448,27 @@ const TASK78_FINAL_COMPATIBILITY_SOURCE_RECEIPT_SHA256 =
   "c6d877c35fdff82e7a5627f7af14abac3ce103903238113757fc9750d5fbf27e";
 const TASK78_FINAL_COMPATIBILITY_OBSERVED_AT = "2026-09-02T12:36:00Z";
 const TASK78_FINAL_COMPATIBILITY_NEXT_REVIEW_AT = "2026-09-03T12:36:00Z";
+const TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY =
+  "task7_9TestPhaseCompatibilityLifecycle";
+const TASK79_TEST_PHASE_COMPATIBILITY_STATUS =
+  "task7.9-test-phase-compatibility-currentness-candidate";
+const TASK79_TEST_PHASE_COMPATIBILITY_RECEIPT_KIND =
+  "task7.9-test-phase-compatibility-currentness-candidate";
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA =
+  "203dd6d6a3728c741a0e187df971b6a5c22ea428";
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_TREE_SHA =
+  "91fabc2c5c2bea40b5165a29ea49445686ce50cb";
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_REGISTRY_BLOB_SHA =
+  "b35d644b29dfd32910bf4f1620a65b1c205bbc03";
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_VERIFIER_BLOB_SHA =
+  "6780e22ff45138bdcff0335ba69e1b9e44ea3031";
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_TEST_BLOB_SHA =
+  "4a4dc67e3c97255c69a68fb218db7b106a892417";
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_RECEIPT_COUNT = 46;
+const TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_RECEIPT_SHA256 =
+  "ab2ced81062e8ac4b24fe296398fae62f93473ff783b4df8a926d22d3ccc7a07";
+const TASK79_TEST_PHASE_COMPATIBILITY_OBSERVED_AT = "2026-09-02T14:05:03Z";
+const TASK79_TEST_PHASE_COMPATIBILITY_NEXT_REVIEW_AT = "2026-09-03T14:05:03Z";
 const TASK77_COMBINED_CURRENTNESS_OBSERVED_AT = "2026-09-02T10:42:00Z";
 const TASK77_COMBINED_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-03T10:42:00Z";
 const EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA =
@@ -6046,6 +6142,127 @@ function validateTask78FinalCompatibilityReceipt(receipt) {
   return receipt;
 }
 
+function task79TestPhaseCompatibilityAuthorizationBoundary() {
+  return {
+    candidateCommitAuthorizedAfterGates: true,
+    candidatePushToDraftPr82AuthorizedAfterGates: true,
+    pr82ReadyAuthorized: false,
+    pr82MergeAuthorized: false,
+    pr46MutationAuthorized: false,
+    casAuthorized: false,
+    localRefRetirementAuthorized: false,
+    retirementReceiptMintingAuthorized: false,
+    branchDeletionAuthorized: false,
+    worktreeRemovalAuthorized: false,
+    orphanWorktreeMutationAuthorized: false,
+    targetRefMutationAuthorized: false,
+    targetTagMutationAuthorized: false,
+    quarantineMutationAuthorized: false,
+    deploymentAuthorized: false,
+    providerMutationAuthorized: false,
+    resetAuthorized: false,
+    rebaseAuthorized: false,
+    stashAuthorized: false,
+    forceAuthorized: false,
+    historyRewriteAuthorized: false
+  };
+}
+
+function task79TestPhaseCompatibilitySourceBinding() {
+  return {
+    headSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA,
+    treeSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_TREE_SHA,
+    registryBlobSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_REGISTRY_BLOB_SHA,
+    verifierBlobSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_VERIFIER_BLOB_SHA,
+    governanceTestBlobSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_TEST_BLOB_SHA,
+    receiptPrefix: {
+      count: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_RECEIPT_COUNT,
+      sha256: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_RECEIPT_SHA256
+    }
+  };
+}
+
+function task79TestPhaseCompatibilitySourceCompletionEvidence() {
+  return {
+    governanceTestsPassed: 96,
+    governanceTestsTotal: 96,
+    typescriptPassed: true,
+    registryPassed: true,
+    liveIndexAuditStatus: "pass",
+    liveIndexAuditErrors: [],
+    liveIndexAuditOwnerBlockers: [],
+    unreachableCommitCount: 0,
+    writePolicyPassed: true,
+    securityPassed: true,
+    nativePreCommitPassed: true,
+    localBuildPassed: true,
+    buildRunId: 33637780735,
+    repositorySecurityRunIds: [33637780721, 33637771373],
+    checkJobIds: [100272878332, 100272878394, 100272849032],
+    annotationsEmpty: true,
+    specReviewApproved: true,
+    qualityReviewApproved: true,
+    securityReviewApproved: true
+  };
+}
+
+function task79TestPhaseCompatibilityObservation() {
+  return {
+    observedAt: TASK79_TEST_PHASE_COMPATIBILITY_OBSERVED_AT,
+    nextReviewAt: TASK79_TEST_PHASE_COMPATIBILITY_NEXT_REVIEW_AT,
+    protectedMainSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+    sourceCandidateHeadSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA,
+    observedRemoteHeadSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA,
+    pullRequestNumber: 82,
+    pullRequestHeadSha: TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA,
+    pullRequestState: "OPEN",
+    pullRequestIsDraft: true,
+    pullRequestMergeable: "MERGEABLE",
+    pullRequestMergeStateStatus: "CLEAN",
+    sourceAhead: 10,
+    sourceBehind: 0
+  };
+}
+
+function task79TestPhaseCompatibilityLifecycle() {
+  return {
+    status: TASK79_TEST_PHASE_COMPATIBILITY_STATUS,
+    mode: "strict-additive-phase-stable-final-transition",
+    sourceBinding: task79TestPhaseCompatibilitySourceBinding(),
+    sourceCompletionEvidence: task79TestPhaseCompatibilitySourceCompletionEvidence(),
+    observation: task79TestPhaseCompatibilityObservation(),
+    authorizationBoundary: task79TestPhaseCompatibilityAuthorizationBoundary()
+  };
+}
+
+function task79TestPhaseCompatibilityReceipt() {
+  return {
+    schemaVersion: "sena-registry-reconciliation-receipt/v1",
+    receiptKind: TASK79_TEST_PHASE_COMPATIBILITY_RECEIPT_KIND,
+    taskId: PROTECTED_CURRENTNESS_REPAIR_TASK_ID,
+    ownerKey: PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY,
+    scope: [...EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS],
+    sourceBinding: task79TestPhaseCompatibilitySourceBinding(),
+    sourceCompletionEvidence: task79TestPhaseCompatibilitySourceCompletionEvidence(),
+    observation: task79TestPhaseCompatibilityObservation(),
+    authorizationBoundary: task79TestPhaseCompatibilityAuthorizationBoundary()
+  };
+}
+
+function validateTask79TestPhaseCompatibilityLifecycle(lifecycle) {
+  if (!sameJson(lifecycle, task79TestPhaseCompatibilityLifecycle())) {
+    throw new Error("rule=task7.9-test-phase-compatibility-lifecycle-invalid");
+  }
+  return lifecycle;
+}
+
+function validateTask79TestPhaseCompatibilityReceipt(receipt) {
+  if (!sameJson(receipt, task79TestPhaseCompatibilityReceipt())) {
+    throw new Error("rule=task7.9-test-phase-compatibility-receipt-invalid");
+  }
+  return receipt;
+}
+
 function validateTask77CombinedCurrentnessLifecycle(lifecycle) {
   assertEvidenceFlowCurrentnessOrderedKeys(
     lifecycle,
@@ -6599,6 +6816,116 @@ export function validateTask78FinalCompatibilityTransition(
   return lifecycle;
 }
 
+export function task79TestPhaseCompatibilityExpectedCandidate(sourceRegistry) {
+  const expected = evidenceFlowCurrentnessClone(sourceRegistry);
+  expected.updatedAt = TASK79_TEST_PHASE_COMPATIBILITY_OBSERVED_AT;
+  const item = task77Pr82WorkItem(expected);
+  const branch = task77Pr82Branch(expected);
+  if (!item || !branch) {
+    throw new Error("rule=task7.9-test-phase-compatibility-source-invalid");
+  }
+  item.headSha = TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA;
+  item.aheadBehind = { baseRef: "origin/main", ahead: 10, behind: 0 };
+  item.lastObservedAt = TASK79_TEST_PHASE_COMPATIBILITY_OBSERVED_AT;
+  item.nextReviewAt = TASK79_TEST_PHASE_COMPATIBILITY_NEXT_REVIEW_AT;
+  item.prHeadSha = TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA;
+  item.dirtyState =
+    "task7.9-test-phase-compatibility-candidate-awaiting-native-draft-push";
+  item.evidenceState = {
+    local: "exact Task7.8 completion head 203dd6d is clean and the bounded Task7.9 verifier/test phase compatibility correction is staged only with its exact registry currentness companion",
+    ci: "exact Task7.8 completion head 203dd6d passed build run 33637780735 and both repository-security runs 33637780721 and 33637771373 with zero annotations; the Task7.9 correction and later registry-only final head each require fresh exact-head gates before Ready or merge",
+    merged: "PR82 remains OPEN and Draft at exact cached/live remote and PR head 203dd6d; Ready and merge remain unauthorized during the Task7.9 correction",
+    deployed: item.evidenceState.deployed,
+    live: "the 2026-09-02T14:05:03Z observation binds protected main 969a206, local source/cached/live remote/Draft PR82 head 203dd6d, ahead 10/behind 0, exact three-path scope, and zero Ready merge deletion deployment or PR46 mutation authority"
+  };
+  item[TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY] =
+    task79TestPhaseCompatibilityLifecycle();
+  branch.headSha = TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA;
+  branch.remoteHeadSha = TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA;
+  branch.remoteObservedAt = TASK79_TEST_PHASE_COMPATIBILITY_OBSERVED_AT;
+  branch.prHeadSha = TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA;
+  branch.lastObservedAt = TASK79_TEST_PHASE_COMPATIBILITY_OBSERVED_AT;
+  branch.lastCommitAt = "2026-09-02T21:45:11+08:00";
+  branch.nextReviewAt = TASK79_TEST_PHASE_COMPATIBILITY_NEXT_REVIEW_AT;
+  branch.closeout =
+    "exact local/cached/live/PR82 source head 203dd6d is ahead 10/behind 0 and remains OPEN/Draft/MERGEABLE/CLEAN; only the bounded three-path Task7.9 test-phase correction commit and ordinary Draft push are authorized after gates; Ready, merge, PR46 mutation, cleanup, deletion, worktree/orphan/ref/tag/quarantine, provider, deployment, and history mutation remain unauthorized";
+  expected.releaseReceipts.push(task79TestPhaseCompatibilityReceipt());
+  return expected;
+}
+
+function validateTask79TestPhaseCompatibilitySource(sourceRegistry) {
+  const receipts = sourceRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(receipts) ||
+    receipts.length !== TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_RECEIPT_COUNT ||
+    sha256Buffer(Buffer.from(JSON.stringify(receipts))) !==
+      TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_RECEIPT_SHA256 ||
+    !gitObjectExists(`${TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA}^{commit}`)
+  ) {
+    throw new Error("rule=task7.9-test-phase-compatibility-source-invalid");
+  }
+  try {
+    const committed = loadRegistryFromCommit(
+      TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA
+    ).parsed;
+    if (
+      gitText(["rev-parse", `${TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA}^{tree}`]).trim() !==
+        TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`]).trim() !==
+        TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText(["rev-parse", `${TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`]).trim() !==
+        TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText(["rev-parse", `${TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`]).trim() !==
+        TASK79_TEST_PHASE_COMPATIBILITY_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(committed, sourceRegistry)
+    ) {
+      throw new Error("source identity mismatch");
+    }
+  } catch {
+    throw new Error("rule=task7.9-test-phase-compatibility-source-invalid");
+  }
+  return sourceRegistry;
+}
+
+export function validateTask79TestPhaseCompatibilityTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    task77Pr82WorkItem(sourceRegistry)?.[
+      TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY
+    ]
+  ) {
+    throw new Error("rule=task7.9-test-phase-compatibility-transition-replay");
+  }
+  validateTask79TestPhaseCompatibilitySource(sourceRegistry);
+  const sourceReceipts = sourceRegistry.releaseReceipts;
+  const candidateReceipts = candidateRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(candidateReceipts) ||
+    candidateReceipts.length !== sourceReceipts.length + 1 ||
+    !sourceReceipts.every((receipt, index) =>
+      sameJson(receipt, candidateReceipts[index])
+    )
+  ) {
+    throw new Error("rule=task7.9-test-phase-compatibility-receipt-invalid");
+  }
+  const lifecycle = task77Pr82WorkItem(candidateRegistry)?.[
+    TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY
+  ];
+  validateTask79TestPhaseCompatibilityLifecycle(lifecycle);
+  validateTask79TestPhaseCompatibilityReceipt(candidateReceipts.at(-1));
+  if (
+    !sameJson(
+      candidateRegistry,
+      task79TestPhaseCompatibilityExpectedCandidate(sourceRegistry)
+    )
+  ) {
+    throw new Error("rule=task7.9-test-phase-compatibility-field-scope-drift");
+  }
+  return lifecycle;
+}
+
 export function validateEvidenceFlowCurrentnessLifecycleTransition(
   sourceRegistry,
   candidateRegistry
@@ -6673,6 +7000,10 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     ...exactTask77Pr82PushCorrectionSequence,
     TASK78_FINAL_COMPATIBILITY_RECEIPT_KIND
   ];
+  const exactTask79CompatibilitySequence = [
+    ...exactTask78CompatibilitySequence,
+    TASK79_TEST_PHASE_COMPATIBILITY_RECEIPT_KIND
+  ];
   const exactFinalSequence = [
     PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
     PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
@@ -6688,21 +7019,30 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     ...exactTask78CompatibilitySequence,
     PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
   ];
+  const exactFinalAfterTask79CompatibilitySequence = [
+    ...exactTask79CompatibilitySequence,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
   const pr82PushCorrectionLifecycle = task77Pr82WorkItem(registry)?.[
     TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
   ];
   const task78CompatibilityLifecycle = task77Pr82WorkItem(registry)?.[
     TASK78_FINAL_COMPATIBILITY_LIFECYCLE_KEY
   ];
+  const task79CompatibilityLifecycle = task77Pr82WorkItem(registry)?.[
+    TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY
+  ];
   const exactSequenceAllowed =
     (protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS &&
       (sameJson(suffixReceiptKinds, exactCorrectionSequence) ||
         sameJson(suffixReceiptKinds, exactTask77Pr82PushCorrectionSequence) ||
-        sameJson(suffixReceiptKinds, exactTask78CompatibilitySequence))) ||
+        sameJson(suffixReceiptKinds, exactTask78CompatibilitySequence) ||
+        sameJson(suffixReceiptKinds, exactTask79CompatibilitySequence))) ||
     (protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS &&
       (sameJson(suffixReceiptKinds, exactFinalSequence) ||
         sameJson(suffixReceiptKinds, exactFinalAfterTask77Pr82PushSequence) ||
-        sameJson(suffixReceiptKinds, exactFinalAfterTask78CompatibilitySequence)));
+        sameJson(suffixReceiptKinds, exactFinalAfterTask78CompatibilitySequence) ||
+        sameJson(suffixReceiptKinds, exactFinalAfterTask79CompatibilitySequence)));
   if (
     !item ||
     !branch ||
@@ -6727,12 +7067,15 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     receipts.filter(
       (entry) => entry?.receiptKind === TASK78_FINAL_COMPATIBILITY_RECEIPT_KIND
     ).length !== (task78CompatibilityLifecycle ? 1 : 0) ||
+    receipts.filter(
+      (entry) => entry?.receiptKind === TASK79_TEST_PHASE_COMPATIBILITY_RECEIPT_KIND
+    ).length !== (task79CompatibilityLifecycle ? 1 : 0) ||
     receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT]?.receiptKind !==
       EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND ||
     receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 1]?.receiptKind !==
       TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
   ) {
-    throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+    throw new Error("rule=evidenceflow-currentness-snapshot-invalid stage=sequence");
   }
   validateEvidenceFlowCurrentnessLifecycle(lifecycle);
   validateEvidenceFlowCurrentnessReceipt(
@@ -6758,6 +7101,12 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
       receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 3]
     );
   }
+  if (task79CompatibilityLifecycle) {
+    validateTask79TestPhaseCompatibilityLifecycle(task79CompatibilityLifecycle);
+    validateTask79TestPhaseCompatibilityReceipt(
+      receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 4]
+    );
+  }
   let expected = evidenceFlowCurrentnessExpectedCandidate(
     evidenceFlowCurrentnessFrozenSourceRegistry()
   );
@@ -6766,6 +7115,9 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
   }
   if (task78CompatibilityLifecycle) {
     expected = task78FinalCompatibilityExpectedCandidate(expected);
+  }
+  if (task79CompatibilityLifecycle) {
+    expected = task79TestPhaseCompatibilityExpectedCandidate(expected);
   }
   const expectedItem = evidenceFlowCurrentnessWorkItem(expected);
   const expectedBranch = evidenceFlowCurrentnessBranch(expected);
@@ -6787,7 +7139,7 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY
   ]) {
     if (!sameJson(item[field], expectedItem[field])) {
-      throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+      throw new Error(`rule=evidenceflow-currentness-snapshot-invalid stage=item field=${field}`);
     }
   }
   for (const field of [
@@ -6806,7 +7158,7 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     "closeout"
   ]) {
     if (!sameJson(branch[field], expectedBranch[field])) {
-      throw new Error("rule=evidenceflow-currentness-snapshot-invalid");
+      throw new Error(`rule=evidenceflow-currentness-snapshot-invalid stage=branch field=${field}`);
     }
   }
   const retirementItem = task77BranchRetirementWorkItem(registry);
@@ -6832,7 +7184,7 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     }
   }
   if (
-    (pr82PushCorrectionLifecycle || task78CompatibilityLifecycle) &&
+    (pr82PushCorrectionLifecycle || task78CompatibilityLifecycle || task79CompatibilityLifecycle) &&
     protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
   ) {
     const repairItem = task77Pr82WorkItem(registry);
@@ -6850,6 +7202,9 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
       TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY,
       ...(task78CompatibilityLifecycle
         ? [TASK78_FINAL_COMPATIBILITY_LIFECYCLE_KEY]
+        : []),
+      ...(task79CompatibilityLifecycle
+        ? [TASK79_TEST_PHASE_COMPATIBILITY_LIFECYCLE_KEY]
         : [])
     ]) {
       if (!sameJson(repairItem?.[field], expectedRepairItem?.[field])) {

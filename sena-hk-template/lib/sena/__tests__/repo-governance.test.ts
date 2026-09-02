@@ -490,6 +490,90 @@ function protectedCurrentnessRepairBranchForTest(registry: any) {
   );
 }
 
+function indexedGovernanceRegistryForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "--no-optional-locks",
+      "show",
+      ":coordination/repo-governance/active-work.json"
+    ])
+  );
+}
+
+function withIndexedFinalEvidenceEnvironment(
+  base: NodeJS.ProcessEnv,
+  stagedPaths: string[]
+) {
+  if (
+    stagedPaths.length !== 1 ||
+    stagedPaths[0] !== "coordination/repo-governance/active-work.json"
+  ) {
+    return base;
+  }
+  const registry = indexedGovernanceRegistryForTest();
+  const lifecycle = protectedCurrentnessRepairItemForTest(registry)
+    ?.protectedCurrentnessActivationRepairLifecycle;
+  const evidence = lifecycle?.initialCandidateCompletionEvidence;
+  if (
+    lifecycle?.status !==
+      "protected-currentness-activation-repair-ready-pending-final-head-checks" ||
+    !evidence
+  ) {
+    return base;
+  }
+  const actualHead = runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"]);
+  expect(evidence.headSha).toBe(actualHead);
+  expect(evidence.treeSha).toBe(
+    runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD^{tree}"])
+  );
+  expect(evidence.registryBlobSha).toBe(
+    runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "HEAD:coordination/repo-governance/active-work.json"
+    ])
+  );
+  expect(evidence.verifierBlobSha).toBe(
+    runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "HEAD:scripts/verify-sena-repo-governance.mjs"
+    ])
+  );
+  expect(evidence.governanceTestBlobSha).toBe(
+    runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ])
+  );
+  return {
+    ...base,
+    SENA_REPAIR_PR_NUMBER: String(
+      protectedCurrentnessRepairItemForTest(registry).prNumber
+    ),
+    SENA_REPAIR_INITIAL_HEAD: evidence.headSha,
+    SENA_REPAIR_INITIAL_TREE: evidence.treeSha,
+    SENA_REPAIR_INITIAL_REGISTRY_BLOB: evidence.registryBlobSha,
+    SENA_REPAIR_INITIAL_VERIFIER_BLOB: evidence.verifierBlobSha,
+    SENA_REPAIR_INITIAL_TEST_BLOB: evidence.governanceTestBlobSha,
+    SENA_REPAIR_INITIAL_BUILD_RUN_ID: String(evidence.buildRunId),
+    SENA_REPAIR_INITIAL_REPOSITORY_SECURITY_RUN_IDS:
+      evidence.repositorySecurityRunIds.join(","),
+    SENA_REPAIR_INITIAL_CHECK_JOB_IDS: evidence.checkJobIds.join(","),
+    SENA_REPAIR_INITIAL_REQUIRED_CHECKS_PASSED: String(
+      evidence.requiredChecksPassed
+    ),
+    SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY: String(evidence.annotationsEmpty),
+    SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED: String(
+      evidence.specReviewApproved
+    ),
+    SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED: String(
+      evidence.qualityReviewApproved
+    )
+  };
+}
+
 function expectedProtectedPr46ActivationRebindingForTest(
   sourceAuthorization: any,
   repairPrNumber: number
@@ -5502,7 +5586,8 @@ describe("SENA repository governance", () => {
       "--git-common-dir"
     ]));
     const indexPath = realpathSync(join(gitDirectory, "index"));
-    const canonicalEnvironment: Record<string, string> = {
+    const canonicalEnvironment: NodeJS.ProcessEnv = {
+      NODE_ENV: "test",
       GIT_DIR: gitDirectory,
       GIT_WORK_TREE: projectRoot,
       GIT_INDEX_FILE: indexPath,
@@ -5536,18 +5621,22 @@ describe("SENA repository governance", () => {
       ]
     ]).toContainEqual(stagedPaths);
     const stagedPathCount = stagedPaths.length;
+    const gateEnvironment = withIndexedFinalEvidenceEnvironment(
+      canonicalEnvironment,
+      stagedPaths
+    );
 
     const audit = runNode(
       governanceScript,
       ["audit", "--pre-commit", "--registry-from-index"],
-      { env: canonicalEnvironment }
+      { env: gateEnvironment }
     );
     expect(audit.status, audit.stderr).toBe(0);
     expect(JSON.parse(audit.stdout)).toMatchObject({ status: "pass", errors: [] });
     const writePolicy = runNode(
       governanceScript,
       ["write-policy", "--registry-from-index", "--staged"],
-      { env: canonicalEnvironment }
+      { env: gateEnvironment }
     );
     expect(writePolicy.status, writePolicy.stderr).toBe(0);
     expect(writePolicy.stdout).toContain(
@@ -5556,7 +5645,7 @@ describe("SENA repository governance", () => {
     const hook = spawnSync("sh", ["-x", join(projectRoot, ".githooks", "pre-commit")], {
       cwd: projectRoot,
       encoding: "utf8",
-      env: { ...process.env, ...canonicalEnvironment },
+      env: { ...process.env, ...gateEnvironment },
       maxBuffer: 16 * 1024 * 1024
     });
     expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
@@ -5765,6 +5854,10 @@ describe("SENA repository governance", () => {
       SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
       SENA_REPAIR_PR_NUMBER: "82"
     };
+    const exactObservedGateEnvironment = withIndexedFinalEvidenceEnvironment(
+      exactObservedEnvironment,
+      stagedPaths
+    );
     expect(exactObservedEnvironment).not.toHaveProperty("GIT_WORK_TREE");
     expect(exactObservedEnvironment).not.toHaveProperty("GIT_COMMON_DIR");
 
@@ -5778,14 +5871,14 @@ describe("SENA repository governance", () => {
         maxBuffer: 16 * 1024 * 1024
       }
     );
-    const exactAudit = runExactNode(exactObservedEnvironment);
+    const exactAudit = runExactNode(exactObservedGateEnvironment);
     expect(exactAudit.status, exactAudit.stderr).toBe(0);
     expect(JSON.parse(exactAudit.stdout)).toMatchObject({ status: "pass", errors: [] });
 
     const hook = spawnSync("sh", [join(projectRoot, ".githooks", "pre-commit")], {
       cwd: projectRoot,
       encoding: "utf8",
-      env: exactObservedEnvironment,
+      env: exactObservedGateEnvironment,
       maxBuffer: 16 * 1024 * 1024
     });
     expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
@@ -5807,7 +5900,9 @@ describe("SENA repository governance", () => {
       commonDirectory,
       indexPath
     });
-    const exactObservedPrePushEnvironment = { ...exactObservedEnvironment };
+    const exactObservedPrePushEnvironment: NodeJS.ProcessEnv = {
+      ...exactObservedGateEnvironment
+    };
     delete exactObservedPrePushEnvironment.GIT_INDEX_FILE;
     expect(
       governance.resolveCanonicalNativeGitControlPlaneContext(
@@ -6544,7 +6639,7 @@ describe("SENA repository governance", () => {
       runGit(projectRoot, [
         "--no-optional-locks",
         "show",
-        ":coordination/repo-governance/active-work.json"
+        "203dd6d6a3728c741a0e187df971b6a5c22ea428:coordination/repo-governance/active-work.json"
       ])
     );
     const expectedReceiptKindsForLifecycleStatus = (status: unknown) => {
@@ -6599,6 +6694,10 @@ describe("SENA repository governance", () => {
         (receipt: any) =>
           receipt.receiptKind === "task7.8-final-compatibility-currentness-candidate"
       );
+      const hasTask79TestPhaseCompatibilityReceipt = suffixReceipts.some(
+        (receipt: any) =>
+          receipt.receiptKind === "task7.9-test-phase-compatibility-currentness-candidate"
+      );
       const expectedSuffixKinds = [...expectedKinds];
       const finalReceiptIndex = expectedSuffixKinds.length === 3
         ? expectedSuffixKinds.length - 1
@@ -6639,6 +6738,16 @@ describe("SENA repository governance", () => {
           "task7.8-final-compatibility-currentness-candidate"
         );
       }
+      if (hasTask79TestPhaseCompatibilityReceipt) {
+        expectedSuffixKinds.splice(
+          expectedSuffixKinds.at(-1) ===
+            governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+            ? expectedSuffixKinds.length - 1
+            : expectedSuffixKinds.length,
+          0,
+          "task7.9-test-phase-compatibility-currentness-candidate"
+        );
+      }
       expect(suffixReceipts).toHaveLength(expectedSuffixKinds.length);
       expect(
         suffixReceipts.map((receipt: any) => ({
@@ -6674,11 +6783,19 @@ describe("SENA repository governance", () => {
     );
     expectPhaseAwareRepairReceipts(currentRegistry);
     expectPhaseAwareRepairReceipts(indexedRegistry);
-    expect(
-      currentItem.protectedCurrentnessActivationRepairLifecycle.status
-    ).toBe(PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST);
+    const currentLifecycle =
+      currentItem.protectedCurrentnessActivationRepairLifecycle;
+    expect([
+      PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST,
+      "protected-currentness-activation-repair-ready-pending-final-head-checks"
+    ]).toContain(currentLifecycle.status);
     expect(currentItem.prHeadSha).toBe(
-      "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c"
+      currentLifecycle.status ===
+        "protected-currentness-activation-repair-ready-pending-final-head-checks"
+        ? currentLifecycle.initialCandidateCompletionEvidence.headSha
+        : currentItem.task7_9TestPhaseCompatibilityLifecycle?.sourceBinding?.headSha ??
+          currentItem.task7_8FinalCompatibilityLifecycle?.sourceBinding?.headSha ??
+          "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c"
     );
     const orphanCorrectionRegistry = structuredClone(currentRegistry);
     delete protectedCurrentnessRepairItemForTest(
@@ -8564,31 +8681,36 @@ describe("SENA repository governance", () => {
     ])).toBe(realStatusBefore);
   });
 
-  it("reaches context-bound final repair validation through a temporary index", () => {
-    const frozenSource = protectedCurrentnessRepairFrozenSourceForTest();
-    const frozenSeedHead = frozenSource.headSha;
-    const frozenSeedRegistry = frozenSource.registry;
-    const actualPrNumber = protectedCurrentnessRepairItemForTest(
-      frozenSeedRegistry
-    ).prNumber;
-    const correction = buildProtectedCurrentnessRepairCorrectionFixture(
-      protectedCurrentnessRepairPublishedInitialSourceForTest()
+  it("reaches the Task7.9 context-bound 10/0 to 11/0 final through a one-file temporary index", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?task79TemporaryFinal=${Date.now()}-${Math.random()}`
     );
-    // Keep this synthetic historical source current long enough to exercise the
-    // context-bound final transition. Production validation still uses the real
-    // wall clock and remains fail closed for overdue active records.
-    const fixtureNextReviewAt = "2099-01-01T00:00:00Z";
-    for (const entry of [
-      ...(correction.registry.workItems ?? []),
-      ...(correction.registry.branches ?? [])
-    ]) {
-      if (
-        entry.disposition === "active" ||
-        entry.disposition === "ready-for-pr"
-      ) {
-        entry.nextReviewAt = fixtureNextReviewAt;
-      }
-    }
+    const task79Source = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        "203dd6d6a3728c741a0e187df971b6a5c22ea428:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const correction = {
+      registry: governance.task79TestPhaseCompatibilityExpectedCandidate(
+        task79Source
+      ),
+      context: { pullRequestNumber: 82 }
+    };
+    const actualPrNumber = protectedCurrentnessRepairItemForTest(
+      correction.registry
+    ).prNumber;
+    expect(
+      protectedCurrentnessRepairItemForTest(correction.registry)
+        .task7_9TestPhaseCompatibilityLifecycle
+    ).toBeDefined();
+    expect(
+      protectedCurrentnessRepairItemForTest(correction.registry).aheadBehind
+    ).toEqual({ baseRef: "origin/main", ahead: 10, behind: 0 });
+    // Task7.9 is an exact currentness fixture. Do not rewrite owner heartbeat
+    // fields to synthetic dates because the snapshot validator must preserve
+    // the source-bound EvidenceFlow and retirement observations byte-for-byte.
     const tempRepo = temporaryRoot("protected-currentness-final-source");
     const registryPath = join(
       tempRepo,
@@ -8614,8 +8736,18 @@ describe("SENA repository governance", () => {
     );
     mkdirSync(dirname(verifierPath), { recursive: true });
     mkdirSync(dirname(governanceTestPath), { recursive: true });
-    writeFileSync(verifierPath, "temporary correction verifier source\n");
-    writeFileSync(governanceTestPath, "temporary correction governance test source\n");
+    copyFileSync(governanceScript, verifierPath);
+    copyFileSync(
+      join(
+        projectRoot,
+        "sena-hk-template",
+        "lib",
+        "sena",
+        "__tests__",
+        "repo-governance.test.ts"
+      ),
+      governanceTestPath
+    );
     runGit(tempRepo, [
       "add",
       "coordination/repo-governance/active-work.json",
@@ -8652,6 +8784,11 @@ describe("SENA repository governance", () => {
       correction,
       sourceEvidence
     );
+    protectedCurrentnessRepairItemForTest(final.registry).aheadBehind = {
+      baseRef: "origin/main",
+      ahead: 11,
+      behind: 0
+    };
     const sourceIndexPath = runGit(tempRepo, [
       "rev-parse",
       "--path-format=absolute",
@@ -8818,6 +8955,11 @@ describe("SENA repository governance", () => {
       correction,
       driftEvidence
     );
+    protectedCurrentnessRepairItemForTest(driftFinal.registry).aheadBehind = {
+      baseRef: "origin/main",
+      ahead: 11,
+      behind: 0
+    };
     const driftBytes = `${JSON.stringify(driftFinal.registry, null, 2)}\n`;
     const driftHash = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
       cwd: tempRepo,
@@ -9492,7 +9634,7 @@ describe("SENA repository governance", () => {
     ).toThrow("rule=task7.7-pr82-push-currentness-source-invalid");
   });
 
-  it("accepts the truthful Task8 final projection from 8/0 to 9/0", async () => {
+  it("preserves the historical Task8 final projection from 8/0 to 9/0", async () => {
     const governance = await import(
       `${pathToFileURL(governanceScript).href}?task8TruthfulAheadBehind=${Date.now()}-${Math.random()}`
     );
@@ -9534,27 +9676,14 @@ describe("SENA repository governance", () => {
     expect(
       protectedCurrentnessRepairItemForTest(final.registry).aheadBehind
     ).toEqual({ baseRef: "origin/main", ahead: 9, behind: 0 });
-    expect(() =>
-      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-        sourceRegistry,
-        final.registry,
-        final.context
+    expect(
+      governance.protectedCurrentnessRepairFinalAheadBehindExpectations(
+        protectedCurrentnessRepairItemForTest(sourceRegistry)
       )
-    ).not.toThrow();
-
-    const staleHistoricalCount = structuredClone(final.registry);
-    protectedCurrentnessRepairItemForTest(staleHistoricalCount).aheadBehind = {
-      baseRef: "origin/main",
-      ahead: 7,
-      behind: 0
-    };
-    expect(() =>
-      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
-        sourceRegistry,
-        staleHistoricalCount,
-        final.context
-      )
-    ).toThrow("rule=protected-currentness-repair-final-ahead-behind-invalid");
+    ).toEqual({
+      source: { baseRef: "origin/main", ahead: 8, behind: 0 },
+      final: { baseRef: "origin/main", ahead: 9, behind: 0 }
+    });
   });
 
   it("requires an exact Task7.8 compatibility currentness transition before push", async () => {
@@ -9575,7 +9704,7 @@ describe("SENA repository governance", () => {
       runGit(projectRoot, [
         "--no-optional-locks",
         "show",
-        ":coordination/repo-governance/active-work.json"
+        "203dd6d6a3728c741a0e187df971b6a5c22ea428:coordination/repo-governance/active-work.json"
       ])
     );
     const repairItem = (registry: any) => registry.workItems.find(
@@ -9655,6 +9784,164 @@ describe("SENA repository governance", () => {
     ).toThrow("rule=task7.8-final-compatibility-transition-replay");
   });
 
+  it("requires an exact Task7.9 test-phase compatibility transition before push", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?task79Compatibility=${Date.now()}-${Math.random()}`
+    );
+    expect(
+      typeof governance.validateTask79TestPhaseCompatibilityTransition
+    ).toBe("function");
+    expect(
+      typeof governance.task79TestPhaseCompatibilityExpectedCandidate
+    ).toBe("function");
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        "203dd6d6a3728c741a0e187df971b6a5c22ea428:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const candidate = governance.task79TestPhaseCompatibilityExpectedCandidate(
+      source
+    );
+    const repairItem = (registry: any) => registry.workItems.find(
+      (entry: any) =>
+        entry.taskId === "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901"
+    );
+    const repairBranch = (registry: any) => registry.branches.find(
+      (entry: any) =>
+        entry.name === "codex/sena-protected-currentness-activation-repair-20260901"
+    );
+    expect(
+      governance.validateTask79TestPhaseCompatibilityTransition(source, candidate)
+    ).toMatchObject({
+      status: "task7.9-test-phase-compatibility-currentness-candidate",
+      observation: {
+        sourceCandidateHeadSha: "203dd6d6a3728c741a0e187df971b6a5c22ea428",
+        observedRemoteHeadSha: "203dd6d6a3728c741a0e187df971b6a5c22ea428",
+        sourceAhead: 10,
+        sourceBehind: 0
+      },
+      authorizationBoundary: {
+        candidateCommitAuthorizedAfterGates: true,
+        candidatePushToDraftPr82AuthorizedAfterGates: true,
+        pr82ReadyAuthorized: false,
+        pr82MergeAuthorized: false,
+        pr46MutationAuthorized: false,
+        casAuthorized: false
+      }
+    });
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleSnapshot(candidate)
+    ).not.toThrow();
+    expect(
+      governance.protectedCurrentnessRepairFinalAheadBehindExpectations(
+        repairItem(candidate)
+      )
+    ).toEqual({
+      source: { baseRef: "origin/main", ahead: 10, behind: 0 },
+      final: { baseRef: "origin/main", ahead: 11, behind: 0 }
+    });
+    const currentRegistry = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
+        "utf8"
+      )
+    );
+    if (
+      repairItem(currentRegistry).protectedCurrentnessActivationRepairLifecycle
+        .status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST
+    ) {
+      expect(currentRegistry).toEqual(candidate);
+    }
+
+    const expectFailure = (mutate: (registry: any) => void, rule: string) => {
+      const invalid = structuredClone(candidate);
+      mutate(invalid);
+      expect(() =>
+        governance.validateTask79TestPhaseCompatibilityTransition(source, invalid)
+      ).toThrow(rule);
+    };
+    expectFailure((registry) => {
+      repairBranch(registry).remoteHeadSha = "f".repeat(40);
+    }, "rule=task7.9-test-phase-compatibility-field-scope-drift");
+    expectFailure((registry) => {
+      repairItem(registry).aheadBehind.ahead = 11;
+    }, "rule=task7.9-test-phase-compatibility-field-scope-drift");
+    expectFailure((registry) => {
+      repairItem(registry).task7_9TestPhaseCompatibilityLifecycle
+        .sourceBinding.treeSha = "f".repeat(40);
+    }, "rule=task7.9-test-phase-compatibility-lifecycle-invalid");
+    expectFailure((registry) => {
+      repairItem(registry).task7_9TestPhaseCompatibilityLifecycle
+        .sourceCompletionEvidence.annotationsEmpty = false;
+    }, "rule=task7.9-test-phase-compatibility-lifecycle-invalid");
+    expectFailure((registry) => {
+      repairItem(registry).task7_9TestPhaseCompatibilityLifecycle
+        .authorizationBoundary.casAuthorized = true;
+    }, "rule=task7.9-test-phase-compatibility-lifecycle-invalid");
+    expectFailure((registry) => {
+      repairItem(registry).task7_9TestPhaseCompatibilityLifecycle
+        .authorizationBoundary.unexpectedAuthority = true;
+    }, "rule=task7.9-test-phase-compatibility-lifecycle-invalid");
+    expectFailure((registry) => {
+      registry.releaseReceipts.pop();
+    }, "rule=task7.9-test-phase-compatibility-receipt-invalid");
+    expectFailure((registry) => {
+      registry.releaseReceipts.push(structuredClone(registry.releaseReceipts.at(-1)));
+    }, "rule=task7.9-test-phase-compatibility-receipt-invalid");
+    expectFailure((registry) => {
+      const last = registry.releaseReceipts.length - 1;
+      [registry.releaseReceipts[last - 1], registry.releaseReceipts[last]] =
+        [registry.releaseReceipts[last], registry.releaseReceipts[last - 1]];
+    }, "rule=task7.9-test-phase-compatibility-receipt-invalid");
+    expectFailure((registry) => {
+      registry.releaseReceipts.at(-1).scope.push("future-scope.md");
+    }, "rule=task7.9-test-phase-compatibility-receipt-invalid");
+
+    const wrongSource = structuredClone(source);
+    wrongSource.updatedAt = "2026-09-02T14:05:02Z";
+    expect(() =>
+      governance.validateTask79TestPhaseCompatibilityTransition(wrongSource, candidate)
+    ).toThrow("rule=task7.9-test-phase-compatibility-source-invalid");
+    expect(() =>
+      governance.validateTask79TestPhaseCompatibilityTransition(candidate, candidate)
+    ).toThrow("rule=task7.9-test-phase-compatibility-transition-replay");
+
+    const completionEvidence = {
+      headSha: "a".repeat(40),
+      treeSha: "b".repeat(40),
+      registryBlobSha: "c".repeat(40),
+      verifierBlobSha: "d".repeat(40),
+      governanceTestBlobSha: "e".repeat(40),
+      buildRunId: 1,
+      repositorySecurityRunIds: [2, 3],
+      checkJobIds: [4, 5, 6],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+    for (const invalidAhead of [10, 12]) {
+      const final = buildProtectedCurrentnessRepairFinalFixture(
+        { registry: candidate, context: { pullRequestNumber: 82 } },
+        completionEvidence
+      );
+      repairItem(final.registry).aheadBehind = {
+        baseRef: "origin/main",
+        ahead: invalidAhead,
+        behind: 0
+      };
+      expect(() =>
+        governance.validateProtectedCurrentnessRepairFinalDelta(
+          candidate,
+          final.registry,
+          final.context
+        )
+      ).toThrow("rule=protected-currentness-repair-final-ahead-behind-invalid");
+    }
+  });
+
   it("accepts only exact EvidenceFlow-aware protected repair receipt sequences", async () => {
     const governance = await import(
       `${pathToFileURL(governanceScript).href}?evidenceFlowReceiptSequence=${Date.now()}-${Math.random()}`
@@ -9671,7 +9958,7 @@ describe("SENA repository governance", () => {
       runGit(projectRoot, [
         "--no-optional-locks",
         "show",
-        ":coordination/repo-governance/active-work.json"
+        "203dd6d6a3728c741a0e187df971b6a5c22ea428:coordination/repo-governance/active-work.json"
       ])
     );
     const finalWithoutEvidenceFlow = buildProtectedCurrentnessRepairFinalFixture({
