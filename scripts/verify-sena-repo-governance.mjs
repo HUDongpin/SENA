@@ -413,8 +413,7 @@ export function resolveCanonicalNativeGitControlPlaneContext(
     const indexPath = realpathSync(indexMarker);
     const requiredEnvironmentPaths = [
       environment.SENA_GOVERNANCE_TARGET_ROOT,
-      environment.GIT_DIR,
-      environment.GIT_INDEX_FILE
+      environment.GIT_DIR
     ];
     if (
       requiredEnvironmentPaths.some(
@@ -425,7 +424,13 @@ export function resolveCanonicalNativeGitControlPlaneContext(
       ) ||
       realpathSync(environment.SENA_GOVERNANCE_TARGET_ROOT) !== workTree ||
       realpathSync(environment.GIT_DIR) !== gitDirectory ||
-      realpathSync(environment.GIT_INDEX_FILE) !== indexPath ||
+      (Object.hasOwn(environment, "GIT_INDEX_FILE") &&
+        (
+          typeof environment.GIT_INDEX_FILE !== "string" ||
+          environment.GIT_INDEX_FILE.length === 0 ||
+          resolve(environment.GIT_INDEX_FILE) !== environment.GIT_INDEX_FILE ||
+          realpathSync(environment.GIT_INDEX_FILE) !== indexPath
+        )) ||
       (Object.hasOwn(environment, "GIT_WORK_TREE") &&
         (
           typeof environment.GIT_WORK_TREE !== "string" ||
@@ -3801,6 +3806,22 @@ function validateProtectedCurrentnessRepairPrState(
     : lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
       ? lifecycle.additiveCorrectionAuthorization?.correctionSourceHeadSha
       : lifecycle.initialCandidateCompletionEvidence?.headSha;
+  const pr82PushCorrection = item?.[
+    TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+  ];
+  if (pr82PushCorrection) {
+    validateTask77Pr82PushCorrectionLifecycle(pr82PushCorrection);
+  }
+  const pr82PushCorrectionActive = Boolean(
+    pr82PushCorrection &&
+      lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
+  );
+  const expectedLocalHead = pr82PushCorrectionActive
+    ? TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA
+    : expectedHead;
+  const expectedRemoteHead = pr82PushCorrectionActive
+    ? EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA
+    : expectedHead;
   if (
     item.noPrReason !== null ||
     branch.upstream !== `origin/${PROTECTED_CURRENTNESS_REPAIR_BRANCH}` ||
@@ -3820,8 +3841,8 @@ function validateProtectedCurrentnessRepairPrState(
     item.prIsDraft !== true ||
     item.prReadyForReview !== false ||
     item.mergeAuthorized !== false ||
-    item.headSha !== expectedHead ||
-    (item.prHeadSha !== expectedHead &&
+    item.headSha !== expectedLocalHead ||
+    (item.prHeadSha !== expectedRemoteHead &&
       !(
         lifecycle.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
         options.allowExactFrozenLegacyInitialPrHead === true
@@ -3836,9 +3857,9 @@ function validateProtectedCurrentnessRepairPrState(
     branch.prReadyForReview !== false ||
     branch.mergeAuthorized !== false ||
     branch.remotePresent !== true ||
-    branch.headSha !== expectedHead ||
-    branch.remoteHeadSha !== expectedHead ||
-    branch.prHeadSha !== expectedHead ||
+    branch.headSha !== expectedLocalHead ||
+    branch.remoteHeadSha !== expectedRemoteHead ||
+    branch.prHeadSha !== expectedRemoteHead ||
     branch.mergeable !== "MERGEABLE" ||
     branch.mergeStateStatus !== "CLEAN"
   ) {
@@ -3956,6 +3977,10 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
     TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
   ];
+  const exactCorrectionWithTask77Pr82PushSequence = [
+    ...exactCorrectionWithEvidenceFlowSequence,
+    TASK77_PR82_PUSH_CORRECTION_RECEIPT_KIND
+  ];
   const exactFinalSequence = [
     ...exactCorrectionSequence,
     PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
@@ -3964,6 +3989,10 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
     ...exactCorrectionSequence,
     EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
     TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
+  const exactFinalAfterTask77Pr82PushSequence = [
+    ...exactCorrectionWithTask77Pr82PushSequence,
     PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
   ];
   if (
@@ -4003,15 +4032,20 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       suffixReceiptKinds,
       exactCorrectionWithEvidenceFlowSequence
     );
+    const correctionHasTask77Pr82Push = sameJson(
+      suffixReceiptKinds,
+      exactCorrectionWithTask77Pr82PushSequence
+    );
     if (
       !sameJson(suffixReceiptKinds, exactCorrectionSequence) &&
-      !correctionHasEvidenceFlow
+      !correctionHasEvidenceFlow &&
+      !correctionHasTask77Pr82Push
     ) {
       throw new Error(
         "rule=protected-currentness-repair-correction-receipt-delta-invalid"
       );
     }
-    if (correctionHasEvidenceFlow) {
+    if (correctionHasEvidenceFlow || correctionHasTask77Pr82Push) {
       validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
     }
     validateProtectedCurrentnessRepairReceipt(
@@ -4063,10 +4097,18 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       suffixReceiptKinds,
       exactFinalAfterEvidenceFlowSequence
     );
-    if (!sameJson(suffixReceiptKinds, exactFinalSequence) && !finalHasEvidenceFlow) {
+    const finalHasTask77Pr82Push = sameJson(
+      suffixReceiptKinds,
+      exactFinalAfterTask77Pr82PushSequence
+    );
+    if (
+      !sameJson(suffixReceiptKinds, exactFinalSequence) &&
+      !finalHasEvidenceFlow &&
+      !finalHasTask77Pr82Push
+    ) {
       throw new Error("rule=protected-currentness-repair-final-receipt-delta-invalid");
     }
-    if (finalHasEvidenceFlow) {
+    if (finalHasEvidenceFlow || finalHasTask77Pr82Push) {
       validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
     }
     validateProtectedCurrentnessRepairReceipt(
@@ -4084,7 +4126,7 @@ export function validateProtectedCurrentnessRepairLifecycleSnapshot(
       lifecycle.additiveCorrectionAuthorization
     );
     validateProtectedCurrentnessRepairReceipt(
-      receipts[prefixCount + (finalHasEvidenceFlow ? 4 : 2)],
+      receipts[prefixCount + (finalHasTask77Pr82Push ? 5 : finalHasEvidenceFlow ? 4 : 2)],
       PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_SCOPE,
       PROTECTED_CURRENTNESS_REPAIR_FINAL_ACTION,
@@ -5127,6 +5169,29 @@ export function validateProtectedCurrentnessRepairIndexTransition(candidateRegis
     }
     validateEvidenceFlowCurrentnessLifecycleSnapshot(sourceRegistry);
     validateEvidenceFlowCurrentnessLifecycleSnapshot(candidateRegistry);
+    const sourceHasTask77Pr82PushCorrection = Boolean(
+      task77Pr82WorkItem(sourceRegistry)?.[
+        TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+      ]
+    );
+    const candidateHasTask77Pr82PushCorrection = Boolean(
+      task77Pr82WorkItem(candidateRegistry)?.[
+        TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+      ]
+    );
+    if (candidateHasTask77Pr82PushCorrection && !sourceHasTask77Pr82PushCorrection) {
+      if (headSha !== TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA) {
+        throw new Error("rule=task7.7-pr82-push-currentness-source-head-mismatch");
+      }
+      validateTask77Pr82PushCurrentnessCorrection(
+        sourceRegistry,
+        candidateRegistry
+      );
+      return;
+    }
+    if (sourceHasTask77Pr82PushCorrection && !candidateHasTask77Pr82PushCorrection) {
+      throw new Error("rule=task7.7-pr82-push-currentness-snapshot-invalid");
+    }
   }
   protectedCurrentnessRepairLifecycleResolutionFromRegistries(
     sourceRegistry,
@@ -5150,6 +5215,27 @@ const TASK77_COMBINED_CURRENTNESS_STATUS =
   "task7.7-combined-currentness-candidate";
 const TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND =
   "task7.7-combined-currentness-candidate";
+const TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY =
+  "task7_7Pr82PushCurrentnessCorrectionLifecycle";
+const TASK77_PR82_PUSH_CORRECTION_STATUS =
+  "task7.7-pr82-push-currentness-correction";
+const TASK77_PR82_PUSH_CORRECTION_RECEIPT_KIND =
+  "task7.7-pr82-push-currentness-correction";
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA =
+  "a647817893abbee246fca31830328f74dcbaf317";
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_TREE_SHA =
+  "cfa48cb0914111a7eb6246dd315b8576abb76c62";
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_REGISTRY_BLOB_SHA =
+  "018232d34c2dbb2f7bdd70947076f85e6d2e56b5";
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_VERIFIER_BLOB_SHA =
+  "e7db44d8e8e906f3a182a03d56210715d46a3a67";
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_TEST_BLOB_SHA =
+  "7aca5bc094645e71a892b1417476554ea2faf4a3";
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_RECEIPT_COUNT = 44;
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_RECEIPT_SHA256 =
+  "828c968ed0fd6e0d67fb7562ec5cf0cbbc493c8913fa229e1a3adae3b716f980";
+const TASK77_PR82_PUSH_CORRECTION_OBSERVED_AT = "2026-09-02T11:40:00Z";
+const TASK77_PR82_PUSH_CORRECTION_NEXT_REVIEW_AT = "2026-09-03T11:40:00Z";
 const TASK77_COMBINED_CURRENTNESS_OBSERVED_AT = "2026-09-02T10:42:00Z";
 const TASK77_COMBINED_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-03T10:42:00Z";
 const EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA =
@@ -5349,6 +5435,48 @@ const TASK77_COMBINED_CURRENTNESS_RECEIPT_KEYS = [
   "observation",
   "authorizationBoundary"
 ];
+const TASK77_PR82_PUSH_CORRECTION_SOURCE_BINDING_KEYS = [
+  "headSha",
+  "treeSha",
+  "registryBlobSha",
+  "verifierBlobSha",
+  "governanceTestBlobSha",
+  "receiptPrefix"
+];
+const TASK77_PR82_PUSH_CORRECTION_OBSERVATION_KEYS = [
+  "observedAt",
+  "nextReviewAt",
+  "protectedMainSha",
+  "sourceCandidateHeadSha",
+  "observedRemoteHeadSha",
+  "pullRequestNumber",
+  "pullRequestHeadSha",
+  "pullRequestState",
+  "pullRequestIsDraft",
+  "pullRequestMergeable",
+  "pullRequestMergeStateStatus",
+  "sourceAhead",
+  "sourceBehind",
+  "remoteAhead",
+  "remoteBehind"
+];
+const TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEYS = [
+  "status",
+  "mode",
+  "sourceBinding",
+  "observation",
+  "authorizationBoundary"
+];
+const TASK77_PR82_PUSH_CORRECTION_RECEIPT_KEYS = [
+  "schemaVersion",
+  "receiptKind",
+  "taskId",
+  "ownerKey",
+  "scope",
+  "sourceBinding",
+  "observation",
+  "authorizationBoundary"
+];
 const EVIDENCE_FLOW_CURRENTNESS_DIRTY_STATE =
   "unstaged-bounded-76-tracked-10-untracked-currentness-observed-against-protected-main-969a206";
 const EVIDENCE_FLOW_CURRENTNESS_LOCAL_EVIDENCE =
@@ -5380,6 +5508,18 @@ function task77BranchRetirementWorkItem(registry) {
 function task77BranchRetirementBranch(registry) {
   return (registry?.branches ?? []).find(
     (entry) => entry?.name === "codex/sena-branch-retirement-20260829"
+  );
+}
+
+function task77Pr82WorkItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry?.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_ID
+  );
+}
+
+function task77Pr82Branch(registry) {
+  return (registry?.branches ?? []).find(
+    (entry) => entry?.name === PROTECTED_CURRENTNESS_REPAIR_BRANCH
   );
 }
 
@@ -5565,6 +5705,107 @@ function task77CombinedCurrentnessReceipt() {
     observation: task77CombinedCurrentnessObservation(),
     authorizationBoundary: task77CombinedCurrentnessAuthorizationBoundary()
   };
+}
+
+function task77Pr82PushCorrectionSourceBinding() {
+  return {
+    headSha: TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA,
+    treeSha: TASK77_PR82_PUSH_CORRECTION_SOURCE_TREE_SHA,
+    registryBlobSha: TASK77_PR82_PUSH_CORRECTION_SOURCE_REGISTRY_BLOB_SHA,
+    verifierBlobSha: TASK77_PR82_PUSH_CORRECTION_SOURCE_VERIFIER_BLOB_SHA,
+    governanceTestBlobSha: TASK77_PR82_PUSH_CORRECTION_SOURCE_TEST_BLOB_SHA,
+    receiptPrefix: {
+      count: TASK77_PR82_PUSH_CORRECTION_SOURCE_RECEIPT_COUNT,
+      sha256: TASK77_PR82_PUSH_CORRECTION_SOURCE_RECEIPT_SHA256
+    }
+  };
+}
+
+function task77Pr82PushCorrectionObservation() {
+  return {
+    observedAt: TASK77_PR82_PUSH_CORRECTION_OBSERVED_AT,
+    nextReviewAt: TASK77_PR82_PUSH_CORRECTION_NEXT_REVIEW_AT,
+    protectedMainSha: "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+    sourceCandidateHeadSha: TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA,
+    observedRemoteHeadSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA,
+    pullRequestNumber: 82,
+    pullRequestHeadSha: EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA,
+    pullRequestState: "OPEN",
+    pullRequestIsDraft: true,
+    pullRequestMergeable: "MERGEABLE",
+    pullRequestMergeStateStatus: "CLEAN",
+    sourceAhead: 8,
+    sourceBehind: 0,
+    remoteAhead: 7,
+    remoteBehind: 0
+  };
+}
+
+function task77Pr82PushCorrectionLifecycle() {
+  return {
+    status: TASK77_PR82_PUSH_CORRECTION_STATUS,
+    mode: "strict-additive-pr82-remote-currentness-reconciliation",
+    sourceBinding: task77Pr82PushCorrectionSourceBinding(),
+    observation: task77Pr82PushCorrectionObservation(),
+    authorizationBoundary: task77CombinedCurrentnessAuthorizationBoundary()
+  };
+}
+
+function task77Pr82PushCorrectionReceipt() {
+  return {
+    schemaVersion: "sena-registry-reconciliation-receipt/v1",
+    receiptKind: TASK77_PR82_PUSH_CORRECTION_RECEIPT_KIND,
+    taskId: PROTECTED_CURRENTNESS_REPAIR_TASK_ID,
+    ownerKey: PROTECTED_CURRENTNESS_REPAIR_OWNER_KEY,
+    scope: [...EVIDENCE_FLOW_CURRENTNESS_CANDIDATE_PATHS],
+    sourceBinding: task77Pr82PushCorrectionSourceBinding(),
+    observation: task77Pr82PushCorrectionObservation(),
+    authorizationBoundary: task77CombinedCurrentnessAuthorizationBoundary()
+  };
+}
+
+function validateTask77Pr82PushCorrectionLifecycle(lifecycle) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle,
+    TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEYS,
+    "rule=task7.7-pr82-push-currentness-lifecycle-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.sourceBinding,
+    TASK77_PR82_PUSH_CORRECTION_SOURCE_BINDING_KEYS,
+    "rule=task7.7-pr82-push-currentness-lifecycle-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.sourceBinding?.receiptPrefix,
+    ["count", "sha256"],
+    "rule=task7.7-pr82-push-currentness-lifecycle-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.observation,
+    TASK77_PR82_PUSH_CORRECTION_OBSERVATION_KEYS,
+    "rule=task7.7-pr82-push-currentness-lifecycle-invalid"
+  );
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    lifecycle.authorizationBoundary,
+    TASK77_COMBINED_CURRENTNESS_AUTHORIZATION_BOUNDARY_KEYS,
+    "rule=task7.7-pr82-push-currentness-authorization-invalid"
+  );
+  if (!sameJson(lifecycle, task77Pr82PushCorrectionLifecycle())) {
+    throw new Error("rule=task7.7-pr82-push-currentness-lifecycle-invalid");
+  }
+  return lifecycle;
+}
+
+function validateTask77Pr82PushCorrectionReceipt(receipt) {
+  assertEvidenceFlowCurrentnessOrderedKeys(
+    receipt,
+    TASK77_PR82_PUSH_CORRECTION_RECEIPT_KEYS,
+    "rule=task7.7-pr82-push-currentness-receipt-invalid"
+  );
+  if (!sameJson(receipt, task77Pr82PushCorrectionReceipt())) {
+    throw new Error("rule=task7.7-pr82-push-currentness-receipt-invalid");
+  }
+  return receipt;
 }
 
 function validateTask77CombinedCurrentnessLifecycle(lifecycle) {
@@ -5902,6 +6143,114 @@ function evidenceFlowCurrentnessExpectedCandidate(sourceRegistry) {
   return expected;
 }
 
+function task77Pr82PushCorrectionExpectedCandidate(sourceRegistry) {
+  const expected = evidenceFlowCurrentnessClone(sourceRegistry);
+  expected.updatedAt = TASK77_PR82_PUSH_CORRECTION_OBSERVED_AT;
+  const item = task77Pr82WorkItem(expected);
+  const branch = task77Pr82Branch(expected);
+  if (!item || !branch) {
+    throw new Error("rule=task7.7-pr82-push-currentness-source-invalid");
+  }
+  item.headSha = TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA;
+  item.aheadBehind = { baseRef: "origin/main", ahead: 8, behind: 0 };
+  item.lastObservedAt = TASK77_PR82_PUSH_CORRECTION_OBSERVED_AT;
+  item.nextReviewAt = TASK77_PR82_PUSH_CORRECTION_NEXT_REVIEW_AT;
+  item.prHeadSha = EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA;
+  item.dirtyState =
+    "task7.7-pr82-remote-currentness-corrected-awaiting-native-draft-push";
+  item.evidenceState = {
+    local: "exact local source candidate a647817 is clean and one allowed follow-up commit may advance it after gates; no future commit SHA is predeclared",
+    ci: item.evidenceState.ci,
+    merged: "PR82 remains OPEN and Draft; cached/live remote and PR head are exact 44a8147; Ready and merge remain unauthorized",
+    deployed: item.evidenceState.deployed,
+    live: "the 2026-09-02T11:40:00Z currentness correction binds local source a647817, protected main 969a206, cached/live remote and Draft PR82 head 44a8147, exact three-path scope, and no ref deletion or deployment authority"
+  };
+  item[TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY] =
+    task77Pr82PushCorrectionLifecycle();
+  branch.headSha = TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA;
+  branch.remoteHeadSha = EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA;
+  branch.remoteObservedAt = TASK77_PR82_PUSH_CORRECTION_OBSERVED_AT;
+  branch.prHeadSha = EVIDENCE_FLOW_CURRENTNESS_SOURCE_HEAD_SHA;
+  branch.lastObservedAt = TASK77_PR82_PUSH_CORRECTION_OBSERVED_AT;
+  branch.lastCommitAt = "2026-09-02T19:30:18+08:00";
+  branch.nextReviewAt = TASK77_PR82_PUSH_CORRECTION_NEXT_REVIEW_AT;
+  branch.closeout =
+    "exact local source a647817 descends from cached/live/PR82 remote head 44a8147 through allowed three-path governance changes; PR82 remains OPEN/Draft/MERGEABLE/CLEAN and only one ordinary follow-up push is authorized after gates; Ready, merge, PR46 mutation, cleanup, deletion, ref/tag/quarantine, provider, deployment, and history mutation remain unauthorized";
+  expected.releaseReceipts.push(task77Pr82PushCorrectionReceipt());
+  return expected;
+}
+
+function validateTask77Pr82PushCorrectionSource(sourceRegistry) {
+  const receipts = sourceRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(receipts) ||
+    receipts.length !== TASK77_PR82_PUSH_CORRECTION_SOURCE_RECEIPT_COUNT ||
+    sha256Buffer(Buffer.from(JSON.stringify(receipts))) !==
+      TASK77_PR82_PUSH_CORRECTION_SOURCE_RECEIPT_SHA256 ||
+    !gitObjectExists(`${TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA}^{commit}`)
+  ) {
+    throw new Error("rule=task7.7-pr82-push-currentness-source-invalid");
+  }
+  let committed;
+  try {
+    committed = loadRegistryFromCommit(
+      TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA
+    ).parsed;
+    if (
+      gitText(["rev-parse", `${TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA}^{tree}`]).trim() !==
+        TASK77_PR82_PUSH_CORRECTION_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`]).trim() !==
+        TASK77_PR82_PUSH_CORRECTION_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText(["rev-parse", `${TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`]).trim() !==
+        TASK77_PR82_PUSH_CORRECTION_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText(["rev-parse", `${TASK77_PR82_PUSH_CORRECTION_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`]).trim() !==
+        TASK77_PR82_PUSH_CORRECTION_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(committed, sourceRegistry)
+    ) {
+      throw new Error("source identity mismatch");
+    }
+  } catch {
+    throw new Error("rule=task7.7-pr82-push-currentness-source-invalid");
+  }
+  return sourceRegistry;
+}
+
+export function validateTask77Pr82PushCurrentnessCorrection(
+  sourceRegistry,
+  candidateRegistry
+) {
+  validateTask77Pr82PushCorrectionSource(sourceRegistry);
+  const sourceReceipts = sourceRegistry.releaseReceipts;
+  const candidateReceipts = candidateRegistry?.releaseReceipts;
+  if (
+    !Array.isArray(candidateReceipts) ||
+    candidateReceipts.length !== sourceReceipts.length + 1 ||
+    !sourceReceipts.every((receipt, index) =>
+      sameJson(receipt, candidateReceipts[index])
+    )
+  ) {
+    throw new Error("rule=task7.7-pr82-push-currentness-receipt-invalid");
+  }
+  const sourceLifecycle = task77Pr82WorkItem(sourceRegistry)?.[
+    TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+  ];
+  if (sourceLifecycle) {
+    throw new Error("rule=task7.7-pr82-push-currentness-transition-replay");
+  }
+  const candidateLifecycle = task77Pr82WorkItem(candidateRegistry)?.[
+    TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+  ];
+  validateTask77Pr82PushCorrectionLifecycle(candidateLifecycle);
+  validateTask77Pr82PushCorrectionReceipt(
+    candidateReceipts.at(-1)
+  );
+  const expected = task77Pr82PushCorrectionExpectedCandidate(sourceRegistry);
+  if (!sameJson(candidateRegistry, expected)) {
+    throw new Error("rule=task7.7-pr82-push-currentness-field-scope-drift");
+  }
+  return candidateLifecycle;
+}
+
 export function validateEvidenceFlowCurrentnessLifecycleTransition(
   sourceRegistry,
   candidateRegistry
@@ -5968,6 +6317,10 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND,
     TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
   ];
+  const exactTask77Pr82PushCorrectionSequence = [
+    ...exactCorrectionSequence,
+    TASK77_PR82_PUSH_CORRECTION_RECEIPT_KIND
+  ];
   const exactFinalSequence = [
     PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
     PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
@@ -5975,11 +6328,20 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND,
     PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
   ];
+  const exactFinalAfterTask77Pr82PushSequence = [
+    ...exactTask77Pr82PushCorrectionSequence,
+    PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  ];
+  const pr82PushCorrectionLifecycle = task77Pr82WorkItem(registry)?.[
+    TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+  ];
   const exactSequenceAllowed =
     (protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS &&
-      sameJson(suffixReceiptKinds, exactCorrectionSequence)) ||
+      (sameJson(suffixReceiptKinds, exactCorrectionSequence) ||
+        sameJson(suffixReceiptKinds, exactTask77Pr82PushCorrectionSequence))) ||
     (protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS &&
-      sameJson(suffixReceiptKinds, exactFinalSequence));
+      (sameJson(suffixReceiptKinds, exactFinalSequence) ||
+        sameJson(suffixReceiptKinds, exactFinalAfterTask77Pr82PushSequence)));
   if (
     !item ||
     !branch ||
@@ -5998,6 +6360,9 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
     receipts.filter(
       (entry) => entry?.receiptKind === TASK77_COMBINED_CURRENTNESS_RECEIPT_KIND
     ).length !== 1 ||
+    receipts.filter(
+      (entry) => entry?.receiptKind === TASK77_PR82_PUSH_CORRECTION_RECEIPT_KIND
+    ).length !== (pr82PushCorrectionLifecycle ? 1 : 0) ||
     receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT]?.receiptKind !==
       EVIDENCE_FLOW_CURRENTNESS_RECEIPT_KIND ||
     receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 1]?.receiptKind !==
@@ -6017,9 +6382,18 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
   validateTask77CombinedCurrentnessReceipt(
     receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 1]
   );
-  const expected = evidenceFlowCurrentnessExpectedCandidate(
+  if (pr82PushCorrectionLifecycle) {
+    validateTask77Pr82PushCorrectionLifecycle(pr82PushCorrectionLifecycle);
+    validateTask77Pr82PushCorrectionReceipt(
+      receipts[EVIDENCE_FLOW_CURRENTNESS_SOURCE_RECEIPT_COUNT + 2]
+    );
+  }
+  let expected = evidenceFlowCurrentnessExpectedCandidate(
     evidenceFlowCurrentnessFrozenSourceRegistry()
   );
+  if (pr82PushCorrectionLifecycle) {
+    expected = task77Pr82PushCorrectionExpectedCandidate(expected);
+  }
   const expectedItem = evidenceFlowCurrentnessWorkItem(expected);
   const expectedBranch = evidenceFlowCurrentnessBranch(expected);
   const expectedRetirementItem = task77BranchRetirementWorkItem(expected);
@@ -6082,6 +6456,43 @@ export function validateEvidenceFlowCurrentnessLifecycleSnapshot(registry) {
   for (const field of ["remoteObservedAt", "lastObservedAt", "nextReviewAt"]) {
     if (!sameJson(retirementBranch?.[field], expectedRetirementBranch?.[field])) {
       throw new Error("rule=task7.7-combined-currentness-snapshot-invalid");
+    }
+  }
+  if (
+    pr82PushCorrectionLifecycle &&
+    protectedRepairStatus === PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS
+  ) {
+    const repairItem = task77Pr82WorkItem(registry);
+    const expectedRepairItem = task77Pr82WorkItem(expected);
+    const repairBranch = task77Pr82Branch(registry);
+    const expectedRepairBranch = task77Pr82Branch(expected);
+    for (const field of [
+      "headSha",
+      "aheadBehind",
+      "lastObservedAt",
+      "nextReviewAt",
+      "prHeadSha",
+      "dirtyState",
+      "evidenceState",
+      TASK77_PR82_PUSH_CORRECTION_LIFECYCLE_KEY
+    ]) {
+      if (!sameJson(repairItem?.[field], expectedRepairItem?.[field])) {
+        throw new Error("rule=task7.7-pr82-push-currentness-snapshot-invalid");
+      }
+    }
+    for (const field of [
+      "headSha",
+      "remoteHeadSha",
+      "remoteObservedAt",
+      "prHeadSha",
+      "lastObservedAt",
+      "lastCommitAt",
+      "nextReviewAt",
+      "closeout"
+    ]) {
+      if (!sameJson(repairBranch?.[field], expectedRepairBranch?.[field])) {
+        throw new Error("rule=task7.7-pr82-push-currentness-snapshot-invalid");
+      }
     }
   }
   return lifecycle;

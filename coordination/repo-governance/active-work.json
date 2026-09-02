@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-02T10:42:00Z",
+  "updatedAt": "2026-09-02T11:40:00Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -5048,10 +5048,10 @@
       "branch": "codex/sena-protected-currentness-activation-repair-20260901",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr80-post-main-closeout-20260901",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+      "headSha": "a647817893abbee246fca31830328f74dcbaf317",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 6,
+        "ahead": 8,
         "behind": 0
       },
       "allowedPaths": [
@@ -5063,8 +5063,8 @@
       ],
       "createdAt": "2026-09-01T06:44:53Z",
       "lastHeartbeatAt": "2026-09-02T00:28:00Z",
-      "lastObservedAt": "2026-09-02T00:28:00Z",
-      "nextReviewAt": "2026-09-03T00:28:00Z",
+      "lastObservedAt": "2026-09-02T11:40:00Z",
+      "nextReviewAt": "2026-09-03T11:40:00Z",
       "expectedCloseAt": "owner-gated:tasks-2-5-local-tdd-and-independent-initial-candidate-review",
       "prNumber": 82,
       "plannedPullRequestNumber": 82,
@@ -5072,12 +5072,12 @@
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+      "prHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
       "prBase": "main",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN",
       "noPrReason": null,
-      "dirtyState": "additive-correction-candidate-exact-three-path-awaiting-fresh-initial-checks",
+      "dirtyState": "task7.7-pr82-remote-currentness-corrected-awaiting-native-draft-push",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
@@ -5254,11 +5254,11 @@
         "archiveTagMutationAuthorized": false
       },
       "evidenceState": {
-        "local": "exact 9ba53c3 is the frozen source and parent for one exact three-path additive correction candidate; the candidate records no future correction head, tree, blobs, CI, reviews, Ready transition, or merge; the exact owner conversation sentence is external authority, while its SHA-256 is only a transcription-integrity digest and is not a cryptographic signature",
+        "local": "exact local source candidate a647817 is clean and one allowed follow-up commit may advance it after gates; no future commit SHA is predeclared",
         "ci": "the successful checks and reviews recorded for exact initial head 9ba53c3 are source evidence only; the additive correction completion head must obtain fresh exact-head build, both repository-security checks, zero-annotation readback, and independent specification and quality reviews before any registry-only final transition",
-        "merged": "PR82 remains OPEN and Draft at exact source head 9ba53c3 against protected base 969a206, MERGEABLE/CLEAN, but is neither Ready nor merged; this correction candidate preserves the sole future final-metadata action and grants no current Ready or protected-merge authority",
+        "merged": "PR82 remains OPEN and Draft; cached/live remote and PR head are exact 44a8147; Ready and merge remain unauthorized",
         "deployed": "not in scope and not authorized",
-        "live": "the correction-source observation binds local, cached upstream, live remote, and PR82 to exact 9ba53c3 with source tree 6550a1e, registry blob cb34a7b, verifier blob 86908ca, test blob a783724, and receipt prefix 41 digest 76a564b; these remain phase-stable source identities after later publication and are not claims about a future correction head; PR46, EvidenceFlow, root custody, and all preservation objects remain byte-for-byte outside this transition"
+        "live": "the 2026-09-02T11:40:00Z currentness correction binds local source a647817, protected main 969a206, cached/live remote and Draft PR82 head 44a8147, exact three-path scope, and no ref deletion or deployment authority"
       },
       "disposition": "active",
       "freezeException": "governance-preservation",
@@ -5333,6 +5333,59 @@
         "stashAuthorized": false,
         "forceAuthorized": false,
         "historyRewriteAuthorized": false
+      },
+      "task7_7Pr82PushCurrentnessCorrectionLifecycle": {
+        "status": "task7.7-pr82-push-currentness-correction",
+        "mode": "strict-additive-pr82-remote-currentness-reconciliation",
+        "sourceBinding": {
+          "headSha": "a647817893abbee246fca31830328f74dcbaf317",
+          "treeSha": "cfa48cb0914111a7eb6246dd315b8576abb76c62",
+          "registryBlobSha": "018232d34c2dbb2f7bdd70947076f85e6d2e56b5",
+          "verifierBlobSha": "e7db44d8e8e906f3a182a03d56210715d46a3a67",
+          "governanceTestBlobSha": "7aca5bc094645e71a892b1417476554ea2faf4a3",
+          "receiptPrefix": {
+            "count": 44,
+            "sha256": "828c968ed0fd6e0d67fb7562ec5cf0cbbc493c8913fa229e1a3adae3b716f980"
+          }
+        },
+        "observation": {
+          "observedAt": "2026-09-02T11:40:00Z",
+          "nextReviewAt": "2026-09-03T11:40:00Z",
+          "protectedMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+          "sourceCandidateHeadSha": "a647817893abbee246fca31830328f74dcbaf317",
+          "observedRemoteHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
+          "pullRequestNumber": 82,
+          "pullRequestHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
+          "pullRequestState": "OPEN",
+          "pullRequestIsDraft": true,
+          "pullRequestMergeable": "MERGEABLE",
+          "pullRequestMergeStateStatus": "CLEAN",
+          "sourceAhead": 8,
+          "sourceBehind": 0,
+          "remoteAhead": 7,
+          "remoteBehind": 0
+        },
+        "authorizationBoundary": {
+          "candidateCommitAuthorizedAfterGates": true,
+          "candidatePushToDraftPr82AuthorizedAfterGates": true,
+          "pr82ReadyAuthorized": false,
+          "pr82MergeAuthorized": false,
+          "pr46MutationAuthorized": false,
+          "localRefRetirementAuthorized": false,
+          "retirementReceiptMintingAuthorized": false,
+          "branchDeletionAuthorized": false,
+          "worktreeRemovalAuthorized": false,
+          "targetRefMutationAuthorized": false,
+          "targetTagMutationAuthorized": false,
+          "quarantineMutationAuthorized": false,
+          "deploymentAuthorized": false,
+          "providerMutationAuthorized": false,
+          "resetAuthorized": false,
+          "rebaseAuthorized": false,
+          "stashAuthorized": false,
+          "forceAuthorized": false,
+          "historyRewriteAuthorized": false
+        }
       }
     }
   ],
@@ -6292,29 +6345,29 @@
       "owner": "Codex protected currentness and activation repair designer",
       "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
       "baseSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
-      "headSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+      "headSha": "a647817893abbee246fca31830328f74dcbaf317",
       "upstream": "origin/codex/sena-protected-currentness-activation-repair-20260901",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
-      "remoteObservedAt": "2026-09-02T00:28:00Z",
+      "remoteHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
+      "remoteObservedAt": "2026-09-02T11:40:00Z",
       "pr": 82,
       "plannedPullRequestNumber": 82,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "9ba53c3cad87e8368552ffe78be297ae2eae1e30",
+      "prHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
       "prBase": "main",
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-02T00:28:00Z",
-      "lastObservedAt": "2026-09-02T00:28:00Z",
-      "lastCommitAt": "2026-09-02T05:07:19+08:00",
-      "nextReviewAt": "2026-09-03T00:28:00Z",
+      "lastObservedAt": "2026-09-02T11:40:00Z",
+      "lastCommitAt": "2026-09-02T19:30:18+08:00",
+      "nextReviewAt": "2026-09-03T11:40:00Z",
       "expectedCloseAt": "owner-gated:tasks-2-5-local-tdd-and-independent-initial-candidate-review",
       "disposition": "active",
-      "closeout": "the additive correction candidate is source-bound to exact local/cached/live/PR82 head 9ba53c3 and exact three-path scope, while PR82 remains OPEN/Draft and MERGEABLE/CLEAN; it records no future correction head or fresh gate result and preserves only the conditional registry-only final-metadata action after the correction head passes fresh checks and reviews; Ready, merge, PR46 mutation, cleanup, deletion, ref/branch/worktree/orphan/target/tag/quarantine, provider, deployment, and history mutation remain unauthorized",
+      "closeout": "exact local source a647817 descends from cached/live/PR82 remote head 44a8147 through allowed three-path governance changes; PR82 remains OPEN/Draft/MERGEABLE/CLEAN and only one ordinary follow-up push is authorized after gates; Ready, merge, PR46 mutation, cleanup, deletion, ref/tag/quarantine, provider, deployment, and history mutation remain unauthorized",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN",
       "prStateObservationMode": "monotonic"
@@ -9863,6 +9916,66 @@
         "exactLedgerCompleteHistoryVerifiedCount": 8,
         "activeProcessCount": 0,
         "cwdHandleCount": 0
+      },
+      "authorizationBoundary": {
+        "candidateCommitAuthorizedAfterGates": true,
+        "candidatePushToDraftPr82AuthorizedAfterGates": true,
+        "pr82ReadyAuthorized": false,
+        "pr82MergeAuthorized": false,
+        "pr46MutationAuthorized": false,
+        "localRefRetirementAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
+      }
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "task7.7-pr82-push-currentness-correction",
+      "taskId": "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901",
+      "ownerKey": "Codex-protected-currentness-activation-repair-01a05865",
+      "scope": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "sourceBinding": {
+        "headSha": "a647817893abbee246fca31830328f74dcbaf317",
+        "treeSha": "cfa48cb0914111a7eb6246dd315b8576abb76c62",
+        "registryBlobSha": "018232d34c2dbb2f7bdd70947076f85e6d2e56b5",
+        "verifierBlobSha": "e7db44d8e8e906f3a182a03d56210715d46a3a67",
+        "governanceTestBlobSha": "7aca5bc094645e71a892b1417476554ea2faf4a3",
+        "receiptPrefix": {
+          "count": 44,
+          "sha256": "828c968ed0fd6e0d67fb7562ec5cf0cbbc493c8913fa229e1a3adae3b716f980"
+        }
+      },
+      "observation": {
+        "observedAt": "2026-09-02T11:40:00Z",
+        "nextReviewAt": "2026-09-03T11:40:00Z",
+        "protectedMainSha": "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+        "sourceCandidateHeadSha": "a647817893abbee246fca31830328f74dcbaf317",
+        "observedRemoteHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
+        "pullRequestNumber": 82,
+        "pullRequestHeadSha": "44a814721831bd369be34794eb3e13ad459d4b30",
+        "pullRequestState": "OPEN",
+        "pullRequestIsDraft": true,
+        "pullRequestMergeable": "MERGEABLE",
+        "pullRequestMergeStateStatus": "CLEAN",
+        "sourceAhead": 8,
+        "sourceBehind": 0,
+        "remoteAhead": 7,
+        "remoteBehind": 0
       },
       "authorizationBoundary": {
         "candidateCommitAuthorizedAfterGates": true,
