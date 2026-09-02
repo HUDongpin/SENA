@@ -5521,6 +5521,21 @@ describe("SENA repository governance", () => {
       "count-objects",
       "-v"
     ]);
+    const stagedPaths = runGit(projectRoot, [
+      "--no-optional-locks",
+      "diff",
+      "--cached",
+      "--name-only"
+    ]).split("\n").filter(Boolean);
+    expect([
+      ["coordination/repo-governance/active-work.json"],
+      [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ]
+    ]).toContainEqual(stagedPaths);
+    const stagedPathCount = stagedPaths.length;
 
     const audit = runNode(
       governanceScript,
@@ -5535,7 +5550,9 @@ describe("SENA repository governance", () => {
       { env: canonicalEnvironment }
     );
     expect(writePolicy.status, writePolicy.stderr).toBe(0);
-    expect(writePolicy.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    expect(writePolicy.stdout).toContain(
+      `SENA_WRITE_POLICY pass staged=${stagedPathCount}`
+    );
     const hook = spawnSync("sh", ["-x", join(projectRoot, ".githooks", "pre-commit")], {
       cwd: projectRoot,
       encoding: "utf8",
@@ -5543,7 +5560,9 @@ describe("SENA repository governance", () => {
       maxBuffer: 16 * 1024 * 1024
     });
     expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
-    expect(hook.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    expect(hook.stdout).toContain(
+      `SENA_WRITE_POLICY pass staged=${stagedPathCount}`
+    );
     expect(hook.stdout).toContain("SENA_SECURITY_GATE pass");
 
     const governance = await import(pathToFileURL(governanceScript).href);
@@ -5713,6 +5732,21 @@ describe("SENA repository governance", () => {
       "--git-common-dir"
     ]));
     const indexPath = realpathSync(join(gitDirectory, "index"));
+    const stagedPaths = runGit(projectRoot, [
+      "--no-optional-locks",
+      "diff",
+      "--cached",
+      "--name-only"
+    ]).split("\n").filter(Boolean);
+    expect([
+      ["coordination/repo-governance/active-work.json"],
+      [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ]
+    ]).toContainEqual(stagedPaths);
+    const stagedPathCount = stagedPaths.length;
     const exactObservedEnvironment: NodeJS.ProcessEnv = {
       NODE_ENV: "test",
       PATH: process.env.PATH,
@@ -5755,7 +5789,9 @@ describe("SENA repository governance", () => {
       maxBuffer: 16 * 1024 * 1024
     });
     expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
-    expect(hook.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    expect(hook.stdout).toContain(
+      `SENA_WRITE_POLICY pass staged=${stagedPathCount}`
+    );
     expect(hook.stdout).toContain("SENA_SECURITY_GATE pass");
 
     const governance = await import(pathToFileURL(governanceScript).href);
@@ -6559,6 +6595,10 @@ describe("SENA repository governance", () => {
         (receipt: any) =>
           receipt.receiptKind === "task7.7-pr82-push-currentness-correction"
       );
+      const hasTask78FinalCompatibilityReceipt = suffixReceipts.some(
+        (receipt: any) =>
+          receipt.receiptKind === "task7.8-final-compatibility-currentness-candidate"
+      );
       const expectedSuffixKinds = [...expectedKinds];
       const finalReceiptIndex = expectedSuffixKinds.length === 3
         ? expectedSuffixKinds.length - 1
@@ -6587,6 +6627,16 @@ describe("SENA repository governance", () => {
             : expectedSuffixKinds.length,
           0,
           "task7.7-pr82-push-currentness-correction"
+        );
+      }
+      if (hasTask78FinalCompatibilityReceipt) {
+        expectedSuffixKinds.splice(
+          expectedSuffixKinds.at(-1) ===
+            governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+            ? expectedSuffixKinds.length - 1
+            : expectedSuffixKinds.length,
+          0,
+          "task7.8-final-compatibility-currentness-candidate"
         );
       }
       expect(suffixReceipts).toHaveLength(expectedSuffixKinds.length);
@@ -6628,7 +6678,7 @@ describe("SENA repository governance", () => {
       currentItem.protectedCurrentnessActivationRepairLifecycle.status
     ).toBe(PROTECTED_CURRENTNESS_REPAIR_CORRECTION_STATUS_FOR_TEST);
     expect(currentItem.prHeadSha).toBe(
-      "44a814721831bd369be34794eb3e13ad459d4b30"
+      "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c"
     );
     const orphanCorrectionRegistry = structuredClone(currentRegistry);
     delete protectedCurrentnessRepairItemForTest(
@@ -6798,6 +6848,9 @@ describe("SENA repository governance", () => {
     ]);
 
     expect(governance.assertProtectedCurrentnessRepairIndexPaths(null, [])).toBe(true);
+    expect(() =>
+      governance.assertProtectedCurrentnessRepairIndexPaths(initialLifecycle, [])
+    ).toThrow("rule=protected-currentness-repair-index-path-set-mismatch");
     expect(
       governance.assertProtectedCurrentnessRepairIndexPaths(initialLifecycle, [
         ...PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST
@@ -8186,17 +8239,35 @@ describe("SENA repository governance", () => {
     expectInvalid({
       gitObjectDirectory: join(realGitDirectory, "task-writable-objects")
     });
+    const sourceHead = "a647817893abbee246fca31830328f74dcbaf317";
+    const candidateHead = "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c";
+    const committedCandidateBytes = (path: string) => {
+      const result = spawnSync(
+        "git",
+        ["--no-optional-locks", "show", `${candidateHead}:${path}`],
+        {
+          cwd: projectRoot,
+          encoding: "buffer",
+          env: process.env,
+          maxBuffer: 16 * 1024 * 1024
+        }
+      );
+      if (result.status !== 0) {
+        throw new Error(
+          `git show ${candidateHead}:${path} failed: ${String(result.stderr)}`
+        );
+      }
+      return result.stdout;
+    };
     const currentCandidateRegistry = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
+      committedCandidateBytes(
+        "coordination/repo-governance/active-work.json"
+      ).toString("utf8")
     );
     const governanceTargetRoot = realpathSync(currentCandidateRegistry.repo);
     const actualPrNumber = protectedCurrentnessRepairItemForTest(
       currentCandidateRegistry
     ).prNumber;
-    const sourceHead = runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"]);
     const realIndexPath = runGit(projectRoot, [
       "rev-parse",
       "--path-format=absolute",
@@ -8240,11 +8311,6 @@ describe("SENA repository governance", () => {
       "--git-common-dir"
     ]);
     const realObjectDirectory = join(gitCommonDir, "objects");
-    const candidateBytes = readFileSync(
-      join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-      "utf8"
-    );
-
     const runTemporaryIndexGit = (
       args: string[],
       env: NodeJS.ProcessEnv,
@@ -8317,16 +8383,22 @@ describe("SENA repository governance", () => {
           ["--no-optional-locks", "ls-files", "-s", path],
           env
         ).split(/\s+/, 1)[0];
-        const bytes = path === "coordination/repo-governance/active-work.json"
-          ? candidateBytes
+        const blob = path === "coordination/repo-governance/active-work.json"
+          ? runGit(projectRoot, [
+              "--no-optional-locks",
+              "rev-parse",
+              `${candidateHead}:${path}`
+            ])
           : path === "CONTEXT.md"
-            ? `${readFileSync(join(projectRoot, path), "utf8")}\ntemporary-index-only\n`
-            : readFileSync(join(projectRoot, path));
-        const blob = runTemporaryIndexGit(
-          ["--no-optional-locks", "hash-object", "-w", "--stdin"],
-          env,
-          bytes
-        );
+          ? runTemporaryIndexGit(
+              ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+              env,
+              `${readFileSync(join(projectRoot, path), "utf8")}\ntemporary-index-only\n`
+            )
+          : runTemporaryIndexGit(
+              ["--no-optional-locks", "hash-object", "-w", "--", path],
+              env
+            );
         runTemporaryIndexGit(
           [
             "--no-optional-locks",
@@ -9362,10 +9434,11 @@ describe("SENA repository governance", () => {
       ])
     );
     const candidate = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c:coordination/repo-governance/active-work.json"
+      ])
     );
     expect(
       governance.validateTask77Pr82PushCurrentnessCorrection(source, candidate)
@@ -9419,6 +9492,169 @@ describe("SENA repository governance", () => {
     ).toThrow("rule=task7.7-pr82-push-currentness-source-invalid");
   });
 
+  it("accepts the truthful Task8 final projection from 8/0 to 9/0", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?task8TruthfulAheadBehind=${Date.now()}-${Math.random()}`
+    );
+    const candidateHead = "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c";
+    const sourceRegistry = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        `${candidateHead}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const completionEvidence = {
+      headSha: candidateHead,
+      treeSha: "4e8043d8f190e24f1c4bf293d0c9eb307f7625dc",
+      registryBlobSha: "b3631f678f1011e1377d1bc00b964f36a5d13e1a",
+      verifierBlobSha: "5de993c3a5b1dff898e16a784e8a11ef3f1ee0ed",
+      governanceTestBlobSha: "d7c37298ca875e727c599f3d2da49d52dafa1332",
+      buildRunId: 33628325250,
+      repositorySecurityRunIds: [33628325209, 33628321085],
+      checkJobIds: [100241297988, 100241297150, 100241283828],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      specReviewApproved: true,
+      qualityReviewApproved: true
+    };
+    const final = buildProtectedCurrentnessRepairFinalFixture(
+      { registry: sourceRegistry, context: { pullRequestNumber: 82 } },
+      completionEvidence
+    );
+    protectedCurrentnessRepairItemForTest(final.registry).aheadBehind = {
+      baseRef: "origin/main",
+      ahead: 9,
+      behind: 0
+    };
+
+    expect(
+      protectedCurrentnessRepairItemForTest(sourceRegistry).aheadBehind
+    ).toEqual({ baseRef: "origin/main", ahead: 8, behind: 0 });
+    expect(
+      protectedCurrentnessRepairItemForTest(final.registry).aheadBehind
+    ).toEqual({ baseRef: "origin/main", ahead: 9, behind: 0 });
+    expect(() =>
+      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+        sourceRegistry,
+        final.registry,
+        final.context
+      )
+    ).not.toThrow();
+
+    const staleHistoricalCount = structuredClone(final.registry);
+    protectedCurrentnessRepairItemForTest(staleHistoricalCount).aheadBehind = {
+      baseRef: "origin/main",
+      ahead: 7,
+      behind: 0
+    };
+    expect(() =>
+      governance.protectedCurrentnessRepairLifecycleResolutionFromRegistries(
+        sourceRegistry,
+        staleHistoricalCount,
+        final.context
+      )
+    ).toThrow("rule=protected-currentness-repair-final-ahead-behind-invalid");
+  });
+
+  it("requires an exact Task7.8 compatibility currentness transition before push", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?task78Compatibility=${Date.now()}-${Math.random()}`
+    );
+    expect(
+      typeof governance.validateTask78FinalCompatibilityTransition
+    ).toBe("function");
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const candidate = JSON.parse(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        ":coordination/repo-governance/active-work.json"
+      ])
+    );
+    const repairItem = (registry: any) => registry.workItems.find(
+      (entry: any) =>
+        entry.taskId === "SENA-PROTECTED-CURRENTNESS-ACTIVATION-REPAIR-20260901"
+    );
+    const repairBranch = (registry: any) => registry.branches.find(
+      (entry: any) =>
+        entry.name === "codex/sena-protected-currentness-activation-repair-20260901"
+    );
+    expect(
+      governance.validateTask78FinalCompatibilityTransition(source, candidate)
+    ).toMatchObject({
+      status: "task7.8-final-compatibility-currentness-candidate",
+      observation: {
+        sourceCandidateHeadSha: "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c",
+        observedRemoteHeadSha: "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c",
+        sourceAhead: 9,
+        sourceBehind: 0
+      }
+    });
+    expect(
+      governance.protectedCurrentnessRepairFinalAheadBehindExpectations(
+        repairItem(candidate)
+      )
+    ).toEqual({
+      source: { baseRef: "origin/main", ahead: 9, behind: 0 },
+      final: { baseRef: "origin/main", ahead: 10, behind: 0 }
+    });
+    expect(() =>
+      governance.validateEvidenceFlowCurrentnessLifecycleSnapshot(candidate)
+    ).not.toThrow();
+
+    const expectFailure = (mutate: (registry: any) => void, rule: string) => {
+      const invalid = structuredClone(candidate);
+      mutate(invalid);
+      expect(() =>
+        governance.validateTask78FinalCompatibilityTransition(source, invalid)
+      ).toThrow(rule);
+    };
+    expectFailure((registry) => {
+      repairBranch(registry).remoteHeadSha = "f".repeat(40);
+    }, "rule=task7.8-final-compatibility-field-scope-drift");
+    expectFailure((registry) => {
+      repairItem(registry).aheadBehind.ahead = 10;
+    }, "rule=task7.8-final-compatibility-field-scope-drift");
+    expectFailure((registry) => {
+      repairItem(registry).task7_8FinalCompatibilityLifecycle
+        .authorizationBoundary.pr82ReadyAuthorized = true;
+    }, "rule=task7.8-final-compatibility-lifecycle-invalid");
+    expectFailure((registry) => {
+      repairItem(registry).task7_8FinalCompatibilityLifecycle
+        .authorizationBoundary.unexpectedAuthority = true;
+    }, "rule=task7.8-final-compatibility-lifecycle-invalid");
+    expectFailure((registry) => {
+      registry.releaseReceipts.pop();
+    }, "rule=task7.8-final-compatibility-receipt-invalid");
+    expectFailure((registry) => {
+      registry.releaseReceipts.push(structuredClone(registry.releaseReceipts.at(-1)));
+    }, "rule=task7.8-final-compatibility-receipt-invalid");
+    expectFailure((registry) => {
+      const last = registry.releaseReceipts.length - 1;
+      [registry.releaseReceipts[last - 1], registry.releaseReceipts[last]] =
+        [registry.releaseReceipts[last], registry.releaseReceipts[last - 1]];
+    }, "rule=task7.8-final-compatibility-receipt-invalid");
+    expectFailure((registry) => {
+      registry.releaseReceipts.at(-1).scope.push("future-scope.md");
+    }, "rule=task7.8-final-compatibility-receipt-invalid");
+
+    const wrongSource = structuredClone(source);
+    wrongSource.updatedAt = "2026-09-02T12:35:59Z";
+    expect(() =>
+      governance.validateTask78FinalCompatibilityTransition(wrongSource, candidate)
+    ).toThrow("rule=task7.8-final-compatibility-source-invalid");
+    expect(() =>
+      governance.validateTask78FinalCompatibilityTransition(candidate, candidate)
+    ).toThrow("rule=task7.8-final-compatibility-transition-replay");
+  });
+
   it("accepts only exact EvidenceFlow-aware protected repair receipt sequences", async () => {
     const governance = await import(
       `${pathToFileURL(governanceScript).href}?evidenceFlowReceiptSequence=${Date.now()}-${Math.random()}`
@@ -9432,10 +9668,11 @@ describe("SENA repository governance", () => {
       ])
     );
     const correctionWithEvidenceFlow = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "show",
+        ":coordination/repo-governance/active-work.json"
+      ])
     );
     const finalWithoutEvidenceFlow = buildProtectedCurrentnessRepairFinalFixture({
       registry: correctionWithoutEvidenceFlow,
@@ -9458,7 +9695,8 @@ describe("SENA repository governance", () => {
       governance.PROTECTED_CURRENTNESS_REPAIR_CORRECTION_RECEIPT,
       "evidenceflow-additive-currentness-observation",
       "task7.7-combined-currentness-candidate",
-      "task7.7-pr82-push-currentness-correction"
+      "task7.7-pr82-push-currentness-correction",
+      "task7.8-final-compatibility-currentness-candidate"
     ]);
     expect(suffixKinds(finalWithoutEvidenceFlow)).toEqual([
       governance.PROTECTED_CURRENTNESS_REPAIR_INITIAL_RECEIPT,
@@ -9471,11 +9709,12 @@ describe("SENA repository governance", () => {
       "evidenceflow-additive-currentness-observation",
       "task7.7-combined-currentness-candidate",
       "task7.7-pr82-push-currentness-correction",
+      "task7.8-final-compatibility-currentness-candidate",
       governance.PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
     ]);
-    expect(correctionWithEvidenceFlow.releaseReceipts).toHaveLength(45);
-    expect(finalAfterEvidenceFlow.releaseReceipts).toHaveLength(46);
-    expect(finalAfterEvidenceFlow.releaseReceipts.slice(0, 45)).toEqual(
+    expect(correctionWithEvidenceFlow.releaseReceipts).toHaveLength(46);
+    expect(finalAfterEvidenceFlow.releaseReceipts).toHaveLength(47);
+    expect(finalAfterEvidenceFlow.releaseReceipts.slice(0, 46)).toEqual(
       correctionWithEvidenceFlow.releaseReceipts
     );
 
