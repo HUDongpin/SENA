@@ -89,6 +89,32 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest).toBe(
       "sena-human-concept-publication-figure-manifest/v1"
     );
+    expect(SENA_SCHEMA_VERSIONS.workflowDefinition).toBe("sena-workflow-definition/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowDefinitionList).toBe("sena-workflow-definition-list/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringWorkOrder).toBe("sena-engineering-work-order/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringCandidateReceipt).toBe(
+      "sena-engineering-candidate-receipt/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt).toBe(
+      "sena-engineering-gate-receipt/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringRepositoryPreflight).toBe(
+      "sena-engineering-repository-preflight/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowExploratoryPublication).toBe(
+      "sena-workflow-exploratory-publication/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowRunList).toBe("sena-workflow-run-list/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowRunCommand).toBe("sena-workflow-run-command/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowActionCommand).toBe("sena-workflow-action-command/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowRedactedEvent).toBe("sena-workflow-redacted-event/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowDecision).toBe("sena-workflow-decision/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobResult).toBe("sena-enterprise-server-job-result/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowRun).toBe("sena-workflow-run/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowStepReceipt).toBe("sena-workflow-step-receipt/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowApproval).toBe("sena-workflow-approval/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowCloseout).toBe("sena-workflow-closeout/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment).toBe("sena-workflow-closeout-commitment/v1");
 
     expect(getSenaSchemaVersion("productionPageContract")).toBe(buildSenaProductionPageContract().schemaVersion);
 

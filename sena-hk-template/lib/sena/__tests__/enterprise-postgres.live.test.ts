@@ -266,7 +266,20 @@ describe("SENA enterprise live Neon/Postgres adapter", () => {
         kind: "validation" as const,
         updatedAt: "2026-08-26T00:03:00.000Z"
       } satisfies SenaEnterpriseServerJob;
-      const allJobs = [valid, ...malformed, exactHeartbeat, wrongKindHeartbeat];
+      const legacyLeaseMissing = {
+        ...makeAnalysisJob("legacy-lease-missing", validSummary, "2026-08-26T00:03:00.000Z"),
+        status: "running" as const,
+        lifecycle: {
+          attempts: 1,
+          maxAttempts: 3,
+          retryable: false,
+          lastTransition: "mark-running" as const,
+          workerRunId: "worker_live_legacy",
+          startedAt: "2026-08-26T00:03:00.000Z",
+          lastHeartbeatAt: "2026-08-26T00:03:00.000Z"
+        }
+      } satisfies SenaEnterpriseServerJob;
+      const allJobs = [valid, ...malformed, exactHeartbeat, wrongKindHeartbeat, legacyLeaseMissing];
       createdIds.push(...allJobs.map((job) => job.id));
 
       const { adapter, pool } = createEnterprisePostgresServerJobAdapterFromEnv({ tableName });
@@ -321,16 +334,146 @@ describe("SENA enterprise live Neon/Postgres adapter", () => {
         const runningValid = {
           ...valid,
           status: "running" as const,
+          updatedAt: "2026-08-26T00:04:00.000Z",
           lifecycle: {
             ...valid.lifecycle,
             attempts: 1,
             workerRunId: "worker_live_valid",
-            lastTransition: "mark-running" as const
+            lastTransition: "mark-running" as const,
+            startedAt: "2026-08-26T00:04:00.000Z",
+            lastHeartbeatAt: "2026-08-26T00:04:00.000Z",
+            leaseExpiresAt: "2026-08-26T00:05:00.000Z"
           }
         };
-        await expect(adapter.claimQueuedJob(runningValid)).resolves.toEqual(
-          expect.objectContaining({ id: valid.id, status: "running" })
-        );
+        const claimedValid = await adapter.claimQueuedJob(runningValid);
+        expect(claimedValid).toEqual(expect.objectContaining({
+          id: valid.id,
+          status: "running",
+          lifecycle: expect.objectContaining({
+            workerRunId: "worker_live_valid",
+            leaseExpiresAt: "2026-08-26T00:05:00.000Z"
+          })
+        }));
+        if (!claimedValid) throw new Error("Expected the valid live Postgres job to be claimed.");
+
+        const renewedValid = {
+          ...claimedValid,
+          updatedAt: "2026-08-26T00:04:30.000Z",
+          lifecycle: {
+            ...claimedValid.lifecycle,
+            lastHeartbeatAt: "2026-08-26T00:04:30.000Z",
+            leaseExpiresAt: "2026-08-26T00:06:00.000Z"
+          }
+        } satisfies SenaEnterpriseServerJob;
+        await expect(adapter.transitionJobStatus({
+          job: renewedValid,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_valid",
+          expectedLeaseExpiresAt: "2026-08-26T00:05:00.000Z",
+          requireSourceReady: false
+        })).resolves.toEqual(expect.objectContaining({
+          lifecycle: expect.objectContaining({
+            lastHeartbeatAt: "2026-08-26T00:04:30.000Z",
+            leaseExpiresAt: "2026-08-26T00:06:00.000Z"
+          })
+        }));
+        await expect(adapter.transitionJobStatus({
+          job: renewedValid,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_valid",
+          expectedLeaseExpiresAt: "2026-08-26T00:05:00.000Z",
+          requireSourceReady: false
+        })).resolves.toBeNull();
+
+        const staleTerminal = {
+          ...renewedValid,
+          status: "succeeded" as const,
+          lifecycle: {
+            ...renewedValid.lifecycle,
+            retryable: false,
+            lastTransition: "mark-succeeded" as const,
+            finishedAt: "2026-08-26T00:06:01.000Z"
+          }
+        } satisfies SenaEnterpriseServerJob;
+        await expect(adapter.transitionJobStatus({
+          job: staleTerminal,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_valid",
+          expectedLeaseExpiresAt: "2026-08-26T00:06:00.000Z",
+          requireUnexpiredLease: true,
+          requireSourceReady: false
+        })).resolves.toBeNull();
+
+        await expect(adapter.findExpiredRunningJobs({
+          kinds: ["analysis"],
+          observedAt: "2026-08-26T00:06:00.000Z",
+          legacyGraceMs: 60_000
+        })).resolves.toEqual(expect.arrayContaining([
+          expect.objectContaining({ id: valid.id, status: "running" }),
+          expect.objectContaining({ id: legacyLeaseMissing.id, status: "running" })
+        ]));
+        const recoveredValid = {
+          ...renewedValid,
+          status: "queued" as const,
+          updatedAt: "2026-08-26T00:06:00.000Z",
+          lifecycle: {
+            ...renewedValid.lifecycle,
+            retryable: false,
+            lastTransition: "retry" as const,
+            startedAt: undefined,
+            retryRequestedAt: "2026-08-26T00:06:00.000Z",
+            workerRunId: undefined,
+            lastHeartbeatAt: undefined,
+            leaseExpiresAt: undefined,
+            leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
+            statusReason: "server-job-worker-lease-expired-requeued"
+          }
+        } satisfies SenaEnterpriseServerJob;
+        await expect(adapter.transitionJobStatus({
+          job: recoveredValid,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_valid",
+          expectedLeaseExpiresAt: "2026-08-26T00:06:00.000Z",
+          requireSourceReady: false
+        })).resolves.toEqual(expect.objectContaining({
+          id: valid.id,
+          status: "queued",
+          lifecycle: expect.objectContaining({
+            leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
+            statusReason: "server-job-worker-lease-expired-requeued"
+          })
+        }));
+        const recoveredLegacy = {
+          ...legacyLeaseMissing,
+          status: "queued" as const,
+          updatedAt: "2026-08-26T00:06:00.000Z",
+          lifecycle: {
+            ...legacyLeaseMissing.lifecycle,
+            retryable: false,
+            lastTransition: "retry" as const,
+            startedAt: undefined,
+            retryRequestedAt: "2026-08-26T00:06:00.000Z",
+            workerRunId: undefined,
+            lastHeartbeatAt: undefined,
+            leaseExpiresAt: undefined,
+            leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
+            statusReason: "server-job-worker-legacy-lease-missing-requeued"
+          }
+        } satisfies SenaEnterpriseServerJob;
+        await expect(adapter.transitionJobStatus({
+          job: recoveredLegacy,
+          expectedStatus: "running",
+          expectedWorkerRunId: "worker_live_legacy",
+          expectedLeaseMissing: true,
+          requireSourceReady: false
+        })).resolves.toEqual(expect.objectContaining({
+          id: legacyLeaseMissing.id,
+          status: "queued",
+          lifecycle: expect.objectContaining({
+            leaseReclaimedAt: "2026-08-26T00:06:00.000Z",
+            statusReason: "server-job-worker-legacy-lease-missing-requeued"
+          })
+        }));
       } finally {
         if (tableReady && createdIds.length > 0) {
           await pool.query(

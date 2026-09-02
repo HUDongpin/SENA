@@ -139,7 +139,7 @@ describe("SENA server job queue live probe", () => {
     expect(contract.status).toBe("pass");
     expect(contract.summary).toEqual(expect.objectContaining({
       jobKindCount: 5,
-      statusActionCount: 5,
+      statusActionCount: 6,
       acceptedProviderModeCount: 3,
       durableJobStoreRequired: true,
       signedDispatchRequired: true,
@@ -186,6 +186,7 @@ describe("SENA server job queue live probe", () => {
     ]);
     expect(contract.lifecycle.acceptedActions).toEqual([
       "mark-running",
+      "renew-lease",
       "mark-succeeded",
       "mark-failed",
       "retry",

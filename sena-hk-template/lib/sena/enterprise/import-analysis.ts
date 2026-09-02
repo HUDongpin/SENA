@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import path from "node:path";
 import type { SenaAnalysisRunArtifact } from "../analysis-run";
 import { SENA_ANALYSIS_QUEUE_COMMAND_ENVELOPE_PROFILE } from "../analysis-queue-command";
+import { SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE } from "../server-job-command-envelope";
 import type { SenaEnterpriseImportCleaningManifest, SenaImportAdapterSource } from "../import-adapters";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaDataset } from "../types";
@@ -17,6 +18,12 @@ import {
   rolePermissions
 } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
+import {
+  assertSenaEnterpriseExecutionIdempotency,
+  assertSenaEnterpriseIdempotentResult,
+  senaEnterpriseExecutionId,
+  type SenaEnterpriseExecutionIdempotency
+} from "./execution-idempotency";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import {
   enterpriseProjectBindingSnapshotSha256,
@@ -597,7 +604,7 @@ function createEnterpriseUploadsInDb(
   context: SenaEnterpriseSessionContext,
   input: CreateEnterpriseUploadsInput,
   db: ReturnType<typeof readEnterpriseDb>,
-  requiredPermission: "upload:create" | "analysis:run" = "upload:create"
+  requiredPermission: "upload:create" | "analysis:run" | "export:create" = "upload:create"
 ) {
   requireEnterprisePermission(context, input.teamId, requiredPermission);
   if (input.files.length === 0) return {
@@ -730,6 +737,56 @@ export async function createEnterpriseAnalysisCommandEnvelopeWithPostgresMirrorA
     input,
     state.db,
     "analysis:run"
+  );
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads[0];
+}
+
+export async function createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput & { requiredPermission: "analysis:run" | "export:create" }
+) {
+  if (input.files.length !== 1 ||
+    input.files[0]?.importProfile !== SENA_SERVER_JOB_COMMAND_ENVELOPE_PROFILE) {
+    throw new SenaEnterpriseError(
+      "Queued server-job command custody requires one canonical encrypted envelope.",
+      400,
+      "server_job_command_envelope_invalid"
+    );
+  }
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(
+    context,
+    input,
+    state.db,
+    input.requiredPermission
+  );
+  appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
+  await writeEnterpriseState(state, state.db);
+  await upsertUploadsToPostgresIfConfigured(uploads);
+  return uploads[0];
+}
+
+export async function createEnterpriseServerJobArtifactWithPostgresMirrorAsync(
+  context: SenaEnterpriseSessionContext,
+  input: CreateEnterpriseUploadsInput
+) {
+  if (input.files.length !== 1 ||
+    !input.files[0]?.importProfile?.startsWith("server-job-artifact/")) {
+    throw new SenaEnterpriseError(
+      "Server-job artifact persistence requires one canonical artifact profile.",
+      400,
+      "server_job_artifact_invalid"
+    );
+  }
+  const state = await readEnterpriseState();
+  const { uploads, auditDetails } = createEnterpriseUploadsInDb(
+    context,
+    input,
+    state.db,
+    "export:create"
   );
   appendEnterpriseUploadAudits(state.db, context, input.teamId, auditDetails);
   await writeEnterpriseState(state, state.db);
@@ -1535,6 +1592,7 @@ type CreateEnterpriseImportRunInput = {
   warnings: string[];
   dataset: SenaDataset;
   cleaningManifest?: SenaEnterpriseImportCleaningManifest;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 };
 
 function createEnterpriseImportRunInDb(
@@ -1545,9 +1603,10 @@ function createEnterpriseImportRunInDb(
   requireEnterprisePermission(context, input.teamId, "upload:create");
   const team = db.teams.find((candidate) => candidate.id === input.teamId);
   if (!team) throw new SenaEnterpriseError("Team was not found.", 404, "team_not_found");
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Import");
   const sourceProfiles = Array.from(new Set(input.sources.map((source) => source.profile)));
   const run: SenaEnterpriseImportRun = {
-    id: id("import"),
+    id: execution ? senaEnterpriseExecutionId("import", execution.key) : id("import"),
     teamId: input.teamId,
     userId: context.user.id,
     status: input.warnings.length > 0 ? "completed-with-warnings" : "completed",
@@ -1563,8 +1622,15 @@ function createEnterpriseImportRunInDb(
     warningsPreview: input.warnings.slice(0, 10),
     cleaningManifest: input.cleaningManifest,
     datasetCounts: datasetCountsFromDataset(input.dataset),
-    createdAt: now()
+    createdAt: execution?.createdAt ?? now()
   };
+  const existing = assertSenaEnterpriseIdempotentResult({
+    existing: db.importRuns.find((candidate) => candidate.id === run.id),
+    candidate: run,
+    context: "Import",
+    code: "import_execution_idempotency_conflict"
+  });
+  if (existing) return existing;
   db.importRuns.unshift(run);
   db.importRuns = db.importRuns.slice(0, 1000);
   appendAudit(db, {
@@ -1642,6 +1708,7 @@ type CreateEnterpriseAnalysisRunInput = {
   projectId?: string;
   persistedProjectId?: string;
   run: SenaAnalysisRunArtifact;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 };
 
 const SENA_ENTERPRISE_RECENT_ANALYSIS_RUN_LIMIT = 1000;
@@ -1681,8 +1748,9 @@ function createEnterpriseAnalysisRunInDb(
     }
     requireEnterprisePermission(context, project.teamId, "analysis:run");
   }
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Analysis");
   const run: SenaEnterpriseAnalysisRun = {
-    id: id("analysis"),
+    id: execution ? senaEnterpriseExecutionId("analysis", execution.key) : id("analysis"),
     teamId: input.teamId,
     projectId: input.projectId,
     persistedProjectId: input.persistedProjectId,
@@ -1700,8 +1768,15 @@ function createEnterpriseAnalysisRunInDb(
       projectSnapshotBindingSha256: enterpriseProjectBindingSnapshotSha256(input.run.projectSnapshot),
       runtimeBundleSha256: input.run.runtimeBundle ? artifactSha256(input.run.runtimeBundle) : undefined
     },
-    createdAt: input.run.generatedAt
+    createdAt: execution?.createdAt ?? input.run.generatedAt
   };
+  const existing = assertSenaEnterpriseIdempotentResult({
+    existing: db.analysisRuns.find((candidate) => candidate.id === run.id),
+    candidate: run,
+    context: "Analysis",
+    code: "analysis_execution_idempotency_conflict"
+  });
+  if (existing) return existing;
   db.analysisRuns.unshift(run);
   db.analysisRuns = retainRecentAndValidationReferencedAnalysisRuns(db);
   appendAudit(db, {

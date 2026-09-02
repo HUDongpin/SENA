@@ -8,6 +8,12 @@ import {
   rolePermissions
 } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
+import {
+  assertSenaEnterpriseExecutionIdempotency,
+  assertSenaEnterpriseIdempotentResult,
+  senaEnterpriseExecutionId,
+  type SenaEnterpriseExecutionIdempotency
+} from "./execution-idempotency";
 import type { SenaEnterpriseSessionContext } from "./auth-session";
 import {
   appendAudit,
@@ -131,9 +137,15 @@ function revisionSummary(snapshot: SenaProjectSnapshot) {
   return `${counts.people} people, ${counts.codes} codes, ${counts.utterances} utterances; claim=${snapshot.report.claimReadinessGate.claimUse}`;
 }
 
-function buildProjectRevision(project: SenaEnterpriseProject, userId: string, version: number, summary?: string): SenaEnterpriseProjectRevision {
+function buildProjectRevision(
+  project: SenaEnterpriseProject,
+  userId: string,
+  version: number,
+  summary?: string,
+  execution?: { id: string; createdAt: string }
+): SenaEnterpriseProjectRevision {
   return {
-    id: id("rev"),
+    id: execution?.id ?? id("rev"),
     projectId: project.id,
     teamId: project.teamId,
     userId,
@@ -145,7 +157,7 @@ function buildProjectRevision(project: SenaEnterpriseProject, userId: string, ve
     datasetCounts: project.datasetCounts,
     activeWindowLabel: project.activeWindowLabel,
     claimUse: project.claimUse,
-    createdAt: now()
+    createdAt: execution?.createdAt ?? now()
   };
 }
 
@@ -225,14 +237,16 @@ export async function createEnterpriseProjectAsync(context: SenaEnterpriseSessio
   title: string;
   description?: string;
   snapshot: SenaProjectSnapshot;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 }) {
   requireEnterprisePermission(context, input.teamId, "project:create");
   const snapshot = importSenaProjectSnapshot(input.snapshot);
   const state = await readEnterpriseState();
   const db = state.db;
-  const timestamp = now();
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Project creation");
+  const timestamp = execution?.createdAt ?? now();
   const project: SenaEnterpriseProject = {
-    id: id("project"),
+    id: execution ? senaEnterpriseExecutionId("project", execution.key) : id("project"),
     teamId: input.teamId,
     ownerId: context.user.id,
     currentVersion: 1,
@@ -245,8 +259,24 @@ export async function createEnterpriseProjectAsync(context: SenaEnterpriseSessio
     createdAt: timestamp,
     updatedAt: timestamp
   };
+  const existingProject = assertSenaEnterpriseIdempotentResult({
+    existing: db.projects.find((candidate) => candidate.id === project.id),
+    candidate: project,
+    context: "Project creation",
+    code: "project_creation_idempotency_conflict"
+  });
+  if (existingProject) return existingProject;
   db.projects.push(project);
-  db.projectRevisions.push(buildProjectRevision(project, context.user.id, 1, "Initial project snapshot"));
+  db.projectRevisions.push(buildProjectRevision(
+    project,
+    context.user.id,
+    1,
+    "Initial project snapshot",
+    execution ? {
+      id: senaEnterpriseExecutionId("rev", `${execution.key}:initial-revision`),
+      createdAt: execution.createdAt
+    } : undefined
+  ));
   appendAudit(db, {
     event: "project.create",
     userId: context.user.id,
@@ -358,6 +388,102 @@ export async function getEnterpriseProjectRevisionSourceReadOnlyAsync(
   return { currentProject: project, revision, sourceProject };
 }
 
+/**
+ * Resolves the current project and its retained immutable revision from one
+ * primary-state read. EvidenceFlow fork admission uses this projection so a
+ * concurrent project update cannot mix one current version with another
+ * revision snapshot.
+ */
+export async function getEnterpriseCurrentProjectRevisionSourceReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  const revisions = state.db.projectRevisions.filter((candidate) => (
+    candidate.projectId === projectId &&
+    candidate.teamId === project.teamId &&
+    candidate.version === project.currentVersion
+  ));
+  if (revisions.length === 0) {
+    throw new SenaEnterpriseError(
+      "The current project revision is no longer retained.",
+      409,
+      "project_revision_not_found"
+    );
+  }
+  if (revisions.length !== 1) {
+    throw new SenaEnterpriseError(
+      "The current project revision is ambiguous.",
+      409,
+      "project_revision_ambiguous"
+    );
+  }
+  const revision = revisions[0];
+  const sourceProject: SenaEnterpriseProject = {
+    ...project,
+    currentVersion: revision.version,
+    title: revision.title ?? revision.snapshot.title,
+    description: revision.description ?? "",
+    snapshot: revision.snapshot,
+    datasetCounts: revision.datasetCounts,
+    activeWindowLabel: revision.activeWindowLabel,
+    claimUse: revision.claimUse,
+    updatedAt: revision.createdAt
+  };
+  return { currentProject: project, revision, sourceProject };
+}
+
+/**
+ * Resolves the immutable revision identifier recorded by EvidenceFlow. The
+ * project, revision, and read projection come from one primary-state read so a
+ * mutable current project can never be mixed with a historical revision.
+ */
+export async function getEnterpriseProjectRevisionByIdReadOnlyAsync(
+  context: SenaEnterpriseSessionContext,
+  projectId: string,
+  revisionId: string
+) {
+  const state = await readEnterpriseState();
+  const project = state.db.projects.find((candidate) => candidate.id === projectId);
+  if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
+  requireEnterprisePermission(context, project.teamId, "project:read");
+  const revisions = state.db.projectRevisions.filter((candidate) => (
+    candidate.projectId === projectId &&
+    candidate.teamId === project.teamId &&
+    candidate.id === revisionId
+  ));
+  if (revisions.length === 0) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is no longer retained.",
+      409,
+      "project_revision_not_found"
+    );
+  }
+  if (revisions.length !== 1) {
+    throw new SenaEnterpriseError(
+      "The requested project revision is ambiguous.",
+      409,
+      "project_revision_ambiguous"
+    );
+  }
+  const revision = revisions[0];
+  const sourceProject: SenaEnterpriseProject = {
+    ...project,
+    currentVersion: revision.version,
+    title: revision.title ?? revision.snapshot.title,
+    description: revision.description ?? "",
+    snapshot: revision.snapshot,
+    datasetCounts: revision.datasetCounts,
+    activeWindowLabel: revision.activeWindowLabel,
+    claimUse: revision.claimUse,
+    updatedAt: revision.createdAt
+  };
+  return { currentProject: project, revision, sourceProject };
+}
+
 export function updateEnterpriseProject(context: SenaEnterpriseSessionContext, projectId: string, input: {
   title?: string;
   description?: string;
@@ -402,12 +528,52 @@ export async function updateEnterpriseProjectAsync(context: SenaEnterpriseSessio
   description?: string;
   snapshot?: SenaProjectSnapshot;
   expectedVersion?: number;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 }) {
   const state = await readEnterpriseState();
   const db = state.db;
   const project = db.projects.find((candidate) => candidate.id === projectId);
   if (!project) throw new SenaEnterpriseError("Project was not found.", 404, "project_not_found");
   requireEnterprisePermission(context, project.teamId, "project:update");
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Project update");
+  const executionRevisionId = execution
+    ? senaEnterpriseExecutionId("rev", `${execution.key}:project-revision`)
+    : undefined;
+  const priorExecutionRevision = executionRevisionId
+    ? db.projectRevisions.find((revision) => revision.id === executionRevisionId)
+    : undefined;
+  if (priorExecutionRevision) {
+    const expectedSnapshot = input.snapshot ? importSenaProjectSnapshot(input.snapshot) : priorExecutionRevision.snapshot;
+    const expectedTitle = input.title === undefined
+      ? priorExecutionRevision.title
+      : input.title.trim() || priorExecutionRevision.title;
+    const expectedDescription = input.description === undefined
+      ? priorExecutionRevision.description
+      : input.description.trim();
+    assertSenaEnterpriseIdempotentResult({
+      existing: {
+        projectId: priorExecutionRevision.projectId,
+        teamId: priorExecutionRevision.teamId,
+        userId: priorExecutionRevision.userId,
+        title: priorExecutionRevision.title,
+        description: priorExecutionRevision.description,
+        snapshot: priorExecutionRevision.snapshot,
+        createdAt: priorExecutionRevision.createdAt
+      },
+      candidate: {
+        projectId,
+        teamId: project.teamId,
+        userId: context.user.id,
+        title: expectedTitle,
+        description: expectedDescription,
+        snapshot: expectedSnapshot,
+        createdAt: execution!.createdAt
+      },
+      context: "Project update",
+      code: "project_update_idempotency_conflict"
+    });
+    return project;
+  }
   assertEnterpriseProjectExpectedVersion(project, input.expectedVersion);
   const snapshot = input.snapshot ? importSenaProjectSnapshot(input.snapshot) : undefined;
   const nextTitle = input.title === undefined ? project.title : input.title.trim() || project.title;
@@ -423,9 +589,17 @@ export async function updateEnterpriseProjectAsync(context: SenaEnterpriseSessio
   }
   if (snapshot || metadataChanged) {
     project.currentVersion += 1;
-    db.projectRevisions.push(buildProjectRevision(project, context.user.id, project.currentVersion));
+    db.projectRevisions.push(buildProjectRevision(
+      project,
+      context.user.id,
+      project.currentVersion,
+      undefined,
+      execution && executionRevisionId
+        ? { id: executionRevisionId, createdAt: execution.createdAt }
+        : undefined
+    ));
   }
-  project.updatedAt = now();
+  project.updatedAt = execution?.createdAt ?? now();
   appendAudit(db, {
     event: "project.update",
     userId: context.user.id,

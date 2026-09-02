@@ -347,27 +347,33 @@ describe("SENA validation group-comparison route", () => {
       });
 
       const route = await import("../../../app/api/sena/validation/group-comparison/route");
-      const response = await route.POST(new Request("https://sena.example.test/api/sena/validation/group-comparison", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-sena-csrf-token": csrf.token,
-          prefer: "respond-async"
-        },
-        body: JSON.stringify({
-          projectId: project.id,
-          queue: true,
-          suite: true,
-          comparisons: [
-            { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" },
-            { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "alignment" }
-          ],
-          iterations: 100,
-          bootstrapIterations: 100,
-          preregistrationNote: "Queued preregistration note.",
-          methodNote: "Queued validation method note."
-        })
-      }));
+      const queuedBody = {
+        projectId: project.id,
+        queue: true,
+        suite: true,
+        comparisons: [
+          { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "bridgeScore" },
+          { groupField: "role", groupA: "Lead teacher", groupB: "Curriculum designer", metric: "alignment" }
+        ],
+        iterations: 100,
+        bootstrapIterations: 100,
+        preregistrationNote: "Queued preregistration note.",
+        methodNote: "Queued validation method note."
+      };
+      const queuedRequest = (body: Record<string, unknown>) => new Request(
+        "https://sena.example.test/api/sena/validation/group-comparison",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token,
+            "idempotency-key": "queued-validation-suite-1",
+            prefer: "respond-async"
+          },
+          body: JSON.stringify(body)
+        }
+      );
+      const response = await route.POST(queuedRequest(queuedBody));
       const body = await response.json() as {
         id?: string;
         kind?: string;
@@ -389,6 +395,14 @@ describe("SENA validation group-comparison route", () => {
       expect(body.kind).toBe("validation");
       expect(body.status).toBe("queued");
       expect(body.projectId).toBe(project.id);
+      const replay = await route.POST(queuedRequest(queuedBody));
+      expect(replay.status).toBe(202);
+      await expect(replay.json()).resolves.toEqual(expect.objectContaining({ id: body.id }));
+      const conflict = await route.POST(queuedRequest({ ...queuedBody, seed: 98765 }));
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toEqual(expect.objectContaining({
+        code: "server_job_idempotency_conflict"
+      }));
       expect(body.payloadSummary).toEqual(expect.objectContaining({
         source: "project",
         comparisonCount: 2,

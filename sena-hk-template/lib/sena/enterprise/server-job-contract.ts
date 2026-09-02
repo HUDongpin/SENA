@@ -7,6 +7,7 @@ import {
   SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY,
   SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY
 } from "../analysis-queue-command";
+import { SENA_SERVER_JOB_COMMAND_CUSTODY } from "../server-job-command-envelope";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -107,6 +108,18 @@ export function enterpriseServerJobHasValidAnalysisCommandCustodyProfile(
   return enterpriseServerJobIsSyntheticWorkerHeartbeat(job);
 }
 
+export function enterpriseServerJobHasValidWorkerCommandCustodyProfile(
+  job: SenaEnterpriseServerJob
+) {
+  if (job.kind !== "validation" && job.kind !== "publication-export") return false;
+  const summary = isRecord(job.payloadSummary) ? job.payloadSummary : undefined;
+  if (!summary || ownDataValue(summary, "commandCustody") !== SENA_SERVER_JOB_COMMAND_CUSTODY) return false;
+  const uploadId = ownDataValue(summary, "commandEnvelopeUploadId");
+  const envelopeSha256 = ownDataValue(summary, "commandEnvelopeSha256");
+  return typeof uploadId === "string" && /^upload_[a-f0-9]{24}$/.test(uploadId) &&
+    typeof envelopeSha256 === "string" && /^[a-f0-9]{64}$/.test(envelopeSha256);
+}
+
 export function enterpriseServerJobRequiresAnalysisCustodyQuarantine(
   job: SenaEnterpriseServerJob
 ) {
@@ -142,7 +155,17 @@ export function enterpriseServerJobHasDurableSourcePointer(
   }
 
   if (job.kind === "validation") {
-    return ownDataValue(summary, "source") === "project" &&
+    return enterpriseServerJobHasValidWorkerCommandCustodyProfile(job) &&
+      ownDataValue(summary, "source") === "project" &&
+      ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
+      isNonemptyString(job.projectId) &&
+      isPositiveSafeInteger(ownDataValue(summary, "projectVersion")) &&
+      ownDataValue(summary, "projectTeamId") === job.teamId;
+  }
+
+  if (job.kind === "publication-export") {
+    return enterpriseServerJobHasValidWorkerCommandCustodyProfile(job) &&
+      ownDataValue(summary, "source") === "project" &&
       ownDataValue(worker, "payloadDelivery") === "project-pointer" &&
       isNonemptyString(job.projectId) &&
       isPositiveSafeInteger(ownDataValue(summary, "projectVersion")) &&
@@ -154,8 +177,6 @@ export function enterpriseServerJobHasDurableSourcePointer(
       isExactUploadPointerArray(ownDataValue(summary, "uploadIds"));
   }
 
-  // Publication queue execution is intentionally disabled. A retained receipt
-  // has no supported worker source form and must remain non-claimable.
   return false;
 }
 

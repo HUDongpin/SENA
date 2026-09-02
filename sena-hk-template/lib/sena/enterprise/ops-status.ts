@@ -491,7 +491,7 @@ function buildEnterpriseOpsStatus(
         `deadLettered=${serverJobsDeadLettered}`,
         `retryable=${serverJobsRetryable}`,
         "statusApi=/api/sena/ops/jobs",
-        "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
+        "workerActions=mark-running|renew-lease|mark-succeeded|mark-failed|retry|dead-letter",
         "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation"
       ],
       nextAction: serverJobsFailed === 0 && serverJobsDeadLettered === 0
@@ -734,7 +734,7 @@ function serverJobRuntimeCheck(input: {
       `deadLettered=${input.serverJobsDeadLettered}`,
       `retryable=${input.serverJobsRetryable}`,
       "statusApi=/api/sena/ops/jobs",
-      "workerActions=mark-running|mark-succeeded|mark-failed|retry|dead-letter",
+      "workerActions=mark-running|renew-lease|mark-succeeded|mark-failed|retry|dead-letter",
       "workerJobActions=run-import|run-analysis|run-publication-export|run-reliability|run-validation"
     ],
     nextAction: input.readStatus !== "pass"

@@ -52,7 +52,23 @@ export class RouteMemoryPostgres {
         Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0;
     }
     if (kind === "validation") {
-      return worker.payloadDelivery === "project-pointer" &&
+      const commandCustody = summary.commandCustody === "encrypted-upload-v1" &&
+        typeof summary.commandEnvelopeUploadId === "string" &&
+        /^upload_[a-f0-9]{24}$/.test(summary.commandEnvelopeUploadId) &&
+        typeof summary.commandEnvelopeSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(summary.commandEnvelopeSha256);
+      return commandCustody && worker.payloadDelivery === "project-pointer" &&
+        typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
+        Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0 &&
+        summary.projectTeamId === record.team_id;
+    }
+    if (kind === "publication-export") {
+      const commandCustody = summary.commandCustody === "encrypted-upload-v1" &&
+        typeof summary.commandEnvelopeUploadId === "string" &&
+        /^upload_[a-f0-9]{24}$/.test(summary.commandEnvelopeUploadId) &&
+        typeof summary.commandEnvelopeSha256 === "string" &&
+        /^[a-f0-9]{64}$/.test(summary.commandEnvelopeSha256);
+      return commandCustody && worker.payloadDelivery === "project-pointer" &&
         typeof record.project_id === "string" && record.project_id.trim().length > 0 &&
         Number.isSafeInteger(summary.projectVersion) && Number(summary.projectVersion) > 0 &&
         summary.projectTeamId === record.team_id;
@@ -146,6 +162,9 @@ export class RouteMemoryPostgres {
       return { rows: [], rowCount: 0 };
     }
     if (/ALTER TABLE .* ALTER COLUMN .* DROP NOT NULL/i.test(normalizedSql)) {
+      return { rows: [], rowCount: 0 };
+    }
+    if (/ALTER TABLE .* ADD COLUMN IF NOT EXISTS/i.test(normalizedSql)) {
       return { rows: [], rowCount: 0 };
     }
     if (/SELECT revision, payload FROM "public"\."sena_enterprise_state"/i.test(normalizedSql)) {
@@ -379,15 +398,26 @@ export class RouteMemoryPostgres {
     }
     if (/UPDATE "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql) &&
       /SET status = \$2/i.test(normalizedSql) &&
-      /WHERE id = \$1 AND status = \$5/i.test(normalizedSql)) {
+      /WHERE id = \$1 AND status = \$\d+/i.test(normalizedSql)) {
       const current = this.serverJobs.find((record) => record.id === values[0]);
-      const expectedStatus = values[4];
+      const statusPredicate = /WHERE id = \$1 AND status = \$(\d+)/i.exec(normalizedSql);
+      const expectedStatus = statusPredicate ? values[Number(statusPredicate[1]) - 1] : undefined;
       const workerPredicate = /lifecycle->>'workerRunId' = \$(\d+)/i.exec(normalizedSql);
       const expectedWorkerRunId = workerPredicate ? values[Number(workerPredicate[1]) - 1] : undefined;
+      const leasePredicate = /lifecycle->>'leaseExpiresAt' = \$(\d+)/i.exec(normalizedSql);
+      const expectedLeaseExpiresAt = leasePredicate ? values[Number(leasePredicate[1]) - 1] : undefined;
+      const requiresMissingLease = /lifecycle->>'leaseExpiresAt' IS NULL/i.test(normalizedSql);
+      const requiresUnexpiredLease = /lifecycle->>'leaseExpiresAt'\)::timestamptz > now\(\)/i.test(normalizedSql);
       const requiresReady = /delivery->'?sourceReady'?/i.test(normalizedSql) || /delivery \? 'sourceReady'/i.test(normalizedSql);
-      const lifecycle = current?.lifecycle as { workerRunId?: unknown } | undefined;
+      const lifecycle = current?.lifecycle as { workerRunId?: unknown; leaseExpiresAt?: unknown } | undefined;
+      const leaseExpiresAt = typeof lifecycle?.leaseExpiresAt === "string"
+        ? Date.parse(lifecycle.leaseExpiresAt)
+        : Number.NaN;
       if (!current || current.status !== expectedStatus ||
         (workerPredicate && lifecycle?.workerRunId !== expectedWorkerRunId) ||
+        (leasePredicate && lifecycle?.leaseExpiresAt !== expectedLeaseExpiresAt) ||
+        (requiresMissingLease && lifecycle?.leaseExpiresAt !== undefined) ||
+        (requiresUnexpiredLease && (!Number.isFinite(leaseExpiresAt) || leaseExpiresAt <= Date.now())) ||
         (requiresReady && !this.serverJobSourceReady(current))) {
         return { rows: [], rowCount: 0 };
       }
@@ -395,7 +425,8 @@ export class RouteMemoryPostgres {
         ...current,
         status: values[1],
         lifecycle: values[2],
-        updated_at: values[3]
+        result_receipt: /result_receipt = \$4::jsonb/i.test(normalizedSql) ? values[3] : current.result_receipt,
+        updated_at: /result_receipt = \$4::jsonb/i.test(normalizedSql) ? values[4] : values[3]
       };
       this.serverJobs = [
         transitioned,
@@ -418,15 +449,23 @@ export class RouteMemoryPostgres {
         delivery: values[10],
         worker: values[11],
         lifecycle: values[12],
-        redaction: values[13],
-        queued_at: values[14],
-        updated_at: values[15]
+        result_receipt: values[13],
+        redaction: values[14],
+        queued_at: values[15],
+        updated_at: values[16]
       };
+      const existing = this.serverJobs.find((record) => record.id === row.id);
+      if (/ON CONFLICT \(id\) DO NOTHING/i.test(normalizedSql) && existing) {
+        return { rows: [], rowCount: 0 };
+      }
       this.serverJobs = [
         row,
         ...this.serverJobs.filter((record) => record.id !== row.id)
       ];
-      return { rows: [], rowCount: 1 };
+      return {
+        rows: /RETURNING \*/i.test(normalizedSql) ? [row] : [],
+        rowCount: 1
+      };
     }
     if (/INSERT INTO "public"\."sena_enterprise_audit_log"/i.test(normalizedSql)) {
       this.auditRows.unshift({

@@ -89,6 +89,7 @@ describe("SENA server job worker contract", () => {
     expect(contract.contract.rawPayloadPersistedInJobStore).toBe(false);
     expect(contract.contract.acceptedActions).toEqual([
       "mark-running",
+      "renew-lease",
       "mark-succeeded",
       "mark-failed",
       "retry",

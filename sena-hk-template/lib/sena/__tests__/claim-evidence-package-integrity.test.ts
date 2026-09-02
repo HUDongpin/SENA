@@ -250,8 +250,11 @@ describe("enterprise claim evidence package integrity", () => {
     rmSync(enterpriseDbDir, { recursive: true, force: true });
   });
 
-  function buildPackage(db: SenaEnterpriseDb) {
-    return buildEnterpriseClaimEvidencePackageFromDb(db, context, { projectId }, evidenceSource);
+  function buildPackage(
+    db: SenaEnterpriseDb,
+    options: Parameters<typeof buildEnterpriseClaimEvidencePackageFromDb>[4] = {}
+  ) {
+    return buildEnterpriseClaimEvidencePackageFromDb(db, context, { projectId }, evidenceSource, options);
   }
 
   it("accepts only the coherent current claim-ready evidence set", () => {
@@ -267,6 +270,24 @@ describe("enterprise claim evidence package integrity", () => {
       keyId: "claim-integrity-test-v1",
       validationRunEvidenceHash: claimPackage.evidence.validation?.validationRunEvidenceHash
     }));
+  });
+
+  it("pins workflow aggregation to the exact reliability and validation runs", () => {
+    const pinnedReady = buildPackage(structuredClone(baseDb), {
+      approvedReliabilityRunId: eligibleReliabilityRunId,
+      approvedValidationRunId: readyValidationRunId
+    });
+    expect(pinnedReady.status).toBe("claim-ready-with-limits");
+    expect(pinnedReady.evidence.reliability?.runId).toBe(eligibleReliabilityRunId);
+    expect(pinnedReady.evidence.validation?.runId).toBe(readyValidationRunId);
+
+    const pinnedIncomplete = buildPackage(structuredClone(baseDb), {
+      approvedReliabilityRunId: eligibleReliabilityRunId,
+      approvedValidationRunId: modelRequiredValidationRunId
+    });
+    expect(pinnedIncomplete.status).toBe("exploratory-only");
+    expect(pinnedIncomplete.evidence.validation?.runId).toBe(modelRequiredValidationRunId);
+    expect(pinnedIncomplete.blockers).toContain("validation-formal-inference-readiness-required");
   });
 
   it("preserves claim-ready evidence after a recursive PostgreSQL jsonb key reorder", () => {

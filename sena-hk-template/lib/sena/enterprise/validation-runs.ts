@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { senaJsonValuesEqual } from "../canonical-json";
 import {
   readEnterpriseDb,
   readEnterpriseState,
@@ -352,6 +353,10 @@ type CreateEnterpriseValidationRunInput = {
   methodNote?: string;
   parityEvidence?: SenaEnterpriseValidationParityEvidenceInput;
   result: SenaGroupComparisonValidationResult;
+  executionIdempotency?: {
+    key: string;
+    createdAt: string;
+  };
 };
 
 function createEnterpriseValidationRunInDb(
@@ -407,9 +412,23 @@ function createEnterpriseValidationRunInDb(
     preregistrationPlan,
     parityEvidence: mergeValidationParityEvidenceInput(derivedParityEvidence, input.parityEvidence)
   });
+  const executionIdempotency = input.executionIdempotency;
+  if (executionIdempotency && (
+    !/^[A-Za-z0-9_-]{1,200}$/.test(executionIdempotency.key) ||
+    !Number.isFinite(Date.parse(executionIdempotency.createdAt))
+  )) {
+    throw new SenaEnterpriseError(
+      "Validation execution idempotency binding is invalid.",
+      400,
+      "validation_execution_idempotency_invalid"
+    );
+  }
+  const runId = executionIdempotency
+    ? `val_job_${createHash("sha256").update(executionIdempotency.key).digest("hex").slice(0, 24)}`
+    : id("val");
 
   const unsealedRun: SenaEnterpriseValidationRun = {
-    id: id("val"),
+    id: runId,
     teamId: input.teamId,
     projectId: input.projectId,
     projectBinding: project ? buildEnterpriseProjectEvidenceBinding(project) : undefined,
@@ -431,12 +450,21 @@ function createEnterpriseValidationRunInDb(
     preregistrationPlan,
     parityEvidence,
     result: input.result,
-    createdAt: now()
+    createdAt: executionIdempotency?.createdAt ?? now()
   };
   const run = sealEnterpriseValidationRunEvidence(unsealedRun, project, {
     analysisRuns: db.analysisRuns,
     sourceVerificationCache
   });
+  const existing = db.validationRuns.find((candidate) => candidate.id === run.id);
+  if (existing) {
+    if (senaJsonValuesEqual(existing, run)) return existing;
+    throw new SenaEnterpriseError(
+      "Validation execution idempotency key is bound to different evidence.",
+      409,
+      "validation_execution_idempotency_conflict"
+    );
+  }
   db.validationRuns.unshift(run);
   db.validationRuns = db.validationRuns.slice(0, 1000);
   appendAudit(db, {
@@ -920,7 +948,10 @@ export async function buildEnterpriseGroupComparisonValidationResponseWithPostgr
 
 export async function buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync(
   context: SenaEnterpriseSessionContext,
-  body: Record<string, unknown>
+  body: Record<string, unknown>,
+  options: {
+    executionIdempotency?: CreateEnterpriseValidationRunInput["executionIdempotency"];
+  } = {}
 ) {
   const projectId = body.projectId ? String(body.projectId) : undefined;
   const project: SenaEnterpriseProject | null = projectId ? await getEnterpriseProjectAsync(context, projectId) : null;
@@ -933,7 +964,8 @@ export async function buildEnterpriseGroupComparisonValidationResponseWithPostgr
     preregistrationNote: body.preregistrationNote ? String(body.preregistrationNote) : undefined,
     methodNote: body.methodNote ? String(body.methodNote) : undefined,
     parityEvidence: parseEnterpriseValidationParityEvidence(body.parityEvidence),
-    result
+    result,
+    executionIdempotency: options.executionIdempotency
   });
 
   return {

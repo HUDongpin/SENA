@@ -1,8 +1,10 @@
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
 import { createHash } from "node:crypto";
+import { NextResponse } from "next/server";
 import {
   resolveEnterprisePublicationStateBundle
 } from "@/lib/sena/enterprise/publication-state-binding";
+import { senaPublicationCommandAuthorizationDigest } from "@/lib/sena/enterprise/publication-command-binding";
 import {
   recordEnterpriseAuditAsync
 } from "@/lib/sena/enterprise/ops-audit";
@@ -10,8 +12,21 @@ import {
   SenaEnterpriseError
 } from "@/lib/sena/enterprise/errors";
 import {
+  enqueueEnterpriseServerJob,
+  serverJobHeaders,
+  serverJobQueueStatus,
+  senaEnterpriseServerJobWasCreated,
+  stableServerJobPayloadSha256,
   shouldQueueServerJob
 } from "@/lib/sena/enterprise/server-job-queue";
+import {
+  createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync
+} from "@/lib/sena/enterprise/import-analysis";
+import {
+  bindSenaServerJobIdempotency,
+  planSenaServerJobCommandCustody,
+  SENA_SERVER_JOB_COMMAND_CUSTODY
+} from "@/lib/sena/server-job-command-envelope";
 import {
   assertSenaPublicationModelCardReady,
   buildSenaPublicationExport,
@@ -23,6 +38,7 @@ import {
   SenaProjectSnapshotResourceLimitError
 } from "@/lib/sena/snapshot";
 import type { SenaProjectSnapshot } from "@/lib/sena/types";
+import { assertSenaServerJobWorkerExecutable } from "@/lib/sena/enterprise/server-job-worker-capabilities";
 import { observeSenaApiRoute, requireApiSessionForMutation } from "@/lib/sena/api-helpers";
 
 export const runtime = "nodejs";
@@ -238,13 +254,82 @@ export async function POST(request: Request) {
       );
     }
     if (shouldQueueServerJob(request, requestBody)) {
+      assertSenaServerJobWorkerExecutable("publication-export");
       const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
       assertSenaPublicationModelCardReady(publicationState.publicationSnapshot.report);
-      throw new SenaEnterpriseError(
-        "Queued publication export is unavailable until an evidence-bound publication worker can revalidate the complete state, reliability, adjudication, and derivation lease before producing artifacts.",
-        503,
-        "publication_export_async_worker_unavailable"
+      const queue = serverJobQueueStatus();
+      const sourceSnapshotSha256 = sha256Json(publicationState.publicationSnapshot);
+      const workerPayload = {
+        action: "run-publication-export",
+        commandCustody: SENA_SERVER_JOB_COMMAND_CUSTODY,
+        teamId: publicationState.project.teamId,
+        projectId: publicationState.project.id,
+        projectVersion: publicationState.project.currentVersion,
+        format,
+        sourceSnapshotSha256,
+        authorizationEvidenceSha256: senaPublicationCommandAuthorizationDigest(publicationState.stateBinding)
+      };
+      const queueInput = {
+        kind: "publication-export" as const,
+        teamId: publicationState.project.teamId,
+        projectId: publicationState.project.id,
+        actorUserId: context.user.id,
+        payload: workerPayload,
+        payloadSummary: {
+          source: "project" as const,
+          projectVersion: publicationState.project.currentVersion,
+          projectTeamId: publicationState.project.teamId,
+          format,
+          hasInlineSnapshot: false,
+          hasInlineDataset: false,
+          payloadValuesExcluded: true as const
+        }
+      };
+      const idempotency = bindSenaServerJobIdempotency({
+        request,
+        kind: "publication-export",
+        teamId: publicationState.project.teamId,
+        actorUserId: context.user.id,
+        projectId: publicationState.project.id
+      });
+      const commandCustody = planSenaServerJobCommandCustody(
+        { ...queueInput, jobId: idempotency.jobId },
+        idempotency.commandEnvelopeUploadId,
+        stableServerJobPayloadSha256(workerPayload)
       );
+      const job = await enqueueEnterpriseServerJob({
+        ...commandCustody.jobInput,
+        queue,
+        beforeDispatch: async () => {
+          await createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync(context, {
+            teamId: publicationState.project.teamId,
+            files: [commandCustody.file],
+            requiredPermission: "export:create"
+          });
+        }
+      });
+      if (senaEnterpriseServerJobWasCreated(job)) await recordEnterpriseAuditAsync({
+        event: "export.queue",
+        userId: context.user.id,
+        teamId: publicationState.project.teamId,
+        projectId: publicationState.project.id,
+        detail: {
+          serverJobId: job.id,
+          serverJobKind: job.kind,
+          queueProvider: job.provider.mode,
+          queueDelivery: job.delivery.webhookStatus,
+          queueHttpStatus: job.delivery.httpStatus ?? null,
+          payloadSha256: job.payloadSha256,
+          projectVersion: publicationState.project.currentVersion,
+          format,
+          stateBindingSha256: publicationState.stateBinding.bindingSha256,
+          sourceSnapshotSha256
+        }
+      });
+      return NextResponse.json(job, {
+        status: 202,
+        headers: serverJobHeaders(job)
+      });
     }
     const publicationState = await resolvePublicationStateBeforeDerivation(context, projectId);
     const { project, claimPackage, stateBinding } = publicationState;

@@ -2750,9 +2750,9 @@ describe("SENA model builder", () => {
 
     expect(SENA_SECURITY_HEADER_MANIFEST.cspDirectives).toEqual(expect.arrayContaining([
       "default-src 'self'",
-      "frame-ancestors 'none'",
-      "upgrade-insecure-requests"
+      "frame-ancestors 'none'"
     ]));
+    expect(SENA_SECURITY_HEADER_MANIFEST.cspDirectives).not.toContain("upgrade-insecure-requests");
     expect(headers).toMatchObject({
       "content-security-policy-report-only": expect.stringContaining("default-src 'self'"),
       "x-content-type-options": "nosniff",

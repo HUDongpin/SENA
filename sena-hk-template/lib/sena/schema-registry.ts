@@ -136,6 +136,7 @@ export const SENA_SCHEMA_VERSIONS = {
   enterpriseServerJobQueueWebhookReceipt: "sena-enterprise-server-job-queue-webhook-receipt/v2",
   enterpriseServerJobQueueProbe: "sena-enterprise-server-job-queue-probe/v1",
   enterpriseServerJobQueue: "sena-enterprise-server-job-queue/v1",
+  enterpriseServerJobResult: "sena-enterprise-server-job-result/v1",
   enterpriseServerJobList: "sena-enterprise-server-job-list/v1",
   enterpriseServerJobStoreRuntime: "sena-enterprise-server-job-store-runtime/v1",
   enterpriseServerJobStatusUpdate: "sena-enterprise-server-job-status-update/v1",
@@ -230,7 +231,25 @@ export const SENA_SCHEMA_VERSIONS = {
   validationPreregistrationPlan: "sena-validation-preregistration-plan/v1",
   validationRunList: "sena-validation-run-list/v1",
   validationRunReview: "sena-validation-run-review/v1",
-  visualGrammar: "sena-visual-grammar/v1"
+  visualGrammar: "sena-visual-grammar/v1",
+  workflowApproval: "sena-workflow-approval/v1",
+  workflowApprovalRequest: "sena-workflow-approval-request/v1",
+  workflowActionCommand: "sena-workflow-action-command/v1",
+  workflowCloseout: "sena-workflow-closeout/v1",
+  workflowCloseoutCommitment: "sena-workflow-closeout-commitment/v1",
+  workflowDecision: "sena-workflow-decision/v1",
+  workflowDefinition: "sena-workflow-definition/v1",
+  workflowDefinitionList: "sena-workflow-definition-list/v1",
+  workflowEngineeringCandidateReceipt: "sena-engineering-candidate-receipt/v1",
+  workflowEngineeringGateReceipt: "sena-engineering-gate-receipt/v1",
+  workflowEngineeringRepositoryPreflight: "sena-engineering-repository-preflight/v1",
+  workflowEngineeringWorkOrder: "sena-engineering-work-order/v1",
+  workflowExploratoryPublication: "sena-workflow-exploratory-publication/v1",
+  workflowRedactedEvent: "sena-workflow-redacted-event/v1",
+  workflowRun: "sena-workflow-run/v1",
+  workflowRunCommand: "sena-workflow-run-command/v1",
+  workflowRunList: "sena-workflow-run-list/v1",
+  workflowStepReceipt: "sena-workflow-step-receipt/v1"
 } as const;
 
 export type SenaSchemaVersionKey = keyof typeof SENA_SCHEMA_VERSIONS;

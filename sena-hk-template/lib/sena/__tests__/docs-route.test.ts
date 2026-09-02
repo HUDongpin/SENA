@@ -365,6 +365,7 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
         ["POST", "/api/sena/projects/{projectId}/collaboration", "200", ["application/json"]],
         ["POST", "/api/sena/projects/{projectId}/collaboration", "201", ["application/json"]],
         ["GET", "/api/sena/projects/{projectId}/collaboration/stream", "200", ["text/event-stream"]],
+        ["GET", "/api/sena/workflows/runs/{runId}/events", "200", ["text/event-stream"]],
         ["POST", "/api/sena/team/invitations", "201", ["application/json"]],
         ["POST", "/api/sena/analyze", "200", ["application/json"]],
         ["POST", "/api/sena/analyze", "202", ["application/json"]],
@@ -389,6 +390,9 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
           "image/svg+xml",
           "text/html"
         ]],
+        ["POST", "/api/sena/exports/publication", "202", ["application/json"]],
+        ["POST", "/api/sena/workflows/runs", "202", ["application/json"]],
+        ["POST", "/api/sena/workflows/runs/{runId}/actions", "202", ["application/json"]],
         ["POST", "/api/sena/ops/jobs", "200", ["application/json"]],
         ["POST", "/api/sena/ops/jobs", "202", ["application/json"]],
         ["POST", "/api/sena/ops/jobs/worker", "202", ["application/json"]],
@@ -479,7 +483,11 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
         "/api/sena/projects/{projectId}/collaboration",
         "/api/sena/projects/{projectId}/collaboration/stream",
         "/api/sena/scim/v2/Groups/{resourceId}",
-        "/api/sena/scim/v2/Users/{resourceId}"
+        "/api/sena/scim/v2/Users/{resourceId}",
+        "/api/sena/workflows/runs/{runId}",
+        "/api/sena/workflows/runs/{runId}/actions",
+        "/api/sena/workflows/runs/{runId}/closeout",
+        "/api/sena/workflows/runs/{runId}/events"
       ]);
 
       // OpenAPI 3.1 §4.8.9.1: "Each template expression in the path MUST
@@ -525,13 +533,14 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
       expect(notRequired).toEqual([]);
       expect(unschemad).toEqual([]);
       // Every method of every templated path is covered, not just one:
-      // 4 on the project resource, 2 + 1 on collaboration, 4 + 4 on SCIM.
-      expect(checked).toBe(15);
+      // 4 on the project resource, 2 + 1 on collaboration, 4 + 4 on SCIM,
+      // and one operation on each of the four run-scoped EvidenceFlow paths.
+      expect(checked).toBe(19);
 
       // The operations that need BOTH a path parameter and the CSRF header are
       // where a naive fix breaks: `parameters` was built by a single object
       // spread, so adding a second one would overwrite or be overwritten.
-      // Exactly four operations sit in that intersection.
+      // Exactly five operations sit in that intersection.
       const both: string[] = [];
       for (const [pathKey, item] of Object.entries(paths)) {
         for (const [method, operation] of Object.entries(item)) {
@@ -545,6 +554,7 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
         "DELETE /api/sena/projects/{projectId}",
         "PATCH /api/sena/projects/{projectId}",
         "POST /api/sena/projects/{projectId}/collaboration",
+        "POST /api/sena/workflows/runs/{runId}/actions",
         "PUT /api/sena/projects/{projectId}"
       ]);
     });

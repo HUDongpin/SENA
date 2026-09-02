@@ -21,6 +21,7 @@ export type SenaApiGroupId =
   | "exports"
   | "governance"
   | "ops"
+  | "workflows"
   | "provisioning"
   | "legacy-ena";
 
@@ -49,7 +50,7 @@ export type SenaApiHeaderParameter = {
 };
 
 export type SenaApiErrorResponseFact = {
-  status: 400 | 401 | 403 | 404 | 409 | 413 | 429 | 503;
+  status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 503;
   code: string;
   description: string;
   /** Methods that can emit this error. Omit only when every method can. */
@@ -115,6 +116,7 @@ export const SENA_API_GROUPS: Array<{
   { id: "exports", title: "Publication Exports", description: "Publication-ready report artifacts for HTML, SVG, PNG, XLSX, DOCX, and PDF." },
   { id: "governance", title: "Governance", description: "Audit export/integrity, backup delivery, managed database sync, restore dry-run, restore merge, and health evidence." },
   { id: "ops", title: "Ops", description: "Readiness, status, metrics, deployment handoff, release-gate evidence, firing alerts, and signed alert delivery." },
+  { id: "workflows", title: "EvidenceFlow", description: "Durable research-evidence and engineering-release shadow workflows, approvals, redacted events, and audit-chain closeout." },
   { id: "provisioning", title: "Provisioning and SCIM", description: "Institution-managed users, teams, SSO identities, memberships, and SCIM 2.0 Users/Groups bridge." },
   { id: "legacy-ena", title: "ENA Runtime", description: "Compatibility endpoint for the standalone jENA analysis runtime." }
 ];
@@ -490,7 +492,16 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
         { status: 202, contentTypes: ["application/json"] }
       ]
     },
+    headerParameters: [{
+      name: "Idempotency-Key",
+      methods: ["POST"],
+      required: false,
+      description: "Required when POST is admitted to the asynchronous queue; binds one logical validation request to one command envelope and job."
+    }],
     errorResponses: [
+      { status: 409, code: "server_job_idempotency_conflict", description: "The queued Idempotency-Key is already bound to different validation evidence.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_required", description: "An asynchronously queued validation mutation omitted Idempotency-Key.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_invalid", description: "The queued validation Idempotency-Key is malformed or exceeds its bounded length.", methods: ["POST"] },
       { status: 400, code: "validation_request_content_type_invalid", description: "The validation mutation media type is not application/json.", methods: ["POST", "PATCH"] },
       { status: 400, code: "validation_request_invalid", description: "The admitted validation request is malformed JSON, is not an object, or has an invalid declared length.", methods: ["POST", "PATCH"] },
       { status: 400, code: "validation_request_fields_invalid", description: "The validation control envelope has unsupported fields, exceeds the 40-comparison fan-out limit, or exceeds its text/structure budgets.", methods: ["POST", "PATCH"] },
@@ -540,9 +551,9 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     path: "/api/sena/exports/publication",
     methods: ["POST"],
     auth: "session",
-    summary: "Generate project-bound claim-ready-with-limits SENA artifacts only after approved current reliability, sealed current validation, and receipt-authenticated expert evidence are atomically bound to one primary-state revision; projectId is required, inline snapshots and explicit unsupported formats are rejected, and every format embeds sena-publication-derivation-manifest/v3 with the complete claim package and derivation chain. Async requests fail closed after the same evidence gate until an evidence-bound publication worker is implemented.",
+    summary: "Generate project-bound claim-ready-with-limits SENA artifacts only after approved current reliability, sealed current validation, and receipt-authenticated expert evidence are atomically bound to one primary-state revision; projectId is required, inline snapshots and explicit unsupported formats are rejected, and every format embeds sena-publication-derivation-manifest/v3 with the complete claim package and derivation chain. Async requests use the executable evidence-bound worker, which revalidates the same lease before artifact generation.",
     evidenceNoteId: "sena-publication-export",
-    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v2", "sena-publication-derivation-manifest/v3", "sena-publication-state-binding/v2", "sena-data-governance-metadata/v1"],
+    responses: ["text/html", "image/svg+xml", "image/png", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/pdf", "sena-publication-package/v1", "sena-publication-source-snapshot/v1", "sena-publication-verification-certificate/v1", "sena-publication-enterprise-project-evidence/v2", "sena-publication-derivation-manifest/v3", "sena-publication-state-binding/v2", "sena-data-governance-metadata/v1", "sena-enterprise-server-job/v2", "sena-enterprise-server-job-result/v1"],
     normalResponsesByMethod: {
       POST: [{
         status: 200,
@@ -555,12 +566,25 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
           "application/pdf",
           "application/vnd.sena.publication-package+json"
         ]
+      }, {
+        status: 202,
+        contentTypes: ["application/json"],
+        description: "Evidence-bound publication job accepted durably; artifact generation is not yet proven."
       }]
     },
     requestBodyContentTypesByMethod: {
       POST: ["application/json"]
     },
+    headerParameters: [{
+      name: "Idempotency-Key",
+      methods: ["POST"],
+      required: false,
+      description: "Required when publication is queued; binds one logical export request to one command envelope, job, and artifact."
+    }],
     errorResponses: [
+      { status: 409, code: "server_job_idempotency_conflict", description: "The queued Idempotency-Key is already bound to different publication evidence.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_required", description: "An asynchronously queued publication mutation omitted Idempotency-Key.", methods: ["POST"] },
+      { status: 422, code: "server_job_idempotency_key_invalid", description: "The queued publication Idempotency-Key is malformed or exceeds its bounded length.", methods: ["POST"] },
       {
         status: 400,
         code: "publication_export_content_type_invalid",
@@ -633,8 +657,8 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
       },
       {
         status: 503,
-        code: "publication_export_async_worker_unavailable",
-        description: "Async publication is unavailable until a worker can revalidate the complete state and evidence lease before artifact generation."
+        code: "server_job_worker_capability_unavailable",
+        description: "The evidence-bound publication worker capability is not executable in this runtime."
       }
     ]
   },
@@ -981,6 +1005,124 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     summary: "Return machine-readable firing alerts or deliver signed alert webhooks.",
     evidenceNoteId: "sena-ops-alerts",
     responses: ["sena-enterprise-ops-alerts/v1", "sena-enterprise-ops-alert-delivery/v1"]
+  },
+  {
+    id: "sena-workflow-definitions",
+    group: "workflows",
+    path: "/api/sena/workflows/definitions",
+    methods: ["GET"],
+    auth: "session",
+    summary: "List the fixed research-evidence/v1 and engineering-release/v1 graph manifests and canonical hashes.",
+    evidenceNoteId: "sena-workflow-definitions",
+    responses: ["sena-workflow-definition-list/v1", "sena-workflow-definition/v1"]
+  },
+  {
+    id: "sena-workflow-runs",
+    group: "workflows",
+    path: "/api/sena/workflows/runs",
+    methods: ["GET", "POST"],
+    auth: "session",
+    summary: "List team-scoped EvidenceFlow runs or atomically persist a new source-bound run and start command.",
+    evidenceNoteId: "sena-workflow-runs",
+    responses: ["sena-workflow-run-list/v1", "sena-workflow-run-command/v1", "sena-workflow-run/v1"],
+    normalResponsesByMethod: {
+      GET: [{ status: 200, contentTypes: ["application/json"] }],
+      POST: [{ status: 202, contentTypes: ["application/json"], description: "Run and start command accepted durably; execution is not yet proven." }]
+    },
+    requestBodyContentTypesByMethod: { POST: ["application/json"] },
+    queryParameters: [
+      { name: "teamId", methods: ["GET"], required: true, description: "Tenant team whose workflow runs are listed." },
+      {
+        name: "status",
+        methods: ["GET"],
+        description: "Optional exact workflow status filter.",
+        allowedValues: ["queued", "running", "waiting_job", "waiting_human", "blocked", "succeeded", "failed", "dead_lettered", "cancelled", "superseded"]
+      }
+    ],
+    headerParameters: [{
+      name: "Idempotency-Key",
+      methods: ["POST"],
+      required: true,
+      description: "Stable key binding one logical run-creation attempt to one persisted run."
+    }],
+    errorResponses: [
+      { status: 409, code: "workflow_source_binding_conflict", description: "The supplied source digest no longer matches authoritative project or repository evidence.", methods: ["POST"] },
+      { status: 422, code: "workflow_research_source_class_invalid", description: "A research run must explicitly classify its source as fixture or approved-pseudonymized.", methods: ["POST"] },
+      { status: 422, code: "workflow_request_invalid", description: "The fixed workflow request or evidence packet is invalid.", methods: ["POST"] },
+      { status: 503, code: "server_job_queue_not_configured", description: "A required durable queue or executable research worker capability is unavailable.", methods: ["POST"] }
+    ]
+  },
+  {
+    id: "sena-workflow-run",
+    group: "workflows",
+    path: "/api/sena/workflows/runs/{runId}",
+    methods: ["GET"],
+    auth: "session",
+    summary: "Read one authoritative tenant-scoped EvidenceFlow run without exposing checkpoint internals.",
+    evidenceNoteId: "sena-workflow-run",
+    responses: ["sena-workflow-run/v1"],
+    errorResponses: [{ status: 404, code: "workflow_run_not_found", description: "The run does not exist or is not visible to this tenant." }]
+  },
+  {
+    id: "sena-workflow-run-events",
+    group: "workflows",
+    path: "/api/sena/workflows/runs/{runId}/events",
+    methods: ["GET"],
+    auth: "session",
+    summary: "Return a redacted SSE snapshot of run, command, receipt, approval, artifact, and evidence-boundary state.",
+    evidenceNoteId: "sena-workflow-run-events",
+    responses: ["sena-workflow-redacted-event/v1"],
+    normalResponsesByMethod: { GET: [{ status: 200, contentTypes: ["text/event-stream"] }] },
+    errorResponses: [{ status: 404, code: "workflow_run_not_found", description: "The run does not exist or is not visible to this tenant." }]
+  },
+  {
+    id: "sena-workflow-run-actions",
+    group: "workflows",
+    path: "/api/sena/workflows/runs/{runId}/actions",
+    methods: ["POST"],
+    auth: "session",
+    summary: "Persist a digest-bound approve, reject, retry, cancel, or fork command with optimistic concurrency.",
+    evidenceNoteId: "sena-workflow-run-actions",
+    responses: ["sena-workflow-action-command/v1", "sena-workflow-approval/v1"],
+    actions: ["approve", "reject", "retry", "cancel", "fork"],
+    normalResponsesByMethod: {
+      POST: [{ status: 202, contentTypes: ["application/json"], description: "Action command accepted durably; downstream execution is not implied." }]
+    },
+    requestBodyContentTypesByMethod: { POST: ["application/json"] },
+    headerParameters: [{
+      name: "Idempotency-Key",
+      methods: ["POST"],
+      required: true,
+      description: "Stable key for one logical workflow action."
+    }],
+    errorResponses: [
+      { status: 404, code: "workflow_run_not_found", description: "The run does not exist or is not visible to this tenant." },
+      { status: 409, code: "workflow_version_conflict", description: "expectedVersion, interrupt, decision digest, idempotency, or source binding no longer matches." },
+      { status: 422, code: "workflow_action_invalid", description: "The action shape or policy preconditions are invalid." }
+    ]
+  },
+  {
+    id: "sena-workflow-run-closeout",
+    group: "workflows",
+    path: "/api/sena/workflows/runs/{runId}/closeout",
+    methods: ["GET"],
+    auth: "session",
+    summary: "Verify and export the redacted audit-chain closeout for one EvidenceFlow run.",
+    evidenceNoteId: "sena-workflow-run-closeout",
+    responses: ["sena-workflow-closeout/v1", "sena-workflow-step-receipt/v1", "sena-workflow-approval/v1"],
+    queryParameters: [{
+      name: "version",
+      methods: ["GET"],
+      required: false,
+      description: "Exact current run version. Required for mutable failed/dead-lettered provisional snapshots; omitted for immutable final closeouts."
+    }],
+    errorResponses: [
+      { status: 404, code: "workflow_run_not_found", description: "The run does not exist or is not visible to this tenant." },
+      { status: 409, code: "workflow_closeout_not_ready", description: "The run is not in an exportable terminal state." },
+      { status: 409, code: "workflow_closeout_version_binding_required", description: "A provisional failed/dead-lettered snapshot did not bind the exact current version." },
+      { status: 409, code: "workflow_closeout_version_conflict", description: "The run version or status drifted while the snapshot was read." },
+      { status: 409, code: "workflow_closeout_evidence_invalid", description: "Receipt chain, artifact bindings, or closeout completeness could not be verified." }
+    ]
   },
   {
     id: "sena-provisioning",

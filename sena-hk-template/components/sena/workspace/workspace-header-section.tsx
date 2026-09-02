@@ -3,7 +3,8 @@ import type { ChangeEvent } from "react";
 import {
   Download,
   Sigma,
-  Upload
+  Upload,
+  Workflow
 } from "lucide-react";
 import { buttonStyles } from "@/components/Primitives";
 
@@ -40,6 +41,9 @@ export function WorkspaceHeaderSection({
       </div>
 
       <div className="ml-auto flex shrink-0 gap-2">
+        <Link href="/workspace/sena/automation" className={buttonStyles({ variant: "secondary", size: "sm", className: "border-white/20 bg-white/10 text-white hover:bg-white/15" })}>
+          <Workflow className="h-4 w-4" aria-hidden="true" /> Automation
+        </Link>
         <label className={buttonStyles({ variant: "secondary", size: "sm", className: "border-white/20 bg-white/10 text-white hover:bg-white/15" })}>
           <Upload className="h-4 w-4" /> Upload
           <input data-testid="sena-upload-input" type="file" accept={fileAccept} multiple className="sr-only" onChange={onContractUpload} />

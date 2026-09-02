@@ -313,11 +313,122 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(stored.status).toBe("succeeded");
     expect(stored.lifecycle.attempts).toBe(1);
     expect(stored.lifecycle.workerRunId).toBe(outcome.workerRunId);
+    expect(stored.resultReceipt).toMatchObject({
+      schemaVersion: "sena-enterprise-server-job-result/v1",
+      outputDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
+      artifactReferences: [outcome.result?.analysisRunId],
+      evidence: {
+        analysisRunId: outcome.result?.analysisRunId,
+        reportSha256: outcome.result?.reportSha256,
+        projectSnapshotSha256: outcome.result?.projectSnapshotSha256
+      },
+      redaction: {
+        payloadValuesExcluded: true,
+        rawRowsExcluded: true,
+        secretValuesExcluded: true
+      }
+    });
 
     const runs = await fixture.importAnalysis.listEnterpriseAnalysisRunsAsync(fixture.context, {
       teamId: fixture.teamId
     });
     expect(runs.map((run) => run.id)).toContain(outcome.result?.analysisRunId);
+  });
+
+  it("executes an encrypted project-bound validation job and reuses its deterministic run on replay", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const commandEnvelope = await import("../server-job-command-envelope");
+    const validationRuns = await import("../enterprise/validation-runs");
+    const validationDataset = structuredClone(fixture.snapshot.dataset);
+    validationDataset.people = validationDataset.people.map((person, index) => ({
+      ...person,
+      group: index % 2 === 0 ? "Validation A" : "Validation B"
+    }));
+    const validationModel = fixture.index.buildSenaModel(validationDataset);
+    const snapshot = fixture.index.buildSenaProjectSnapshot(validationModel, {
+      title: "Validation Worker Source",
+      generatedAt: "2026-08-28T00:00:00.000Z",
+      sourceDataset: validationDataset
+    });
+    const project = await fixture.enterprise.createEnterpriseProjectAsync(fixture.context, {
+      teamId: fixture.teamId,
+      title: "Validation Worker Project",
+      snapshot
+    });
+    const payload = {
+      action: "run-validation",
+      commandCustody: commandEnvelope.SENA_SERVER_JOB_COMMAND_CUSTODY,
+      teamId: fixture.teamId,
+      projectId: project.id,
+      projectVersion: project.currentVersion,
+      groupField: "group",
+      groupA: "Validation A",
+      groupB: "Validation B",
+      metric: "socialStrength",
+      iterations: 100,
+      bootstrapIterations: 100,
+      alpha: 0.05,
+      seed: 20260828,
+      suite: false
+    };
+    const queueInput = {
+      kind: "validation" as const,
+      teamId: fixture.teamId,
+      projectId: project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project" as const,
+        projectVersion: project.currentVersion,
+        projectTeamId: project.teamId,
+        comparisonCount: 1,
+        validationMethod: "group-comparison" as const,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true as const
+      }
+    };
+    const [commandEnvelopeUploadId] = fixture.importAnalysis.reserveEnterpriseUploadIds(1);
+    const custody = commandEnvelope.planSenaServerJobCommandCustody(
+      queueInput,
+      commandEnvelopeUploadId,
+      fixture.queue.stableServerJobPayloadSha256(payload)
+    );
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      ...custody.jobInput,
+      beforeDispatch: async () => {
+        await fixture.importAnalysis.createEnterpriseServerJobCommandEnvelopeWithPostgresMirrorAsync(
+          fixture.context,
+          {
+            teamId: fixture.teamId,
+            files: [custody.file],
+            requiredPermission: "analysis:run"
+          }
+        );
+      }
+    });
+
+    const outcome = await fixture.runtime.runEnterpriseServerJob({ job, workerPayload: payload });
+    expect(outcome).toEqual(expect.objectContaining({
+      status: "succeeded",
+      jobStatus: "succeeded",
+      result: expect.objectContaining({
+        validationRunId: expect.stringMatching(/^val_job_[a-f0-9]{24}$/),
+        validationRunEvidenceHash: expect.stringMatching(/^[a-f0-9]{64}$/)
+      })
+    }));
+
+    const replay = await validationRuns.buildEnterpriseGroupComparisonValidationResponseWithPostgresMirrorAsync(
+      fixture.context,
+      payload,
+      { executionIdempotency: { key: job.id, createdAt: job.queuedAt } }
+    );
+    expect(replay.body.validationRun.id).toBe(outcome.result?.validationRunId);
+    expect(validationRuns.listEnterpriseValidationRuns(fixture.context, {
+      teamId: fixture.teamId,
+      projectId: project.id
+    }).filter((run) => run.id === outcome.result?.validationRunId)).toHaveLength(1);
   });
 
   it.each([
@@ -1396,6 +1507,8 @@ describe("SENA in-repo server job worker runtime", () => {
     expect(outcome.errorCode).toBeUndefined();
     expect(outcome.status).toBe("succeeded");
     expect(outcome.result?.importRunId).toMatch(/^import_/);
+    expect(outcome.result?.importDatasetContentHash).toMatch(/^0x[a-f0-9]{8}$/);
+    expect(outcome.result?.importCleaningManifestSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(outcome.result?.persistedProjectId).toMatch(/^project_/);
     expect(outcome.result?.analysisRunId).toMatch(/^analysis_/);
 
@@ -2426,4 +2539,161 @@ describe("SENA in-repo server job worker runtime", () => {
       vi.doUnmock("@/lib/sena/analysis-run");
     }
   }, 30_000);
+
+  it("reclaims an expired running-job lease so a crash cannot strand EvidenceFlow forever", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const payload = {
+      action: "run-analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      projectVersion: fixture.project.currentVersion,
+      title: fixture.project.title,
+      includeRuntimeBundle: false,
+      persist: false,
+      updateProject: true
+    };
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload,
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        includeRuntimeBundle: false,
+        persist: false,
+        updateProject: true,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const claimed = await fixture.queue.claimEnterpriseServerJob({
+      jobId: job.id,
+      workerRunId: "worker_run_crashed_before_terminal_callback"
+    });
+    expect(claimed.claimed).toBe(true);
+    if (!claimed.claimed) throw new Error("expected running job claim");
+    expect(claimed.job.lifecycle.leaseExpiresAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+
+    const recovery = await fixture.queue.recoverExpiredEnterpriseServerJobs({
+      kinds: ["analysis"],
+      observedAt: new Date(Date.parse(claimed.job.lifecycle.leaseExpiresAt!) + 1).toISOString(),
+      limit: 10
+    });
+
+    expect(recovery).toMatchObject({ inspected: 1, requeued: 1, deadLettered: 0 });
+    const recovered = await fixture.queue.getEnterpriseServerJob(job.id);
+    expect(recovered).toEqual(expect.objectContaining({
+      status: "queued",
+      lifecycle: expect.objectContaining({
+        attempts: 1,
+        statusReason: "server-job-worker-lease-expired-requeued"
+      })
+    }));
+    expect(recovered.lifecycle.workerRunId).toBeUndefined();
+    expect(recovered.lifecycle.leaseExpiresAt).toBeUndefined();
+  });
+
+  it("reclaims a pre-lease running record after the bounded legacy grace window", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: {
+        action: "run-analysis",
+        teamId: fixture.teamId,
+        projectId: fixture.project.id,
+        projectVersion: fixture.project.currentVersion
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const claimed = await fixture.queue.claimEnterpriseServerJob({
+      jobId: job.id,
+      workerRunId: "worker_run_legacy_without_lease"
+    });
+    if (!claimed.claimed) throw new Error("expected running legacy claim");
+    const db = state.readEnterpriseDb();
+    const raw = db.serverJobs.find((candidate) => candidate.id === job.id)!;
+    delete raw.lifecycle.leaseExpiresAt;
+    delete raw.lifecycle.lastHeartbeatAt;
+    raw.updatedAt = "2026-08-28T00:00:00.000Z";
+    raw.lifecycle.startedAt = "2026-08-28T00:00:00.000Z";
+    state.saveDb(db);
+
+    const recovery = await fixture.queue.recoverExpiredEnterpriseServerJobs({
+      kinds: ["analysis"],
+      observedAt: "2026-08-28T00:10:00.000Z"
+    });
+
+    expect(recovery).toMatchObject({ inspected: 1, requeued: 1, deadLettered: 0 });
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toMatchObject({
+      status: "queued",
+      lifecycle: expect.objectContaining({
+        statusReason: "server-job-worker-legacy-lease-missing-requeued",
+        leaseReclaimedAt: "2026-08-28T00:10:00.000Z"
+      })
+    });
+  });
+
+  it("rejects terminal callbacks after the owning worker lease expired even before a sweeper wins", async () => {
+    const fixture = await workerFixture();
+    enterpriseDbDir = fixture.enterpriseDbDir;
+    const state = await import("../enterprise/state");
+    const job = await fixture.queue.enqueueEnterpriseServerJob({
+      kind: "analysis",
+      teamId: fixture.teamId,
+      projectId: fixture.project.id,
+      actorUserId: fixture.context.user.id,
+      payload: {
+        action: "run-analysis",
+        teamId: fixture.teamId,
+        projectId: fixture.project.id,
+        projectVersion: fixture.project.currentVersion
+      },
+      payloadSummary: {
+        source: "project",
+        projectVersion: fixture.project.currentVersion,
+        hasInlineSnapshot: false,
+        hasInlineDataset: false,
+        payloadValuesExcluded: true
+      }
+    });
+    const workerRunId = "worker_run_expired_terminal_fence";
+    const claimed = await fixture.queue.claimEnterpriseServerJob({ jobId: job.id, workerRunId });
+    if (!claimed.claimed) throw new Error("expected running job claim");
+    const db = state.readEnterpriseDb();
+    const raw = db.serverJobs.find((candidate) => candidate.id === job.id)!;
+    raw.lifecycle.leaseExpiresAt = "2000-01-01T00:00:00.000Z";
+    state.saveDb(db);
+
+    await expect(fixture.queue.updateEnterpriseServerJobStatus({
+      jobId: job.id,
+      action: "mark-succeeded",
+      workerRunId
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_worker_lease_conflict"
+    });
+    await expect(fixture.queue.renewEnterpriseServerJobLease({
+      jobId: job.id,
+      workerRunId
+    })).rejects.toMatchObject({
+      status: 409,
+      code: "server_job_worker_lease_conflict"
+    });
+    await expect(fixture.queue.getEnterpriseServerJob(job.id)).resolves.toMatchObject({ status: "running" });
+  });
 });
