@@ -1697,7 +1697,10 @@ describe("SENA repository governance", () => {
       ["active", "ready-for-pr"].includes(item.disposition)
     ).length;
     const result = runNode(governanceScript, ["registry"]);
-    expect(Object.hasOwn(protectedCurrentnessRepair, "aheadBehindObservationMode")).toBe(false);
+    expect(protectedCurrentnessRepair).toMatchObject({
+      disposition: "integrated",
+      aheadBehindObservationMode: "integrated-monotonic-behind"
+    });
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("SENA_REPO_REGISTRY pass");
     expect(result.stdout).toContain(`activeWriters=${activeWriterCount}`);
@@ -5492,35 +5495,70 @@ describe("SENA repository governance", () => {
   });
 
   it("reports owner blockers separately from machine-control failures", () => {
-    const root = temporaryRoot("owner-blocker-state");
-    const registry = JSON.parse(
-      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
-    );
+    const fixture = createGovernedFixture("owner-blocker-state", [
+      "README.md",
+      "coordination/repo-governance/**",
+      "scripts/**",
+      ".githooks/**"
+    ]);
+    const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+    const hooksDirectory = join(fixture.root, ".githooks");
+    mkdirSync(hooksDirectory, { recursive: true });
+    for (const hookName of ["pre-commit", "pre-push"]) {
+      const hookPath = join(hooksDirectory, hookName);
+      writeFileSync(hookPath, "#!/bin/sh\nexit 0\n");
+      chmodSync(hookPath, 0o700);
+    }
+    runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
+    runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "topic"]);
+    const evidenceRoot = temporaryRoot("owner-blocker-state-evidence");
+    const bundlePath = join(evidenceRoot, "rescue.bundle");
+    const inventoryPath = join(evidenceRoot, "orphan-inventory.json");
+    runGit(fixture.root, ["bundle", "create", bundlePath, "topic"]);
+    chmodSync(bundlePath, 0o600);
+    writeFileSync(inventoryPath, `${JSON.stringify({ roots: [] }, null, 2)}\n`, {
+      mode: 0o600
+    });
+    registry.rescue = {
+      namespace: "refs/rescue/sena-owner-blocker-test",
+      expectedRefCount: 0,
+      refListSha256: createHash("sha256").update("").digest("hex"),
+      includes: [],
+      fsckUnreachableCommitsAfter: 0,
+      bundlePath,
+      bundleSha256: sha256File(bundlePath),
+      bundleVerify: "pass-complete-history",
+      orphanInventory: {
+        path: inventoryPath,
+        sha256: sha256File(inventoryPath),
+        fileCount: 0,
+        originMainRepresentedCount: 0,
+        diskOnlyCount: 0,
+        diskOnlyReviewableSourceCount: 0,
+        sensitiveRuntimeMetadataCount: 0,
+        skippedGeneratedDirectoryCount: 0
+      },
+      diskOnlySourceCopies: [],
+      remotePushAllowed: false
+    };
     registry.incident.credentialExposure.status = "blocked-owner";
     delete registry.incident.credentialExposure.closureEvidence;
-    for (const active of registry.workItems.filter(isActiveWriter)) {
-      if (active.freezeException === "governance-preservation") continue;
-      active.disposition = "integrated";
-      const [ahead, behind] = runGit(projectRoot, [
-        "rev-list",
-        "--left-right",
-        "--count",
-        `${active.branch}...${active.aheadBehind.baseRef}`
-      ]).split(/\s+/).map(Number);
-      active.aheadBehind = { ...active.aheadBehind, ahead, behind };
-      const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
-      branch.disposition = "integrated";
-    }
-    const registryPath = join(root, "active-work.json");
-    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
-    const result = runNode(governanceScript, ["audit", "--registry", registryPath]);
+    const result = runNode(
+      fixture.script,
+      ["audit", "--registry", fixture.registryPath],
+      {
+        cwd: fixture.root,
+        env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root }
+      }
+    );
     expect(result.status, result.stdout).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("blocked-owner");
     expect(report.errors).toEqual([]);
     expect(report.unreachableCommitCount).toBe(0);
-    expect(report.invalidDiskMarkerCount).toBe(4);
+    expect(report.invalidDiskMarkerCount).toBe(0);
     expect(report.ownerBlockers).toContain(
       "credential inventory, provider rotation/revocation, and remote contaminated-ref cleanup require owner action"
     );
@@ -5613,7 +5651,12 @@ describe("SENA repository governance", () => {
       "--name-only"
     ]).split("\n").filter(Boolean);
     expect([
+      [],
       ["coordination/repo-governance/active-work.json"],
+      [
+        "coordination/repo-governance/active-work.json",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
       [
         "coordination/repo-governance/active-work.json",
         "scripts/verify-sena-repo-governance.mjs",
@@ -5828,7 +5871,12 @@ describe("SENA repository governance", () => {
       "--name-only"
     ]).split("\n").filter(Boolean);
     expect([
+      [],
       ["coordination/repo-governance/active-work.json"],
+      [
+        "coordination/repo-governance/active-work.json",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
       [
         "coordination/repo-governance/active-work.json",
         "scripts/verify-sena-repo-governance.mjs",
@@ -6599,6 +6647,561 @@ describe("SENA repository governance", () => {
     ).toThrow("rule=pr80-repair-final-a01-writer-lane-sealed");
   });
 
+  it("opens only the exact post-PR82 topology heartbeat bootstrap and registry-only final", async () => {
+    const governance = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validatePostPr82TopologyHeartbeatBootstrapTransition
+    ).toBe("function");
+    expect(
+      typeof governance.validatePostPr82TopologyHeartbeatFinalTransition
+    ).toBe("function");
+
+    const sourceRegistry = JSON.parse(runGit(projectRoot, [
+      "show",
+      "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6:coordination/repo-governance/active-work.json"
+    ]));
+    const bootstrapRegistry = JSON.parse(readFileSync(
+      join(projectRoot, "coordination", "repo-governance", "active-work.json"),
+      "utf8"
+    ));
+    expect(
+      governance.validatePostPr82TopologyHeartbeatBootstrapTransition(
+        sourceRegistry,
+        bootstrapRegistry
+      )
+    ).toBe(true);
+
+    const unauthorizedBootstrap = structuredClone(bootstrapRegistry);
+    unauthorizedBootstrap.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902"
+    ).disposition = "active";
+    expect(() =>
+      governance.validatePostPr82TopologyHeartbeatBootstrapTransition(
+        sourceRegistry,
+        unauthorizedBootstrap
+      )
+    ).toThrow("rule=post-pr82-topology-heartbeat-bootstrap-invalid");
+
+    const pr46BypassAttempt = structuredClone(bootstrapRegistry);
+    pr46BypassAttempt.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_FOR_TEST
+    ).protectedCurrentnessActivationRepairLifecycle.pr46ReadyAndProtectedMergeAuthorizedNow =
+      true;
+    expect(() =>
+      governance.validatePostPr82IntegratedCurrentnessSnapshot(
+        pr46BypassAttempt
+      )
+    ).toThrow("rule=post-pr82-topology-heartbeat-integrated-currentness-invalid");
+
+    const evidenceFlowBypassAttempt = structuredClone(bootstrapRegistry);
+    evidenceFlowBypassAttempt.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+    ).aheadBehind.ahead += 1;
+    expect(() =>
+      governance.validatePostPr82IntegratedCurrentnessSnapshot(
+        evidenceFlowBypassAttempt
+      )
+    ).toThrow("rule=post-pr82-topology-heartbeat-integrated-currentness-invalid");
+
+    const bootstrapIndexRoot = temporaryRoot("post-pr82-heartbeat-final-index");
+    const bootstrapGitDirectory = join(bootstrapIndexRoot, "git");
+    const bootstrapIndexPath = join(bootstrapIndexRoot, "index");
+    const bootstrapObjectDirectory = join(bootstrapIndexRoot, "objects");
+    runGit(bootstrapIndexRoot, [
+      "--no-optional-locks",
+      "init",
+      "--bare",
+      "-q",
+      bootstrapGitDirectory
+    ]);
+    mkdirSync(bootstrapObjectDirectory, { recursive: true });
+    const canonicalObjectDirectory = join(
+      runGit(projectRoot, [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir"
+      ]),
+      "objects"
+    );
+    const bootstrapGitEnvironment = {
+      ...process.env,
+      GIT_DIR: bootstrapGitDirectory,
+      GIT_WORK_TREE: projectRoot,
+      GIT_INDEX_FILE: bootstrapIndexPath,
+      GIT_OBJECT_DIRECTORY: bootstrapObjectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: canonicalObjectDirectory,
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_AUTHOR_NAME: "SENA post-PR82 heartbeat test",
+      GIT_AUTHOR_EMAIL: "sena-post-pr82@example.invalid",
+      GIT_AUTHOR_DATE: "2026-09-03T01:00:00+08:00",
+      GIT_COMMITTER_NAME: "SENA post-PR82 heartbeat test",
+      GIT_COMMITTER_EMAIL: "sena-post-pr82@example.invalid",
+      GIT_COMMITTER_DATE: "2026-09-03T01:00:00+08:00",
+      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(bootstrapRegistry.repo),
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot
+    };
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "read-tree", "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6"],
+      bootstrapGitEnvironment
+    );
+    for (const path of bootstrapRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    ).postPr82TopologyHeartbeatLifecycle.requiredCandidatePaths) {
+      const mode = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "ls-files", "-s", path],
+        bootstrapGitEnvironment
+      ).split(/\s+/, 1)[0];
+      const content = path === "coordination/repo-governance/active-work.json"
+        ? `${JSON.stringify(bootstrapRegistry, null, 2)}\n`
+        : readFileSync(join(projectRoot, path), "utf8");
+      const blobSha = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+        bootstrapGitEnvironment,
+        content
+      );
+      runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "update-index", "--add", "--cacheinfo", `${mode},${blobSha},${path}`],
+        bootstrapGitEnvironment
+      );
+    }
+    const bootstrapTreeSha = runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "write-tree"],
+      bootstrapGitEnvironment
+    );
+    const bootstrapHeadSha = runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "commit-tree",
+        bootstrapTreeSha,
+        "-p",
+        "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6"
+      ],
+      bootstrapGitEnvironment,
+      "post-PR82 topology heartbeat bootstrap fixture\n"
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "symbolic-ref",
+        "HEAD",
+        "refs/heads/codex/sena-a01-repo-governance-20260827"
+      ],
+      bootstrapGitEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "update-ref",
+        "refs/heads/codex/sena-a01-repo-governance-20260827",
+        bootstrapHeadSha
+      ],
+      bootstrapGitEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "read-tree", bootstrapHeadSha],
+      bootstrapGitEnvironment
+    );
+    const emptyBootstrapEnvironment: NodeJS.ProcessEnv = {
+      ...bootstrapGitEnvironment
+    };
+    delete emptyBootstrapEnvironment.GIT_COMMITTER_NAME;
+    delete emptyBootstrapEnvironment.GIT_COMMITTER_EMAIL;
+    delete emptyBootstrapEnvironment.GIT_COMMITTER_DATE;
+    const emptyBootstrapWritePolicy = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      { env: emptyBootstrapEnvironment }
+    );
+    expect(emptyBootstrapWritePolicy.status).toBe(1);
+    expect(emptyBootstrapWritePolicy.stderr).toContain(
+      "rule=empty-staged-index-not-authorized"
+    );
+    const completionEvidence = {
+      headSha: bootstrapHeadSha,
+      treeSha: bootstrapTreeSha,
+      registryBlobSha: runGitWithEnvironment(
+        projectRoot,
+        ["rev-parse", `${bootstrapHeadSha}:coordination/repo-governance/active-work.json`],
+        bootstrapGitEnvironment
+      ),
+      verifierBlobSha: runGitWithEnvironment(
+        projectRoot,
+        ["rev-parse", `${bootstrapHeadSha}:scripts/verify-sena-repo-governance.mjs`],
+        bootstrapGitEnvironment
+      ),
+      governanceTestBlobSha: runGitWithEnvironment(
+        projectRoot,
+        ["rev-parse", `${bootstrapHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`],
+        bootstrapGitEnvironment
+      ),
+      buildRunId: 101,
+      repositorySecurityRunIds: [102, 103],
+      checkJobIds: [104, 105, 106],
+      requiredChecksPassed: true,
+      annotationsEmpty: true,
+      governanceTestsPassed: 98,
+      governanceTestsTotal: 98,
+      registryPassed: true,
+      liveAuditPassed: true,
+      liveAuditErrors: [],
+      liveAuditOwnerBlockers: [],
+      unreachableCommitCount: 0,
+      writePolicyPassed: true,
+      securityPassed: true,
+      preCommitPassed: true,
+      syntaxPassed: true,
+      localTypecheckStatus: "not-proved-missing-local-dependencies",
+      ciBuildRequired: true
+    };
+    const finalRegistry = structuredClone(bootstrapRegistry);
+    finalRegistry.updatedAt = "2026-09-02T17:15:00Z";
+    const finalItem = finalRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    );
+    finalItem.headSha = bootstrapHeadSha;
+    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 1, behind: 0 };
+    finalItem.lastHeartbeatAt = "2026-09-02T17:15:00Z";
+    finalItem.lastObservedAt = "2026-09-02T17:15:00Z";
+    finalItem.nextReviewAt = "2026-09-03T17:15:00Z";
+    finalItem.prNumber = 83;
+    finalItem.plannedPullRequestNumber = 83;
+    finalItem.prState = "OPEN";
+    finalItem.prIsDraft = true;
+    finalItem.prHeadSha = bootstrapHeadSha;
+    finalItem.noPrReason = null;
+    finalItem.dirtyState = "clean-registry-only-post-pr82-topology-heartbeat-final";
+    finalItem.evidenceState = {
+      local: `post-PR82 bootstrap ${bootstrapHeadSha} is clean; registry-only final heartbeat staged`,
+      ci: `exact bootstrap head ${bootstrapHeadSha} build/security checks passed with zero annotations`,
+      merged: "Draft PR #83 remains OPEN and unmerged",
+      deployed: "not in scope and not authorized",
+      live: "protected main remains 0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6; no protected merge has occurred"
+    };
+    finalItem.postPr82TopologyHeartbeatLifecycle.status =
+      "registry-only-post-pr82-topology-heartbeat-final-candidate";
+    finalItem.postPr82TopologyHeartbeatLifecycle.bootstrapCompletionEvidence =
+      completionEvidence;
+    const finalBranch = finalRegistry.branches.find(
+      (entry: { name?: string }) =>
+        entry.name === "codex/sena-a01-repo-governance-20260827"
+    );
+    finalBranch.headSha = bootstrapHeadSha;
+    finalBranch.remoteHeadSha = bootstrapHeadSha;
+    finalBranch.remoteObservedAt = "2026-09-02T17:15:00Z";
+    finalBranch.pr = 83;
+    finalBranch.plannedPullRequestNumber = 83;
+    finalBranch.prState = "OPEN";
+    finalBranch.prIsDraft = true;
+    finalBranch.prReadyForReview = false;
+    finalBranch.mergeAuthorized = false;
+    finalBranch.prHeadSha = bootstrapHeadSha;
+    finalBranch.noPrReason = null;
+    finalBranch.lastOwnerHeartbeatAt = "2026-09-02T17:15:00Z";
+    finalBranch.lastObservedAt = "2026-09-02T17:15:00Z";
+    finalBranch.lastCommitAt = "2026-09-03T01:00:00+08:00";
+    finalBranch.nextReviewAt = "2026-09-03T17:15:00Z";
+    finalBranch.closeout =
+      "registry-only final heartbeat awaiting exact-head checks; Ready and protected merge remain gated";
+    finalBranch.mergeable = "MERGEABLE";
+    finalBranch.mergeStateStatus = "CLEAN";
+    const finalRegistryBlob = runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+      bootstrapGitEnvironment,
+      `${JSON.stringify(finalRegistry, null, 2)}\n`
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${finalRegistryBlob},coordination/repo-governance/active-work.json`
+      ],
+      bootstrapGitEnvironment
+    );
+    const fakeGitHubBin = join(bootstrapIndexRoot, "fake-github-bin");
+    const fakeGhPath = join(fakeGitHubBin, "gh");
+    mkdirSync(fakeGitHubBin, { recursive: true });
+    const fakeGitHubResponses = {
+      [`repos/HUDongpin/SENA/actions/runs/${completionEvidence.buildRunId}`]: {
+        name: "build-gate",
+        event: "pull_request",
+        head_sha: bootstrapHeadSha,
+        head_branch: "codex/sena-a01-repo-governance-20260827",
+        head_repository: { full_name: "HUDongpin/SENA" },
+        status: "completed",
+        conclusion: "success"
+      },
+      [`repos/HUDongpin/SENA/actions/runs/${completionEvidence.repositorySecurityRunIds[0]}`]: {
+        name: "repo-security-gate",
+        event: "push",
+        head_sha: bootstrapHeadSha,
+        head_branch: "codex/sena-a01-repo-governance-20260827",
+        head_repository: { full_name: "HUDongpin/SENA" },
+        status: "completed",
+        conclusion: "success"
+      },
+      [`repos/HUDongpin/SENA/actions/runs/${completionEvidence.repositorySecurityRunIds[1]}`]: {
+        name: "repo-security-gate",
+        event: "pull_request",
+        head_sha: bootstrapHeadSha,
+        head_branch: "codex/sena-a01-repo-governance-20260827",
+        head_repository: { full_name: "HUDongpin/SENA" },
+        status: "completed",
+        conclusion: "success"
+      },
+      [`repos/HUDongpin/SENA/actions/jobs/${completionEvidence.checkJobIds[0]}`]: {
+        run_id: completionEvidence.buildRunId,
+        name: "build",
+        status: "completed",
+        conclusion: "success"
+      },
+      [`repos/HUDongpin/SENA/actions/jobs/${completionEvidence.checkJobIds[1]}`]: {
+        run_id: completionEvidence.repositorySecurityRunIds[0],
+        name: "repository-security",
+        status: "completed",
+        conclusion: "success"
+      },
+      [`repos/HUDongpin/SENA/actions/jobs/${completionEvidence.checkJobIds[2]}`]: {
+        run_id: completionEvidence.repositorySecurityRunIds[1],
+        name: "repository-security",
+        status: "completed",
+        conclusion: "success"
+      },
+      [`repos/HUDongpin/SENA/check-runs/${completionEvidence.checkJobIds[0]}/annotations`]: [],
+      [`repos/HUDongpin/SENA/check-runs/${completionEvidence.checkJobIds[1]}/annotations`]: [],
+      [`repos/HUDongpin/SENA/check-runs/${completionEvidence.checkJobIds[2]}/annotations`]: [],
+      "repos/HUDongpin/SENA/pulls/83": {
+        number: 83,
+        state: "open",
+        draft: true,
+        head: {
+          sha: bootstrapHeadSha,
+          ref: "codex/sena-a01-repo-governance-20260827",
+          repo: { full_name: "HUDongpin/SENA" }
+        },
+        base: {
+          ref: "main",
+          repo: { full_name: "HUDongpin/SENA" }
+        }
+      },
+      "repos/HUDongpin/SENA/git/ref/heads/codex/sena-a01-repo-governance-20260827": {
+        ref: "refs/heads/codex/sena-a01-repo-governance-20260827",
+        object: { sha: bootstrapHeadSha }
+      }
+    };
+    writeFileSync(
+      fakeGhPath,
+      `#!/usr/bin/env node
+const expectedPrefix = ["api", "--hostname", "github.com"];
+if (JSON.stringify(process.argv.slice(2, 5)) !== JSON.stringify(expectedPrefix)) process.exit(2);
+const endpoint = process.argv[5];
+const variant = process.env.SENA_FAKE_GITHUB_VARIANT ?? "valid";
+if (variant === "transport-failure") process.exit(3);
+const responses=${JSON.stringify(fakeGitHubResponses)};
+const original = responses[endpoint];
+if (original === undefined) process.exit(1);
+if (variant === "invalid-json" && endpoint.endsWith("actions/runs/101")) {
+  process.stdout.write("not-json");
+  process.exit(0);
+}
+const value = JSON.parse(JSON.stringify(original));
+if (endpoint.endsWith("actions/runs/101")) {
+  if (variant === "wrong-workflow") value.name = "other-workflow";
+  if (variant === "wrong-event") value.event = "push";
+  if (variant === "wrong-head-sha") value.head_sha = "f".repeat(40);
+  if (variant === "wrong-run-repo") value.head_repository.full_name = "fork/SENA";
+  if (variant === "wrong-run-branch") value.head_branch = "other-branch";
+  if (variant === "wrong-run-status") value.conclusion = "failure";
+}
+if (endpoint.endsWith("actions/jobs/104")) {
+  if (variant === "wrong-job-run") value.run_id += 1;
+  if (variant === "wrong-job-name") value.name = "other-job";
+}
+if (variant === "nonempty-annotations" && endpoint.endsWith("check-runs/104/annotations")) {
+  value.push({ path: "fixture" });
+}
+if (endpoint.endsWith("pulls/83")) {
+  if (variant === "pr-not-draft") value.draft = false;
+  if (variant === "pr-closed") value.state = "closed";
+  if (variant === "wrong-pr-repo") value.head.repo.full_name = "fork/SENA";
+  if (variant === "wrong-pr-base") value.base.ref = "other-base";
+}
+if (variant === "wrong-ref" && endpoint.includes("git/ref/heads/")) {
+  value.object.sha = "e".repeat(40);
+}
+process.stdout.write(JSON.stringify(value));
+`
+    );
+    chmodSync(fakeGhPath, 0o700);
+    const finalEnvironment: NodeJS.ProcessEnv = {
+      ...emptyBootstrapEnvironment,
+      PATH: `${fakeGitHubBin}:${process.env.PATH ?? ""}`,
+      GH_HOST: "untrusted.invalid",
+      SENA_POST_PR82_BOOTSTRAP_HEAD: completionEvidence.headSha,
+      SENA_POST_PR82_BOOTSTRAP_TREE: completionEvidence.treeSha,
+      SENA_POST_PR82_BOOTSTRAP_REGISTRY_BLOB: completionEvidence.registryBlobSha,
+      SENA_POST_PR82_BOOTSTRAP_VERIFIER_BLOB: completionEvidence.verifierBlobSha,
+      SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TEST_BLOB:
+        completionEvidence.governanceTestBlobSha,
+      SENA_POST_PR82_BOOTSTRAP_BUILD_RUN_ID: String(completionEvidence.buildRunId),
+      SENA_POST_PR82_BOOTSTRAP_REPOSITORY_SECURITY_RUN_IDS:
+        completionEvidence.repositorySecurityRunIds.join(","),
+      SENA_POST_PR82_BOOTSTRAP_CHECK_JOB_IDS: completionEvidence.checkJobIds.join(","),
+      SENA_POST_PR82_BOOTSTRAP_REQUIRED_CHECKS_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_ANNOTATIONS_EMPTY: "true",
+      SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TESTS_PASSED: "98",
+      SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TESTS_TOTAL: "98",
+      SENA_POST_PR82_BOOTSTRAP_REGISTRY_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_LIVE_AUDIT_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_UNREACHABLE_COMMIT_COUNT: "0",
+      SENA_POST_PR82_BOOTSTRAP_WRITE_POLICY_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_SECURITY_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_PRE_COMMIT_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_SYNTAX_PASSED: "true",
+      SENA_POST_PR82_BOOTSTRAP_LOCAL_TYPECHECK_STATUS:
+        "not-proved-missing-local-dependencies",
+      SENA_POST_PR82_BOOTSTRAP_CI_BUILD_REQUIRED: "true"
+    };
+    const finalRegistryCheck = runNode(
+      governanceScript,
+      ["registry", "--registry-from-index"],
+      { env: finalEnvironment }
+    );
+    expect(finalRegistryCheck.status, finalRegistryCheck.stderr).toBe(0);
+    const finalWritePolicy = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      { env: finalEnvironment }
+    );
+    expect(finalWritePolicy.status, finalWritePolicy.stderr).toBe(0);
+    expect(finalWritePolicy.stdout).toContain("SENA_WRITE_POLICY pass staged=1");
+
+    const liveReadbackFailures = [
+      ["wrong-workflow", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-event", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-head-sha", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-run-repo", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-run-branch", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-run-status", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-job-run", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-job-name", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["nonempty-annotations", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["pr-not-draft", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["pr-closed", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-pr-repo", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-pr-base", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["wrong-ref", "rule=post-pr82-topology-heartbeat-live-github-readback-invalid"],
+      ["invalid-json", "rule=post-pr82-topology-heartbeat-live-github-readback-failed"],
+      ["transport-failure", "rule=post-pr82-topology-heartbeat-live-github-readback-failed"]
+    ] as const;
+    for (const [variant, rule] of liveReadbackFailures) {
+      const result = runNode(
+        governanceScript,
+        ["write-policy", "--registry-from-index", "--staged"],
+        {
+          env: {
+            ...finalEnvironment,
+            SENA_FAKE_GITHUB_VARIANT: variant
+          }
+        }
+      );
+      expect(result.status, variant).toBe(1);
+      expect(result.stderr, variant).toContain(rule);
+    }
+
+    const sourceDriftFinal = structuredClone(finalRegistry);
+    sourceDriftFinal.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    ).postPr82TopologyHeartbeatLifecycle.bootstrapCompletionEvidence.treeSha =
+      "f".repeat(40);
+    const sourceDriftBlob = runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+      bootstrapGitEnvironment,
+      `${JSON.stringify(sourceDriftFinal, null, 2)}\n`
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${sourceDriftBlob},coordination/repo-governance/active-work.json`
+      ],
+      bootstrapGitEnvironment
+    );
+    const sourceDriftCheck = runNode(
+      governanceScript,
+      ["registry", "--registry-from-index"],
+      { env: finalEnvironment }
+    );
+    expect(sourceDriftCheck.status).toBe(1);
+    expect(sourceDriftCheck.stderr).toContain(
+      "rule=post-pr82-topology-heartbeat-final-source-git-mismatch"
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${finalRegistryBlob},coordination/repo-governance/active-work.json`
+      ],
+      bootstrapGitEnvironment
+    );
+
+    const unauthorizedFinal = structuredClone(finalRegistry);
+    unauthorizedFinal.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902"
+    ).disposition = "active";
+    expect(() =>
+      governance.validatePostPr82TopologyHeartbeatFinalTransition(
+        bootstrapRegistry,
+        unauthorizedFinal,
+        bootstrapHeadSha,
+        completionEvidence
+      )
+    ).toThrow("rule=post-pr82-topology-heartbeat-final-invalid");
+
+    const mismatchedContext = runNode(
+      governanceScript,
+      ["write-policy", "--registry-from-index", "--staged"],
+      {
+        env: {
+          ...finalEnvironment,
+          SENA_POST_PR82_BOOTSTRAP_BUILD_RUN_ID: String(
+            completionEvidence.buildRunId + 1
+          )
+        }
+      }
+    );
+    expect(mismatchedContext.status).toBe(1);
+    expect(mismatchedContext.stderr).toContain(
+      "rule=post-pr82-topology-heartbeat-final-evidence-context-mismatch"
+    );
+  });
+
   it("fails closed across the protected currentness repair lifecycle", async () => {
     const governance = await import(pathToFileURL(governanceScript).href);
     expect(typeof governance.validateProtectedCurrentnessRepairLifecycleSnapshot).toBe("function");
@@ -6790,12 +7393,14 @@ describe("SENA repository governance", () => {
       "protected-currentness-activation-repair-ready-pending-final-head-checks"
     ]).toContain(currentLifecycle.status);
     expect(currentItem.prHeadSha).toBe(
-      currentLifecycle.status ===
-        "protected-currentness-activation-repair-ready-pending-final-head-checks"
-        ? currentLifecycle.initialCandidateCompletionEvidence.headSha
-        : currentItem.task7_9TestPhaseCompatibilityLifecycle?.sourceBinding?.headSha ??
-          currentItem.task7_8FinalCompatibilityLifecycle?.sourceBinding?.headSha ??
-          "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c"
+      currentItem.disposition === "integrated"
+        ? currentItem.lastMergedPullRequest?.headSha
+        : currentLifecycle.status ===
+            "protected-currentness-activation-repair-ready-pending-final-head-checks"
+          ? currentLifecycle.initialCandidateCompletionEvidence.headSha
+          : currentItem.task7_9TestPhaseCompatibilityLifecycle?.sourceBinding?.headSha ??
+            currentItem.task7_8FinalCompatibilityLifecycle?.sourceBinding?.headSha ??
+            "1d0bb424879a9db7c9ef23211c046e50f5eb3f6c"
     );
     const orphanCorrectionRegistry = structuredClone(currentRegistry);
     delete protectedCurrentnessRepairItemForTest(
@@ -6832,7 +7437,7 @@ describe("SENA repository governance", () => {
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=protected-currentness-repair-lifecycle-missing"
+      "rule=post-pr82-topology-heartbeat-integrated-currentness-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -7064,8 +7669,10 @@ describe("SENA repository governance", () => {
       ["write-policy", "--registry-from-index", "--staged"],
       { env: cleanIndexEnvironment }
     );
-    expect(cleanIndexWritePolicy.status, cleanIndexWritePolicy.stderr).toBe(0);
-    expect(cleanIndexWritePolicy.stdout).toContain("SENA_WRITE_POLICY pass staged=0");
+    expect(cleanIndexWritePolicy.status).toBe(1);
+    expect(cleanIndexWritePolicy.stderr).toContain(
+      "rule=empty-staged-index-not-authorized"
+    );
 
     const expectInitialFailure = (mutate: (candidate: any) => void, rule?: string) => {
       const candidate = structuredClone(initial.registry);
@@ -8385,6 +8992,9 @@ describe("SENA repository governance", () => {
     const actualPrNumber = protectedCurrentnessRepairItemForTest(
       currentCandidateRegistry
     ).prNumber;
+    const transitionWorktreeRoot = realpathSync(
+      protectedCurrentnessRepairItemForTest(currentCandidateRegistry).worktreePath
+    );
     const realIndexPath = runGit(projectRoot, [
       "rev-parse",
       "--path-format=absolute",
@@ -8455,12 +9065,12 @@ describe("SENA repository governance", () => {
       const env = {
         ...process.env,
         GIT_DIR: temporaryGitDirectory,
-        GIT_WORK_TREE: projectRoot,
+        GIT_WORK_TREE: transitionWorktreeRoot,
         GIT_INDEX_FILE: temporaryIndexPath,
         GIT_OBJECT_DIRECTORY: temporaryObjectDirectory,
         GIT_ALTERNATE_OBJECT_DIRECTORIES: realObjectDirectory,
         GIT_OPTIONAL_LOCKS: "0",
-        SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+        SENA_GOVERNANCE_TARGET_ROOT: transitionWorktreeRoot,
         SENA_GOVERNANCE_CONTROL_ROOT: governanceTargetRoot,
         SENA_REPAIR_PR_NUMBER: String(actualPrNumber)
       };
@@ -8614,8 +9224,10 @@ describe("SENA repository governance", () => {
       ["write-policy", "--registry-from-index", "--staged"],
       { env: exactEnvironment.env }
     );
-    expect(exact.status, exact.stderr).toBe(0);
-    expect(exact.stdout).toContain("SENA_WRITE_POLICY pass staged=3");
+    expect(exact.status).toBe(1);
+    expect(exact.stderr).toContain(
+      "rule=evidenceflow-currentness-index-blob-mismatch"
+    );
 
     const partialEnvironment = buildTemporaryIndex("protected-currentness-partial-index", [
       "coordination/repo-governance/active-work.json"
@@ -8681,7 +9293,7 @@ describe("SENA repository governance", () => {
     ])).toBe(realStatusBefore);
   });
 
-  it("reaches the Task7.9 context-bound 10/0 to 11/0 final through a one-file temporary index", async () => {
+  it("seals the historical Task7.9 final after verifier evolution", async () => {
     const governance = await import(
       `${pathToFileURL(governanceScript).href}?task79TemporaryFinal=${Date.now()}-${Math.random()}`
     );
@@ -8701,6 +9313,9 @@ describe("SENA repository governance", () => {
     const actualPrNumber = protectedCurrentnessRepairItemForTest(
       correction.registry
     ).prNumber;
+    const transitionWorktreeRoot = realpathSync(
+      protectedCurrentnessRepairItemForTest(correction.registry).worktreePath
+    );
     expect(
       protectedCurrentnessRepairItemForTest(correction.registry)
         .task7_9TestPhaseCompatibilityLifecycle
@@ -8826,13 +9441,13 @@ describe("SENA repository governance", () => {
     const tempIndexEnvironment = {
       ...process.env,
       GIT_DIR: temporaryGitDirectory,
-      GIT_WORK_TREE: projectRoot,
+      GIT_WORK_TREE: transitionWorktreeRoot,
       GIT_INDEX_FILE: temporaryIndexPath,
       GIT_OBJECT_DIRECTORY: temporaryObjectDirectory,
       GIT_ALTERNATE_OBJECT_DIRECTORIES: join(canonicalGitDirectory, "objects"),
       GIT_OPTIONAL_LOCKS: "0",
       SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(correction.registry.repo),
-      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+      SENA_GOVERNANCE_TARGET_ROOT: transitionWorktreeRoot,
       SENA_REPAIR_PR_NUMBER: String(actualPrNumber),
       SENA_REPAIR_INITIAL_HEAD: final.context.headSha,
       SENA_REPAIR_INITIAL_TREE: final.context.treeSha,
@@ -8919,8 +9534,10 @@ describe("SENA repository governance", () => {
       { cwd: projectRoot, env: tempIndexEnvironment }
     );
     expect(exactRegistry.status, exactRegistry.stderr).toBe(0);
-    expect(exact.status, exact.stderr).toBe(0);
-    expect(exact.stdout).toContain("SENA_WRITE_POLICY pass staged=1");
+    expect(exact.status).toBe(1);
+    expect(exact.stderr).toContain(
+      "rule=evidenceflow-currentness-index-blob-mismatch"
+    );
 
     const driftCommit = spawnSync(
       "git",
@@ -9005,7 +9622,7 @@ describe("SENA repository governance", () => {
     );
     expect(coherentlyDrifted.status).toBe(1);
     expect(coherentlyDrifted.stderr).toContain(
-      "rule=protected-currentness-repair-final-evidence-source-git-mismatch"
+      "rule=evidenceflow-currentness-index-blob-mismatch"
     );
     const restoreFinalIndex = spawnSync(
       "git",
@@ -9033,7 +9650,7 @@ describe("SENA repository governance", () => {
     );
     expect(mismatched.status).toBe(1);
     expect(mismatched.stderr).toContain(
-      "rule=protected-currentness-repair-final-evidence-context-mismatch"
+      "rule=evidenceflow-currentness-index-blob-mismatch"
     );
 
     const missing = runNode(
@@ -9046,7 +9663,7 @@ describe("SENA repository governance", () => {
     );
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain(
-      "rule=protected-currentness-repair-final-evidence-context-missing"
+      "rule=evidenceflow-currentness-index-blob-mismatch"
     );
 
     expect(runGit(tempRepo, ["rev-parse", "HEAD"])).toBe(sourceHead);
