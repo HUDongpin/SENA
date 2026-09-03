@@ -6658,6 +6658,42 @@ describe("SENA repository governance", () => {
     expect(
       typeof governance.validatePostPr82TopologyHeartbeatCorrectionTransition
     ).toBe("function");
+    expect(
+      typeof governance.validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition
+    ).toBe("function");
+    expect(
+      typeof governance.postPr82FinalHeartbeatPreCommitCleanClaimAllowed
+    ).toBe("function");
+
+    const finalCleanClaim = {
+      taskId: "SENA-A01-REPO-GOVERNANCE-20260827",
+      dirtyState: "clean-registry-only-post-pr82-topology-heartbeat-final",
+      lifecycleStatus: "registry-only-post-pr82-topology-heartbeat-final-candidate",
+      preCommit: true,
+      registryFromIndex: true,
+      dirtyPaths: ["coordination/repo-governance/active-work.json"],
+      stagedPaths: ["coordination/repo-governance/active-work.json"],
+      unstagedPaths: []
+    };
+    expect(
+      governance.postPr82FinalHeartbeatPreCommitCleanClaimAllowed(finalCleanClaim)
+    ).toBe(true);
+    for (const mutate of [
+      (candidate: any) => { candidate.taskId = "SENA-EVIDENCEFLOW-V1-20260828"; },
+      (candidate: any) => { candidate.dirtyState = "dirty"; },
+      (candidate: any) => { candidate.lifecycleStatus = "three-path-post-pr82-topology-heartbeat-bootstrap-correction-candidate"; },
+      (candidate: any) => { candidate.preCommit = false; },
+      (candidate: any) => { candidate.registryFromIndex = false; },
+      (candidate: any) => { candidate.dirtyPaths.push("scripts/verify-sena-repo-governance.mjs"); },
+      (candidate: any) => { candidate.stagedPaths = []; },
+      (candidate: any) => { candidate.unstagedPaths.push("coordination/repo-governance/active-work.json"); }
+    ]) {
+      const candidate = structuredClone(finalCleanClaim);
+      mutate(candidate);
+      expect(
+        governance.postPr82FinalHeartbeatPreCommitCleanClaimAllowed(candidate)
+      ).toBe(false);
+    }
 
     const sourceRegistry = JSON.parse(runGit(projectRoot, [
       "show",
@@ -6666,6 +6702,10 @@ describe("SENA repository governance", () => {
     const bootstrapRegistry = JSON.parse(runGit(projectRoot, [
       "show",
       "d279dfe7ba5ce94d889323dc80e9e25228c6c266:coordination/repo-governance/active-work.json"
+    ]));
+    const correctionRegistry = JSON.parse(runGit(projectRoot, [
+      "show",
+      "7d5121759c984b07fc777a646f7fb3b29e6ebb31:coordination/repo-governance/active-work.json"
     ]));
     const observedRegistry = JSON.parse(readFileSync(
       join(projectRoot, "coordination", "repo-governance", "active-work.json"),
@@ -6704,6 +6744,12 @@ describe("SENA repository governance", () => {
     expect(
       governance.validatePostPr82TopologyHeartbeatCorrectionTransition(
         bootstrapRegistry,
+        correctionRegistry
+      )
+    ).toBe(true);
+    expect(
+      governance.validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition(
+        correctionRegistry,
         finalSourceRegistry
       )
     ).toBe(true);
@@ -6898,7 +6944,7 @@ describe("SENA repository governance", () => {
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     );
     finalItem.headSha = bootstrapHeadSha;
-    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 2, behind: 0 };
+    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 3, behind: 0 };
     finalItem.lastHeartbeatAt = "2026-09-02T17:15:00Z";
     finalItem.lastObservedAt = "2026-09-02T17:15:00Z";
     finalItem.nextReviewAt = "2026-09-03T17:15:00Z";

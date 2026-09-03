@@ -1683,6 +1683,34 @@ function stagedChangedPaths() {
     .filter(Boolean);
 }
 
+function unstagedChangedPaths() {
+  return gitText(["diff", "--name-only", "--diff-filter=ACMRTD", "--no-renames", "-z"])
+    .split("\0")
+    .filter(Boolean);
+}
+
+export function postPr82FinalHeartbeatPreCommitCleanClaimAllowed({
+  taskId,
+  dirtyState,
+  lifecycleStatus,
+  preCommit,
+  registryFromIndex,
+  dirtyPaths,
+  stagedPaths,
+  unstagedPaths
+} = {}) {
+  return (
+    taskId === "SENA-A01-REPO-GOVERNANCE-20260827" &&
+    dirtyState === "clean-registry-only-post-pr82-topology-heartbeat-final" &&
+    lifecycleStatus === POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS &&
+    preCommit === true &&
+    registryFromIndex === true &&
+    sameJson(dirtyPaths, POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_SCOPE) &&
+    sameJson(stagedPaths, POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_SCOPE) &&
+    sameJson(unstagedPaths, [])
+  );
+}
+
 function runWritePolicy(flags) {
   if (!flags.has("registry-from-index") || !flags.has("staged")) {
     throw new Error("write-policy requires --registry-from-index --staged");
@@ -2447,6 +2475,18 @@ const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA =
   "cacd4fab3f56e9a1277b9686a0f51ee0fc4ddf04";
 const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256 =
   "54d76a30ed6993a8d0e92314dc17bb877cc1bf7da933b5fffae121d3d3a83646";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_HEAD_SHA =
+  "7d5121759c984b07fc777a646f7fb3b29e6ebb31";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TREE_SHA =
+  "7e859135ad01ea2c98cf7ec3109108bfd7c56317";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_REGISTRY_BLOB_SHA =
+  "e3b0ed983975afba00afda1bcf236d6c608ba9ff";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_VERIFIER_BLOB_SHA =
+  "c40434e90ed3336ccc762881defaf1ffc4646c44";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TEST_BLOB_SHA =
+  "59022f85395dbc56c531d5fd3095d306c36ddcb6";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256 =
+  "615c7501354e8d55269d67f770ced3cff7d5f6f98e679253ba6dfccabe79a899";
 const POST_PR82_TOPOLOGY_HEARTBEAT_NORMALIZED_REGISTRY_SHA256 =
   "8dbb91878a1831a1610028841a90654b68480c8eccc2bb3b945b4f485fc2368c";
 const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS =
@@ -2930,6 +2970,29 @@ export function validatePostPr82TopologyHeartbeatCorrectionTransition(
   return true;
 }
 
+export function validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-pre-final-hook-correction-invalid");
+  }
+  return true;
+}
+
 export function validatePostPr82TopologyHeartbeatFinalTransition(
   sourceRegistry,
   candidateRegistry,
@@ -2956,7 +3019,7 @@ export function validatePostPr82TopologyHeartbeatFinalTransition(
     normalizedPostPr82TopologyHeartbeatFinalSha256(sourceRegistry) !==
       normalizedPostPr82TopologyHeartbeatFinalSha256(candidateRegistry) ||
     item?.headSha !== sourceHeadSha ||
-    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 2, behind: 0 }) ||
+    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 3, behind: 0 }) ||
     !Number.isInteger(item?.prNumber) ||
     item.prNumber <= 0 ||
     item.plannedPullRequestNumber !== item.prNumber ||
@@ -3070,6 +3133,34 @@ function validatePostPr82TopologyHeartbeatIndexTransition(
       throw new Error("rule=post-pr82-topology-heartbeat-correction-source-invalid");
     }
     validatePostPr82TopologyHeartbeatCorrectionTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS
+  ) {
+    if (
+      sourceHeadSha !== POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_HEAD_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-pre-final-hook-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition(
       sourceRegistry,
       candidateRegistry
     );
@@ -10563,6 +10654,8 @@ function runAudit(flags) {
   const workItemsByPath = new Map(
     (registry.workItems ?? []).map((item) => [canonicalExistingPath(item.worktreePath), item])
   );
+  const preCommitStagedPaths = flags.has("pre-commit") ? stagedChangedPaths() : [];
+  const preCommitUnstagedPaths = flags.has("pre-commit") ? unstagedChangedPaths() : [];
   for (const worktree of registered) {
     if (!workItemsByPath.has(canonicalExistingPath(worktree.path))) {
       errors.push(`registered worktree lacks an explicit write/read-only workItem: ${worktree.path}`);
@@ -10618,7 +10711,23 @@ function runAudit(flags) {
       if (unexpectedDirty.length > 0) {
         errors.push(`workItem has dirty paths outside allowedPaths: ${item.taskId} count=${unexpectedDirty.length}`);
       }
-      if (item.dirtyState.startsWith("clean") && dirtyPaths.length > 0) {
+      const finalHeartbeatCleanClaimAllowed =
+        postPr82FinalHeartbeatPreCommitCleanClaimAllowed({
+          taskId: item.taskId,
+          dirtyState: item.dirtyState,
+          lifecycleStatus:
+            item.postPr82TopologyHeartbeatLifecycle?.status,
+          preCommit: flags.has("pre-commit"),
+          registryFromIndex: flags.has("registry-from-index"),
+          dirtyPaths,
+          stagedPaths: preCommitStagedPaths,
+          unstagedPaths: preCommitUnstagedPaths
+        });
+      if (
+        item.dirtyState.startsWith("clean") &&
+        dirtyPaths.length > 0 &&
+        !finalHeartbeatCleanClaimAllowed
+      ) {
         errors.push(`workItem declared clean but worktree is dirty: ${item.taskId}`);
       }
     }
