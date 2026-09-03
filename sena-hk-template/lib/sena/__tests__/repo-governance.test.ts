@@ -29,6 +29,24 @@ function temporaryRoot(label: string) {
   return root;
 }
 
+function withHistoricalDateNow(
+  root: string,
+  environment: NodeJS.ProcessEnv,
+  timestamp = "2026-09-03T10:41:00Z"
+): NodeJS.ProcessEnv {
+  const preload = join(root, "historical-date-now.cjs");
+  writeFileSync(
+    preload,
+    `Date.now = () => ${Date.parse(timestamp)};\n`
+  );
+  return {
+    ...environment,
+    NODE_OPTIONS: [environment.NODE_OPTIONS, `--require=${preload}`]
+      .filter(Boolean)
+      .join(" ")
+  };
+}
+
 function runNode(
   script: string,
   args: string[],
@@ -87,7 +105,7 @@ function protectedCurrentnessRepairFrozenSourceForTest() {
 function runGitWithEnvironment(
   root: string,
   args: string[],
-  environment: Record<string, string>,
+  environment: Record<string, string | undefined>,
   input?: string
 ) {
   const result = spawnSync("git", args, {
@@ -655,7 +673,7 @@ function withIndexedFinalEvidenceEnvironment(
   base: NodeJS.ProcessEnv,
   stagedPaths: string[],
   root = projectRoot
-) {
+): NodeJS.ProcessEnv {
   if (
     stagedPaths.length !== 1 ||
     stagedPaths[0] !== "coordination/repo-governance/active-work.json"
@@ -5942,7 +5960,8 @@ describe("SENA repository governance", () => {
       [
         "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
         "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
-        "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate"
+        "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
+        "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate"
       ].includes(indexedLifecycleStatus)
         ? "rule=empty-staged-index-not-authorized"
         : "index registry snapshot is invalid"
@@ -7898,7 +7917,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-clean-context-fix-transition-invalid"
+      "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -8146,7 +8165,8 @@ process.stdout.write(JSON.stringify(value));
     const cleanIndexHasRecognizedPostPr83Snapshot = [
       "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
       "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
-      "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate"
+      "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
+      "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate"
     ].includes(cleanIndexPostPr83Status);
     expect(cleanIndexWritePolicy.stderr).toContain(
       cleanIndexSourceStatus ===
@@ -9545,7 +9565,7 @@ process.stdout.write(JSON.stringify(value));
       const temporaryObjectDirectory = join(root, "objects");
       runGit(root, ["--no-optional-locks", "init", "--bare", "-q", temporaryGitDirectory]);
       mkdirSync(temporaryObjectDirectory, { recursive: true });
-      const env = {
+      const env = withHistoricalDateNow(root, {
         ...process.env,
         GIT_DIR: temporaryGitDirectory,
         GIT_WORK_TREE: transitionWorktreeRoot,
@@ -9556,7 +9576,7 @@ process.stdout.write(JSON.stringify(value));
         SENA_GOVERNANCE_TARGET_ROOT: transitionWorktreeRoot,
         SENA_GOVERNANCE_CONTROL_ROOT: governanceTargetRoot,
         SENA_REPAIR_PR_NUMBER: String(actualPrNumber)
-      };
+      });
       runTemporaryIndexGit(
         [
           "--no-optional-locks",
@@ -9921,7 +9941,7 @@ process.stdout.write(JSON.stringify(value));
       "--git-common-dir"
     ]);
     const finalBytes = `${JSON.stringify(final.registry, null, 2)}\n`;
-    const tempIndexEnvironment = {
+    const tempIndexEnvironment = withHistoricalDateNow(temporaryIndexRoot, {
       ...process.env,
       GIT_DIR: temporaryGitDirectory,
       GIT_WORK_TREE: transitionWorktreeRoot,
@@ -9945,7 +9965,7 @@ process.stdout.write(JSON.stringify(value));
       SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY: "true",
       SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED: "true",
       SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED: "true"
-    };
+    });
     runGitWithEnvironment(
       temporaryIndexRoot,
       [
@@ -12809,6 +12829,8 @@ const POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST =
   "14243fd6c38e39021ee9f1baae0ec17619a2c079";
 const POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST =
   "3e8f32bb6edb05ad1af8158443df670e8e84cab7";
+const POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST =
+  "976fcf84ec78c22d41b0a34ff7328dd54207b6cc";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -12942,7 +12964,7 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     ]),
     compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
       root,
-      POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST,
+      POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST,
       headSha
     ),
     cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
@@ -13000,7 +13022,7 @@ function postPr83FinalRegistryForTest(
     (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
   );
   item.headSha = evidence.headSha;
-  item.aheadBehind = { baseRef: "origin/main", ahead: 6, behind: 0 };
+  item.aheadBehind = { baseRef: "origin/main", ahead: 7, behind: 0 };
   item.lastHeartbeatAt = observedAt;
   item.lastObservedAt = observedAt;
   item.nextReviewAt = nextReviewAt;
@@ -13463,6 +13485,12 @@ describe("post-PR83 protected currentness correction", () => {
         `${POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
       ])
     );
+    const historicalBuildCiCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
     const candidate = postPr83InitialRegistryForTest();
     const historicalBytesResult = spawnSync(
       "git",
@@ -13596,11 +13624,18 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionCleanContextFixRegistryBytes
     ).toBe("function");
+    const cleanContextBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(cleanContextBytesResult.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionCleanContextFixRegistryBytes(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json")
-        )
+        cleanContextBytesResult.stdout
       )
     ).toBe(true);
     expect(
@@ -13609,6 +13644,25 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       governance.validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
         historicalCleanContextCandidate,
+        historicalBuildCiCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixRegistryBytes
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixRegistryBytes(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json")
+        )
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
+        historicalBuildCiCandidate,
         candidate
       )
     ).toBe(true);
@@ -13641,12 +13695,12 @@ describe("post-PR83 protected currentness correction", () => {
       const drifted = structuredClone(candidate);
       mutate(drifted);
       expect(() =>
-        governance.validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
-          historicalCleanContextCandidate,
+        governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
+          historicalBuildCiCandidate,
           drifted
         )
       ).toThrow(
-        "rule=post-pr83-currentness-clean-context-fix-transition-invalid"
+        "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
       );
     }
   });
@@ -13661,7 +13715,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(fixture.evidence.compatibilityDiffSha256).toBe(
       postPr83BinaryDiffSha256ForTest(
         fixture.root,
-        POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST,
+        POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST,
         fixture.initialHeadSha
       )
     );
@@ -13821,7 +13875,7 @@ describe("post-PR83 protected currentness correction", () => {
       "commit-tree",
       fixture.evidence.treeSha,
       "-p",
-      POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST,
+      POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST,
       "-m",
       "alternate same-tree compatibility child"
     ]);
@@ -13843,12 +13897,12 @@ describe("post-PR83 protected currentness correction", () => {
       )
     ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
     expect(() =>
-      fixture.governance.validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
+      fixture.governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
         fixture.initialRegistry,
         fixture.initialRegistry
       )
     ).toThrow(
-      "rule=post-pr83-currentness-clean-context-fix-transition-replay"
+      "rule=post-pr83-currentness-build-ci-type-fix-transition-replay"
     );
   });
 
@@ -13940,7 +13994,7 @@ describe("post-PR83 protected currentness correction", () => {
     falseOnlyRegistry.workItems.find(
       (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
     ).postPr83CurrentnessCorrectionLifecycle.authorizationBoundary
-      .cleanContextFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
+      .buildCiTypeFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
       false;
     expect(() =>
       fixture.governance.validatePostPr83PushDraftReadiness(
@@ -14023,7 +14077,7 @@ describe("post-PR83 protected currentness correction", () => {
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST],
+      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST],
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
@@ -14062,7 +14116,7 @@ describe("post-PR83 protected currentness correction", () => {
         "commit-tree",
         initialTreeSha,
         "-p",
-        POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST,
+        POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST,
         "-m",
         "post-PR83 compatibility fix candidate"
       ],
@@ -14089,7 +14143,7 @@ describe("post-PR83 protected currentness correction", () => {
         "diff",
         "--binary",
         "--full-index",
-        POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST,
+        POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST,
         initialHeadSha,
         "--",
         ...POST_PR83_PATHS_FOR_TEST
