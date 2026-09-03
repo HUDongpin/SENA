@@ -511,6 +511,106 @@ function withIndexedFinalEvidenceEnvironment(
     return base;
   }
   const registry = indexedGovernanceRegistryForTest();
+  const postPr82Item = registry.workItems.find(
+    (entry: { taskId?: string }) =>
+      entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+  );
+  const postPr82Lifecycle =
+    postPr82Item?.postPr82TopologyHeartbeatLifecycle;
+  const postPr82Evidence =
+    postPr82Lifecycle?.bootstrapCompletionEvidence;
+  if (
+    postPr82Lifecycle?.status ===
+      "registry-only-post-pr82-topology-heartbeat-final-candidate" &&
+    postPr82Evidence
+  ) {
+    const actualHead = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "HEAD"
+    ]);
+    expect(postPr82Evidence.headSha).toBe(actualHead);
+    expect(postPr82Evidence.treeSha).toBe(
+      runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD^{tree}"])
+    );
+    expect(postPr82Evidence.registryBlobSha).toBe(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "rev-parse",
+        "HEAD:coordination/repo-governance/active-work.json"
+      ])
+    );
+    expect(postPr82Evidence.verifierBlobSha).toBe(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "rev-parse",
+        "HEAD:scripts/verify-sena-repo-governance.mjs"
+      ])
+    );
+    expect(postPr82Evidence.governanceTestBlobSha).toBe(
+      runGit(projectRoot, [
+        "--no-optional-locks",
+        "rev-parse",
+        "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ])
+    );
+    return {
+      ...base,
+      SENA_POST_PR82_BOOTSTRAP_HEAD: postPr82Evidence.headSha,
+      SENA_POST_PR82_BOOTSTRAP_TREE: postPr82Evidence.treeSha,
+      SENA_POST_PR82_BOOTSTRAP_REGISTRY_BLOB:
+        postPr82Evidence.registryBlobSha,
+      SENA_POST_PR82_BOOTSTRAP_VERIFIER_BLOB:
+        postPr82Evidence.verifierBlobSha,
+      SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TEST_BLOB:
+        postPr82Evidence.governanceTestBlobSha,
+      SENA_POST_PR82_BOOTSTRAP_BUILD_RUN_ID: String(
+        postPr82Evidence.buildRunId
+      ),
+      SENA_POST_PR82_BOOTSTRAP_REPOSITORY_SECURITY_RUN_IDS:
+        postPr82Evidence.repositorySecurityRunIds.join(","),
+      SENA_POST_PR82_BOOTSTRAP_CHECK_JOB_IDS:
+        postPr82Evidence.checkJobIds.join(","),
+      SENA_POST_PR82_BOOTSTRAP_REQUIRED_CHECKS_PASSED: String(
+        postPr82Evidence.requiredChecksPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_ANNOTATIONS_EMPTY: String(
+        postPr82Evidence.annotationsEmpty
+      ),
+      SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TESTS_PASSED: String(
+        postPr82Evidence.governanceTestsPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TESTS_TOTAL: String(
+        postPr82Evidence.governanceTestsTotal
+      ),
+      SENA_POST_PR82_BOOTSTRAP_REGISTRY_PASSED: String(
+        postPr82Evidence.registryPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_LIVE_AUDIT_PASSED: String(
+        postPr82Evidence.liveAuditPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_UNREACHABLE_COMMIT_COUNT: String(
+        postPr82Evidence.unreachableCommitCount
+      ),
+      SENA_POST_PR82_BOOTSTRAP_WRITE_POLICY_PASSED: String(
+        postPr82Evidence.writePolicyPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_SECURITY_PASSED: String(
+        postPr82Evidence.securityPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_PRE_COMMIT_PASSED: String(
+        postPr82Evidence.preCommitPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_SYNTAX_PASSED: String(
+        postPr82Evidence.syntaxPassed
+      ),
+      SENA_POST_PR82_BOOTSTRAP_LOCAL_TYPECHECK_STATUS:
+        postPr82Evidence.localTypecheckStatus,
+      SENA_POST_PR82_BOOTSTRAP_CI_BUILD_REQUIRED: String(
+        postPr82Evidence.ciBuildRequired
+      )
+    };
+  }
   const lifecycle = protectedCurrentnessRepairItemForTest(registry)
     ?.protectedCurrentnessActivationRepairLifecycle;
   const evidence = lifecycle?.initialCandidateCompletionEvidence;
@@ -5565,7 +5665,11 @@ describe("SENA repository governance", () => {
   });
 
   it("reports a closed incident with restored root control plane as pass", () => {
-    const result = runNode(governanceScript, ["audit"]);
+    const result = runNode(governanceScript, [
+      "audit",
+      "--registry-from-commit",
+      runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"])
+    ]);
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("pass");
@@ -6662,6 +6766,9 @@ describe("SENA repository governance", () => {
       typeof governance.validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition
     ).toBe("function");
     expect(
+      typeof governance.validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition
+    ).toBe("function");
+    expect(
       typeof governance.postPr82FinalHeartbeatPreCommitCleanClaimAllowed
     ).toBe("function");
 
@@ -6707,6 +6814,10 @@ describe("SENA repository governance", () => {
       "show",
       "7d5121759c984b07fc777a646f7fb3b29e6ebb31:coordination/repo-governance/active-work.json"
     ]));
+    const preFinalHookCorrectionRegistry = JSON.parse(runGit(projectRoot, [
+      "show",
+      "ed7ee728400adfae02bd524291269ca72c419c47:coordination/repo-governance/active-work.json"
+    ]));
     const observedRegistry = JSON.parse(readFileSync(
       join(projectRoot, "coordination", "repo-governance", "active-work.json"),
       "utf8"
@@ -6750,6 +6861,12 @@ describe("SENA repository governance", () => {
     expect(
       governance.validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition(
         correctionRegistry,
+        preFinalHookCorrectionRegistry
+      )
+    ).toBe(true);
+    expect(
+      governance.validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition(
+        preFinalHookCorrectionRegistry,
         finalSourceRegistry
       )
     ).toBe(true);
@@ -6944,7 +7061,7 @@ describe("SENA repository governance", () => {
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     );
     finalItem.headSha = bootstrapHeadSha;
-    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 3, behind: 0 };
+    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 4, behind: 0 };
     finalItem.lastHeartbeatAt = "2026-09-02T17:15:00Z";
     finalItem.lastObservedAt = "2026-09-02T17:15:00Z";
     finalItem.nextReviewAt = "2026-09-03T17:15:00Z";

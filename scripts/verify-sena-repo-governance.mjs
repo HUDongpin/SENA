@@ -2487,6 +2487,18 @@ const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TEST_BLOB_SHA =
   "59022f85395dbc56c531d5fd3095d306c36ddcb6";
 const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256 =
   "615c7501354e8d55269d67f770ced3cff7d5f6f98e679253ba6dfccabe79a899";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_HEAD_SHA =
+  "ed7ee728400adfae02bd524291269ca72c419c47";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TREE_SHA =
+  "4343dfa69c9e1f7f5b20ea30732348db9994774a";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_REGISTRY_BLOB_SHA =
+  "337496c96f7457fdac22c3ab5bd23d0f0385c34c";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_VERIFIER_BLOB_SHA =
+  "c39f6408268b6c9bfe04f2b63c57101830d6b2ab";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TEST_BLOB_SHA =
+  "ec7d144bf15a62a657b4bce654fc0981b65b14e1";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_REGISTRY_SHA256 =
+  "6d34f65797fdfc5d0eac992c46b4c8f25a5e84270a09f0142731cee2dd445944";
 const POST_PR82_TOPOLOGY_HEARTBEAT_NORMALIZED_REGISTRY_SHA256 =
   "8dbb91878a1831a1610028841a90654b68480c8eccc2bb3b945b4f485fc2368c";
 const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS =
@@ -2993,6 +3005,29 @@ export function validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransitio
   return true;
 }
 
+export function validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-test-phase-correction-invalid");
+  }
+  return true;
+}
+
 export function validatePostPr82TopologyHeartbeatFinalTransition(
   sourceRegistry,
   candidateRegistry,
@@ -3019,7 +3054,7 @@ export function validatePostPr82TopologyHeartbeatFinalTransition(
     normalizedPostPr82TopologyHeartbeatFinalSha256(sourceRegistry) !==
       normalizedPostPr82TopologyHeartbeatFinalSha256(candidateRegistry) ||
     item?.headSha !== sourceHeadSha ||
-    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 3, behind: 0 }) ||
+    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 4, behind: 0 }) ||
     !Number.isInteger(item?.prNumber) ||
     item.prNumber <= 0 ||
     item.plannedPullRequestNumber !== item.prNumber ||
@@ -3133,6 +3168,34 @@ function validatePostPr82TopologyHeartbeatIndexTransition(
       throw new Error("rule=post-pr82-topology-heartbeat-correction-source-invalid");
     }
     validatePostPr82TopologyHeartbeatCorrectionTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    sourceHeadSha === POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_HEAD_SHA
+  ) {
+    if (
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-final-test-phase-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition(
       sourceRegistry,
       candidateRegistry
     );
