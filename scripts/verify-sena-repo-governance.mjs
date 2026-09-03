@@ -1559,6 +1559,35 @@ function runSecurity(flags) {
   process.exitCode = exitCode;
 }
 
+function postPr83PushDraftReviewFromEnvironment(name) {
+  try {
+    return JSON.parse(process.env[name] ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function runPostPr83PushDraftReadiness() {
+  const headSha = gitText(["rev-parse", "HEAD"]).trim();
+  if (!isSha(headSha)) {
+    throw new Error("rule=post-pr83-push-draft-readiness-invalid");
+  }
+  const result = validatePostPr83PushDraftReadiness(
+    loadRegistryFromCommit(headSha).parsed,
+    {
+      specReview: postPr83PushDraftReviewFromEnvironment(
+        "SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON"
+      ),
+      qualitySecurityReview: postPr83PushDraftReviewFromEnvironment(
+        "SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON"
+      )
+    }
+  );
+  process.stdout.write(
+    `SENA_POST_PR83_PUSH_DRAFT_READINESS pass head=${result.headSha} prOrCiRequired=${result.pullRequestOrCiRequired}\n`
+  );
+}
+
 function runPushPolicy(flags) {
   const findings = [];
   const input = readFileSync(0, "utf8");
@@ -8265,12 +8294,28 @@ const POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256 =
   "6155283f4f648f1efedd7d6e61423652781b8618b66207b7f4e7270bb5788e82";
 const POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256 =
   "69356f9ab07b9657b745c880459ddc9d7661bf45874b722607da2d346dcf8197";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA =
+  "073ef0a715b350ef82d869e897c69470d405c102";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TREE_SHA =
+  "4829a198fe795180dc301927a65679b38b0b9791";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_REGISTRY_BLOB_SHA =
+  "7898df356deaf1e2fc4bb274e600c0d52f86dac1";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_VERIFIER_BLOB_SHA =
+  "d3d7a042ac4448f1060966a02779d49131d361e9";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TEST_BLOB_SHA =
+  "851b49493da2cf20f7ee45c3a1b4884ee8550bfb";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256 =
+  "3a7172a62b685e674c9654e5fc714c0d8ad09d15ddeb6b8673ba29cbb6792c42";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256 =
+  "3e05eb48646e8c9b2ca2fa40808dfbccb35a94525e862ee07e97577919aa2a18";
 const POST_PR83_CURRENTNESS_INITIAL_STATUS =
   "three-path-post-pr83-currentness-correction-initial-candidate";
 const POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS =
   "three-path-post-pr83-currentness-correction-compatibility-fix-candidate";
 const POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS =
   "three-path-post-pr83-currentness-correction-cumulative-review-fix-candidate";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS =
+  "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate";
 const POST_PR83_CURRENTNESS_FINAL_STATUS =
   "registry-only-post-pr83-currentness-correction-final-candidate";
 const POST_PR83_CURRENTNESS_LIFECYCLE_KEY =
@@ -8320,10 +8365,25 @@ const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_BINDING = {
   canonicalParsedRegistrySha256:
     POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_CANONICAL_SHA256
 };
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256
+};
 const POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN = [
   POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
-  POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA
+  POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
 ];
 const POST_PR83_CURRENTNESS_COMPATIBILITY_TRANSITION = {
   mode: "one-exact-direct-three-path-child-of-review-rejected-22d307e8",
@@ -8343,6 +8403,26 @@ const POST_PR83_CURRENTNESS_REVIEW_FIX_TRANSITION = {
   candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts:
     true,
   replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_PUSH_READINESS_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-review-rejected-073ef0a7",
+  requiredParentSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES = {
+  exactCandidateHeadAndLocalBranchRequired: true,
+  cleanWorktreeAndIndexRequired: true,
+  registryValidationRequired: true,
+  diffCheckRequired: true,
+  securityTreeScanRequired: true,
+  exactSpecificationReceiptRequired: true,
+  exactQualitySecurityReceiptRequired: true,
+  pullRequestOrCiRequired: false
 };
 const POST_PR83_CURRENTNESS_AUTHORIZATION = {
   mode: "exact-owner-message-sha256",
@@ -8381,8 +8461,12 @@ const POST_PR83_CURRENTNESS_AUTHORIZATION_BOUNDARY = {
   initialCandidatePushAndDraftPrAuthorizedAfterGates: false,
   compatibilityFixCommitAuthorizedAfterGates: false,
   compatibilityFixPushOrDraftPrAuthorizedNow: false,
-  cumulativeReviewFixCommitAuthorizedAfterGates: true,
+  cumulativeReviewFixCommitAuthorizedAfterGates: false,
   cumulativeReviewFixPushOrDraftPrAuthorizedNow: false,
+  cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews:
+    true,
+  pushReadinessFixCommitAuthorizedAfterGates: true,
+  pushReadinessFixPushOrDraftPrAuthorizedNow: false,
   finalRegistryOnlyTransitionAuthorizedAfterInitialChecks: true,
   prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks: true,
   protectedMergeMayBeAuthorizedOnlyAfterFinalHeadChecks: true,
@@ -8540,9 +8624,12 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       "sourceBinding",
       "compatibilitySourceBinding",
       "reviewFixSourceBinding",
+      "pushReadinessFixSourceBinding",
       "approvedInitialChain",
       "compatibilityTransition",
       "reviewFixTransition",
+      "pushReadinessFixTransition",
+      "pushDraftReadinessPrerequisites",
       "authorization",
       "protectedLaneContracts",
       "authorizationBoundary",
@@ -8552,6 +8639,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_INITIAL_STATUS,
       POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS,
       POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS,
       POST_PR83_CURRENTNESS_FINAL_STATUS
     ].includes(lifecycle.status) ||
     lifecycle.oneShot !== true ||
@@ -8565,6 +8653,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_BINDING
     ) ||
     !sameJson(
+      lifecycle.pushReadinessFixSourceBinding,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_BINDING
+    ) ||
+    !sameJson(
       lifecycle.approvedInitialChain,
       POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
     ) ||
@@ -8575,6 +8667,14 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
     !sameJson(
       lifecycle.reviewFixTransition,
       POST_PR83_CURRENTNESS_REVIEW_FIX_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.pushReadinessFixTransition,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.pushDraftReadinessPrerequisites,
+      POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES
     ) ||
     !sameJson(lifecycle.authorization, POST_PR83_CURRENTNESS_AUTHORIZATION) ||
     !sameJson(
@@ -8599,6 +8699,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_BINDING
     ) ||
     !sameJson(
+      receipt.pushReadinessFixSourceBinding,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_BINDING
+    ) ||
+    !sameJson(
       receipt.approvedInitialChain,
       POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
     ) ||
@@ -8614,7 +8718,8 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
     ([
       POST_PR83_CURRENTNESS_INITIAL_STATUS,
       POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS,
-      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS
+      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS
     ].includes(lifecycle.status) &&
       lifecycle.initialCandidateCompletionEvidence !== null) ||
     (lifecycle.status === POST_PR83_CURRENTNESS_FINAL_STATUS &&
@@ -8823,15 +8928,116 @@ export function validatePostPr83CurrentnessCorrectionReviewFixTransition(
   ) {
     throw new Error("rule=post-pr83-currentness-review-fix-transition-invalid");
   }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error("rule=post-pr83-currentness-review-fix-transition-invalid");
+  }
+  return true;
+}
+
+function validatePostPr83PushReadinessSourceRegistry(sourceRegistry) {
   try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+    );
     if (
-      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
-      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS
     ) {
       throw new Error();
     }
   } catch {
-    throw new Error("rule=post-pr83-currentness-review-fix-transition-invalid");
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-replay"
+    );
+  }
+  validatePostPr83PushReadinessSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+    );
+  }
+  try {
+    if (
+      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+    );
   }
   return true;
 }
@@ -8899,6 +9105,127 @@ function validatePostPr83ReviewEvidence(
   );
 }
 
+export function validatePostPr83PushDraftReadiness(
+  registry,
+  receiptContext
+) {
+  try {
+    const lifecycle = validatePostPr83CurrentnessCorrectionSnapshot(registry);
+    const boundary = lifecycle.authorizationBoundary;
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    const branchName = gitText([
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "HEAD"
+    ]).trim();
+    const rawRegistry = postPr83RegistryBlobBuffer(headSha);
+    const registryValidation = validateRegistry(registry);
+    const diffCheck = git([
+      "diff",
+      "--check",
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+      headSha,
+      "--",
+      ...POST_PR83_CURRENTNESS_INITIAL_PATHS
+    ], { allowFailure: true });
+    const identity = {
+      headSha,
+      treeSha: gitText(["rev-parse", `${headSha}^{tree}`]).trim(),
+      registryBlobSha: gitText([
+        "rev-parse",
+        `${headSha}:${REGISTRY_REPO_PATH}`
+      ]).trim(),
+      verifierBlobSha: gitText([
+        "rev-parse",
+        `${headSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim(),
+      governanceTestBlobSha: gitText([
+        "rev-parse",
+        `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim(),
+      compatibilityDiffSha256: postPr83CanonicalBinaryDiffSha256(
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+        headSha
+      ),
+      cumulativeDiffSha256: postPr83CanonicalBinaryDiffSha256(
+        POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+        headSha
+      )
+    };
+    if (
+      lifecycle.status !== POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS ||
+      !sameJson(
+        lifecycle.pushDraftReadinessPrerequisites,
+        POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES
+      ) ||
+      boundary
+        ?.cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews !==
+        true ||
+      boundary?.cumulativeReviewFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.pushReadinessFixPushOrDraftPrAuthorizedNow !== false ||
+      branchName !== POST_PR83_CURRENTNESS_BRANCH ||
+      gitText([
+        "rev-parse",
+        `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}`
+      ]).trim() !== headSha ||
+      !sameJson(commitParents(headSha), [
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+      ]) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+          headSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+          headSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(registry))) !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256 ||
+      !sameJson(loadRegistryFromCommit(headSha).parsed, registry) ||
+      gitText([
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all"
+      ]).length !== 0 ||
+      diffCheck.status !== 0 ||
+      registryValidation.errors.length !== 0 ||
+      !validatePostPr83ReviewEvidence(
+        receiptContext?.specReview,
+        "specification",
+        identity
+      ) ||
+      !validatePostPr83ReviewEvidence(
+        receiptContext?.qualitySecurityReview,
+        "quality-security",
+        identity
+      )
+    ) {
+      throw new Error();
+    }
+    const securityFindings = [];
+    scanTree(headSha, securityFindings, new Set());
+    if (securityFindings.length !== 0) throw new Error();
+    return {
+      authorized: true,
+      ...identity,
+      pullRequestOrCiRequired: false
+    };
+  } catch {
+    throw new Error("rule=post-pr83-push-draft-readiness-invalid");
+  }
+}
+
 function validatePostPr83CurrentnessCompletionEvidence(
   evidence,
   sourceHeadSha,
@@ -8925,13 +9252,20 @@ function validatePostPr83CurrentnessCompletionEvidence(
       evidence.annotationsEmpty !== true ||
       !rawRegistry ||
       sha256Buffer(rawRegistry) !==
-        POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256 ||
+        POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256 ||
       !sameJson(sourceRegistry, loadRegistryFromCommit(sourceHeadSha).parsed) ||
       sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
-        POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256 ||
+        POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256 ||
       !sameJson(commitParents(sourceHeadSha), [
-        POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
       ]) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+          sourceHeadSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
       !sameStringSet(
         protectedMainAdvanceChangedPaths(
           POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
@@ -8954,7 +9288,7 @@ function validatePostPr83CurrentnessCompletionEvidence(
         POST_PR83_CURRENTNESS_INITIAL_PATHS
       ) ||
       postPr83CanonicalBinaryDiffSha256(
-        POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
         sourceHeadSha
       ) !== evidence.compatibilityDiffSha256 ||
       postPr83CanonicalBinaryDiffSha256(
@@ -9092,14 +9426,14 @@ function validatePostPr83CurrentnessFinalFields(
     sourceHeadSha
   ]).trim();
   if (
-    sourceLifecycle.status !== POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS ||
+    sourceLifecycle.status !== POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS ||
     candidateLifecycle.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
     normalizedPostPr83FinalRegistrySha256(sourceRegistry) !==
       normalizedPostPr83FinalRegistrySha256(candidateRegistry) ||
     item?.headSha !== sourceHeadSha ||
     !sameJson(item?.aheadBehind, {
       baseRef: "origin/main",
-      ahead: 3,
+      ahead: 4,
       behind: 0
     }) ||
     !Number.isInteger(item.prNumber) ||
@@ -9480,6 +9814,15 @@ export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
       ).parsed,
       registry
     );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
   } else {
     const sourceHeadSha =
       lifecycle.initialCandidateCompletionEvidence?.headSha;
@@ -9600,9 +9943,40 @@ function validatePostPr83CurrentnessIndexTransition(candidateRegistry) {
     );
     return true;
   }
+  if (currentHeadSha === POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-push-readiness-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-push-readiness-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
   if (
     postPr83CurrentnessLifecycle(sourceRegistry)?.status ===
-      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS
   ) {
     if (
       candidateLifecycle?.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
@@ -9645,6 +10019,7 @@ function postPr83ProtectedLaneContract(item, registry) {
       POST_PR83_CURRENTNESS_INITIAL_STATUS,
       POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS,
       POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS,
       POST_PR83_CURRENTNESS_FINAL_STATUS
     ].includes(lifecycle?.status) ||
     !sameJson(
@@ -10076,7 +10451,13 @@ function validateRegistry(registry) {
     }
     if (Date.parse(item.nextReviewAt) < Date.now()) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) {
-        errors.push(`active workItem ${item.taskId} has an overdue nextReviewAt`);
+        if (evidenceFlowObserverHeartbeatWarningAllowed(item)) {
+          warnings.push(
+            "active EvidenceFlow workItem observer review is overdue; owner record remains intentionally untouched"
+          );
+        } else {
+          errors.push(`active workItem ${item.taskId} has an overdue nextReviewAt`);
+        }
       } else {
         warnings.push(`workItem ${item.taskId} requires scheduled preservation review`);
       }
@@ -10241,7 +10622,16 @@ function validateRegistry(registry) {
     }
     if (Date.parse(branch.nextReviewAt) < Date.now()) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(branch.disposition)) {
-        errors.push(`active branch ${branch.name ?? "<unknown>"} has an overdue nextReviewAt`);
+        const evidenceFlowItem = (registry.workItems ?? []).find(
+          (item) => item?.branch === branch.name
+        );
+        if (evidenceFlowObserverHeartbeatWarningAllowed(evidenceFlowItem)) {
+          warnings.push(
+            "active EvidenceFlow branch observer review is overdue; owner record remains intentionally untouched"
+          );
+        } else {
+          errors.push(`active branch ${branch.name ?? "<unknown>"} has an overdue nextReviewAt`);
+        }
       } else {
         warnings.push(`branch ${branch.name ?? "<unknown>"} requires scheduled preservation review`);
       }
@@ -13097,6 +13487,7 @@ function printUsage() {
   process.stdout.write(`Usage:\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs security [--tree REF] [--range A..B] [--staged]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs security --pre-push --remote-name origin < updates\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs post-pr83-push-draft-readiness\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs write-policy --registry-from-index --staged\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
@@ -13109,6 +13500,9 @@ function main() {
   const { command, flags } = parseArguments(process.argv.slice(2));
   try {
     if (command === "security") return runSecurity(flags);
+    if (command === "post-pr83-push-draft-readiness") {
+      return runPostPr83PushDraftReadiness();
+    }
     if (command === "write-policy") return runWritePolicy(flags);
     if (command === "push-policy") return runPushPolicy(flags);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);

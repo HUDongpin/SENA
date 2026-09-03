@@ -6030,7 +6030,7 @@ describe("SENA repository governance", () => {
     )?.postPr83CurrentnessCorrectionLifecycle?.status;
     expect(result.stderr).toContain(
       indexedLifecycleStatus ===
-        "three-path-post-pr83-currentness-correction-cumulative-review-fix-candidate"
+        "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate"
         ? "rule=empty-staged-index-not-authorized"
         : "index registry snapshot is invalid"
     );
@@ -7985,7 +7985,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-review-fix-transition-invalid"
+      "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -8234,7 +8234,7 @@ process.stdout.write(JSON.stringify(value));
       cleanIndexSourceStatus ===
         "three-path-post-pr82-topology-heartbeat-bootstrap-candidate" ||
         cleanIndexPostPr83Status !==
-          "three-path-post-pr83-currentness-correction-cumulative-review-fix-candidate"
+          "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate"
         ? "index registry snapshot is invalid"
         : "rule=empty-staged-index-not-authorized"
     );
@@ -12885,6 +12885,8 @@ const POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST =
   "22d307e8fa4106f2427f5d5ee178ed5231105a28";
 const POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST =
   "a365244b11c4d6549d9b7050111da9d83fb85f79";
+const POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST =
+  "073ef0a715b350ef82d869e897c69470d405c102";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -12985,7 +12987,7 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     ]),
     compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
       root,
-      POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+      POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
       headSha
     ),
     cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
@@ -13032,7 +13034,7 @@ function postPr83FinalRegistryForTest(
     (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
   );
   item.headSha = evidence.headSha;
-  item.aheadBehind = { baseRef: "origin/main", ahead: 3, behind: 0 };
+  item.aheadBehind = { baseRef: "origin/main", ahead: 4, behind: 0 };
   item.lastHeartbeatAt = observedAt;
   item.lastObservedAt = observedAt;
   item.nextReviewAt = nextReviewAt;
@@ -13097,7 +13099,7 @@ function postPr83FinalRegistryForTest(
 
 async function createPostPr83LifecycleFixture(
   label: string,
-  options: { commitFinal?: boolean } = {}
+  options: { commitFinal?: boolean; stageFinal?: boolean } = {}
 ) {
   const fixtureRoot = temporaryRoot(label);
   const root = join(fixtureRoot, "repo");
@@ -13133,15 +13135,17 @@ async function createPostPr83LifecycleFixture(
     evidence,
     root
   );
-  writeFileSync(
-    join(root, POST_PR83_PATHS_FOR_TEST[0]),
-    `${JSON.stringify(finalRegistry, null, 2)}\n`
-  );
-  runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  if (options.stageFinal !== false) {
+    writeFileSync(
+      join(root, POST_PR83_PATHS_FOR_TEST[0]),
+      `${JSON.stringify(finalRegistry, null, 2)}\n`
+    );
+    runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  }
   let finalHeadSha: string | null = null;
   let finalTreeSha: string | null = null;
   let mergeCommitSha: string | null = null;
-  if (options.commitFinal !== false) {
+  if (options.stageFinal !== false && options.commitFinal !== false) {
     runGit(root, ["commit", "-q", "-m", "post-PR83 final metadata"]);
     finalHeadSha = runGit(root, ["rev-parse", "HEAD"]);
     finalTreeSha = runGit(root, ["rev-parse", `${finalHeadSha}^{tree}`]);
@@ -13382,6 +13386,12 @@ describe("post-PR83 protected currentness correction", () => {
         `${POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
       ])
     );
+    const historicalReviewFixCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
     const candidate = postPr83InitialRegistryForTest();
     const historicalBytesResult = spawnSync(
       "git",
@@ -13437,12 +13447,18 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes
     ).toBe("function");
-    const candidateBytes = readFileSync(
-      join(projectRoot, "coordination/repo-governance/active-work.json")
+    const reviewFixBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
     );
+    expect(reviewFixBytesResult.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes(
-        candidateBytes
+        reviewFixBytesResult.stdout
       )
     ).toBe(true);
     expect(
@@ -13451,6 +13467,26 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
         historicalCompatibilityCandidate,
+        historicalReviewFixCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes
+    ).toBe("function");
+    const candidateBytes = readFileSync(
+      join(projectRoot, "coordination/repo-governance/active-work.json")
+    );
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
+        candidateBytes
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+        historicalReviewFixCandidate,
         candidate
       )
     ).toBe(true);
@@ -13483,11 +13519,13 @@ describe("post-PR83 protected currentness correction", () => {
       const drifted = structuredClone(candidate);
       mutate(drifted);
       expect(() =>
-        governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
-          historicalCompatibilityCandidate,
+        governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+          historicalReviewFixCandidate,
           drifted
         )
-      ).toThrow("rule=post-pr83-currentness-review-fix-transition-invalid");
+      ).toThrow(
+        "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+      );
     }
   });
 
@@ -13501,7 +13539,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(fixture.evidence.compatibilityDiffSha256).toBe(
       postPr83BinaryDiffSha256ForTest(
         fixture.root,
-        POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+        POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
         fixture.initialHeadSha
       )
     );
@@ -13666,7 +13704,7 @@ describe("post-PR83 protected currentness correction", () => {
       "commit-tree",
       fixture.evidence.treeSha,
       "-p",
-      POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+      POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
       "-m",
       "alternate same-tree compatibility child"
     ]);
@@ -13688,12 +13726,131 @@ describe("post-PR83 protected currentness correction", () => {
       )
     ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
     expect(() =>
-      fixture.governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
+      fixture.governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
         fixture.initialRegistry,
         fixture.initialRegistry
       )
-    ).toThrow("rule=post-pr83-currentness-review-fix-transition-replay");
+    ).toThrow(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-replay"
+    );
   });
+
+  it("authorizes push and Draft readiness only for a clean exact head with both detached reviews", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-push-draft-readiness",
+      { stageFinal: false }
+    );
+    expect(runGit(fixture.root, ["status", "--porcelain"])).toBe("");
+    expect(
+      typeof fixture.governance.validatePostPr83PushDraftReadiness
+    ).toBe("function");
+    const receipts = {
+      specReview: fixture.evidence.specReview,
+      qualitySecurityReview: fixture.evidence.qualitySecurityReview
+    };
+    expect(
+      fixture.governance.validatePostPr83PushDraftReadiness(
+        fixture.initialRegistry,
+        receipts
+      )
+    ).toMatchObject({
+      authorized: true,
+      headSha: fixture.initialHeadSha,
+      compatibilityDiffSha256: fixture.evidence.compatibilityDiffSha256,
+      cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
+      pullRequestOrCiRequired: false
+    });
+    const readinessCommand = runNode(
+      join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["post-pr83-push-draft-readiness"],
+      {
+        cwd: fixture.root,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
+          SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
+            receipts.specReview
+          ),
+          SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON:
+            JSON.stringify(receipts.qualitySecurityReview)
+        }
+      }
+    );
+    expect(readinessCommand.status, readinessCommand.stderr).toBe(0);
+    expect(readinessCommand.stdout).toContain(
+      `SENA_POST_PR83_PUSH_DRAFT_READINESS pass head=${fixture.initialHeadSha} prOrCiRequired=false`
+    );
+    const missingReceiptCommand = runNode(
+      join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["post-pr83-push-draft-readiness"],
+      {
+        cwd: fixture.root,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
+          SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
+            receipts.specReview
+          )
+        }
+      }
+    );
+    expect(missingReceiptCommand.status).toBe(1);
+    expect(missingReceiptCommand.stderr).toContain(
+      "rule=post-pr83-push-draft-readiness-invalid"
+    );
+
+    const falseOnlyRegistry = structuredClone(fixture.initialRegistry);
+    falseOnlyRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+    ).postPr83CurrentnessCorrectionLifecycle.authorizationBoundary
+      .cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews =
+      false;
+    expect(() =>
+      fixture.governance.validatePostPr83PushDraftReadiness(
+        falseOnlyRegistry,
+        receipts
+      )
+    ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+
+    for (const invalidReceipts of [
+      {},
+      { specReview: receipts.specReview },
+      { qualitySecurityReview: receipts.qualitySecurityReview },
+      {
+        ...receipts,
+        specReview: {
+          ...receipts.specReview,
+          receiptSha256: "f".repeat(64)
+        }
+      },
+      {
+        ...receipts,
+        qualitySecurityReview: {
+          ...receipts.qualitySecurityReview,
+          payload: {
+            ...receipts.qualitySecurityReview.payload,
+            candidateHeadSha: "e".repeat(40)
+          }
+        }
+      }
+    ]) {
+      expect(() =>
+        fixture.governance.validatePostPr83PushDraftReadiness(
+          fixture.initialRegistry,
+          invalidReceipts
+        )
+      ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+    }
+
+    writeFileSync(
+      join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]),
+      `${readFileSync(join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]), "utf8")} `
+    );
+    expect(() =>
+      fixture.governance.validatePostPr83PushDraftReadiness(
+        fixture.initialRegistry,
+        receipts
+      )
+    ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+  }, 120_000);
 
   it("prefers the post-PR83 final helper and validates an isolated one-path registry stage", async () => {
     const initialRegistry = postPr83InitialRegistryForTest();
@@ -13727,7 +13884,7 @@ describe("post-PR83 protected currentness correction", () => {
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST],
+      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST],
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
@@ -13766,7 +13923,7 @@ describe("post-PR83 protected currentness correction", () => {
         "commit-tree",
         initialTreeSha,
         "-p",
-        POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+        POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
         "-m",
         "post-PR83 compatibility fix candidate"
       ],
@@ -13793,7 +13950,7 @@ describe("post-PR83 protected currentness correction", () => {
         "diff",
         "--binary",
         "--full-index",
-        POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+        POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
         initialHeadSha,
         "--",
         ...POST_PR83_PATHS_FOR_TEST
