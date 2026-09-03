@@ -500,6 +500,100 @@ function indexedGovernanceRegistryForTest() {
   );
 }
 
+function withFakePostPr82GitHubEvidence(
+  base: NodeJS.ProcessEnv,
+  evidence: any,
+  headSha: string,
+  pullRequestNumber: number
+) {
+  const fakeBin = join(temporaryRoot("post-pr82-final-github"), "bin");
+  const fakeGh = join(fakeBin, "gh");
+  mkdirSync(fakeBin, { recursive: true });
+  const responses = {
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`]: {
+      name: "build-gate",
+      event: "pull_request",
+      head_sha: headSha,
+      head_branch: "codex/sena-a01-repo-governance-20260827",
+      head_repository: { full_name: "HUDongpin/SENA" },
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[0]}`]: {
+      name: "repo-security-gate",
+      event: "push",
+      head_sha: headSha,
+      head_branch: "codex/sena-a01-repo-governance-20260827",
+      head_repository: { full_name: "HUDongpin/SENA" },
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[1]}`]: {
+      name: "repo-security-gate",
+      event: "pull_request",
+      head_sha: headSha,
+      head_branch: "codex/sena-a01-repo-governance-20260827",
+      head_repository: { full_name: "HUDongpin/SENA" },
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[0]}`]: {
+      run_id: evidence.buildRunId,
+      name: "build",
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[1]}`]: {
+      run_id: evidence.repositorySecurityRunIds[0],
+      name: "repository-security",
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[2]}`]: {
+      run_id: evidence.repositorySecurityRunIds[1],
+      name: "repository-security",
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[0]}/annotations`]: [],
+    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[1]}/annotations`]: [],
+    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[2]}/annotations`]: [],
+    [`repos/HUDongpin/SENA/pulls/${pullRequestNumber}`]: {
+      number: pullRequestNumber,
+      state: "open",
+      draft: true,
+      head: {
+        sha: headSha,
+        ref: "codex/sena-a01-repo-governance-20260827",
+        repo: { full_name: "HUDongpin/SENA" }
+      },
+      base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+    },
+    "repos/HUDongpin/SENA/git/ref/heads/codex/sena-a01-repo-governance-20260827": {
+      ref: "refs/heads/codex/sena-a01-repo-governance-20260827",
+      object: { sha: headSha }
+    }
+  };
+  writeFileSync(
+    fakeGh,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (JSON.stringify(args.slice(0, 3)) !== JSON.stringify(["api", "--hostname", "github.com"])) process.exit(2);
+const responses = JSON.parse(process.env.SENA_TEST_POST_PR82_GITHUB_RESPONSES ?? "{}");
+const value = responses[args[3]];
+if (value === undefined) process.exit(3);
+process.stdout.write(JSON.stringify(value));
+`
+  );
+  chmodSync(fakeGh, 0o700);
+  return {
+    ...base,
+    PATH: `${fakeBin}:${base.PATH ?? process.env.PATH ?? ""}`,
+    GH_HOST: "untrusted.invalid",
+    SENA_TEST_POST_PR82_GITHUB_RESPONSES: JSON.stringify(responses)
+  };
+}
+
 function withIndexedFinalEvidenceEnvironment(
   base: NodeJS.ProcessEnv,
   stagedPaths: string[]
@@ -554,7 +648,7 @@ function withIndexedFinalEvidenceEnvironment(
         "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ])
     );
-    return {
+    return withFakePostPr82GitHubEvidence({
       ...base,
       SENA_POST_PR82_BOOTSTRAP_HEAD: postPr82Evidence.headSha,
       SENA_POST_PR82_BOOTSTRAP_TREE: postPr82Evidence.treeSha,
@@ -609,7 +703,7 @@ function withIndexedFinalEvidenceEnvironment(
       SENA_POST_PR82_BOOTSTRAP_CI_BUILD_REQUIRED: String(
         postPr82Evidence.ciBuildRequired
       )
-    };
+    }, postPr82Evidence, actualHead, postPr82Item.prNumber);
   }
   const lifecycle = protectedCurrentnessRepairItemForTest(registry)
     ?.protectedCurrentnessActivationRepairLifecycle;
@@ -6769,6 +6863,9 @@ describe("SENA repository governance", () => {
       typeof governance.validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition
     ).toBe("function");
     expect(
+      typeof governance.validatePostPr82TopologyHeartbeatTestNetworkCorrectionTransition
+    ).toBe("function");
+    expect(
       typeof governance.postPr82FinalHeartbeatPreCommitCleanClaimAllowed
     ).toBe("function");
 
@@ -6817,6 +6914,10 @@ describe("SENA repository governance", () => {
     const preFinalHookCorrectionRegistry = JSON.parse(runGit(projectRoot, [
       "show",
       "ed7ee728400adfae02bd524291269ca72c419c47:coordination/repo-governance/active-work.json"
+    ]));
+    const finalTestPhaseCorrectionRegistry = JSON.parse(runGit(projectRoot, [
+      "show",
+      "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3:coordination/repo-governance/active-work.json"
     ]));
     const observedRegistry = JSON.parse(readFileSync(
       join(projectRoot, "coordination", "repo-governance", "active-work.json"),
@@ -6867,6 +6968,12 @@ describe("SENA repository governance", () => {
     expect(
       governance.validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition(
         preFinalHookCorrectionRegistry,
+        finalTestPhaseCorrectionRegistry
+      )
+    ).toBe(true);
+    expect(
+      governance.validatePostPr82TopologyHeartbeatTestNetworkCorrectionTransition(
+        finalTestPhaseCorrectionRegistry,
         finalSourceRegistry
       )
     ).toBe(true);
@@ -7061,7 +7168,7 @@ describe("SENA repository governance", () => {
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     );
     finalItem.headSha = bootstrapHeadSha;
-    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 4, behind: 0 };
+    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 5, behind: 0 };
     finalItem.lastHeartbeatAt = "2026-09-02T17:15:00Z";
     finalItem.lastObservedAt = "2026-09-02T17:15:00Z";
     finalItem.nextReviewAt = "2026-09-03T17:15:00Z";

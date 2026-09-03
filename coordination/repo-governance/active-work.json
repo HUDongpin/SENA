@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-03T01:34:26Z",
+  "updatedAt": "2026-09-03T01:54:24Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -1065,10 +1065,10 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
-      "headSha": "ed7ee728400adfae02bd524291269ca72c419c47",
+      "headSha": "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 4,
         "behind": 0
       },
       "allowedPaths": [
@@ -1083,9 +1083,9 @@
         "sena-hk-template/lib/sena/__tests__/nav-controls-style.test.ts"
       ],
       "createdAt": "2026-08-27T04:00:00Z",
-      "lastHeartbeatAt": "2026-09-03T01:34:26Z",
-      "lastObservedAt": "2026-09-03T01:34:26Z",
-      "nextReviewAt": "2026-09-04T01:34:26Z",
+      "lastHeartbeatAt": "2026-09-03T01:54:24Z",
+      "lastObservedAt": "2026-09-03T01:54:24Z",
+      "nextReviewAt": "2026-09-04T01:54:24Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 83,
       "plannedPullRequestNumber": 83,
@@ -1626,7 +1626,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "three-path-post-pr82-topology-heartbeat-final-test-phase-correction-candidate-pending-gates",
+      "dirtyState": "three-path-post-pr82-topology-heartbeat-test-network-isolation-candidate-pending-gates",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -2032,8 +2032,8 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "post-PR82 bootstrap ed7ee728400adfae02bd524291269ca72c419c47 is clean; a three-path final-test phase correction is staged",
-        "ci": "exact bootstrap head ed7ee728400adfae02bd524291269ca72c419c47 build/security checks passed with zero annotations",
+        "local": "post-PR82 bootstrap 40e8906b106d8d3d49e1f06b59a81cd77ca2ead3 is clean; a three-path final-test network-isolation correction is staged",
+        "ci": "exact bootstrap head 40e8906b106d8d3d49e1f06b59a81cd77ca2ead3 build/security checks passed with zero annotations",
         "merged": "Draft PR #83 remains OPEN and unmerged",
         "deployed": "not in scope and not authorized",
         "live": "protected main remains 0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6; no protected merge has occurred"
@@ -2147,7 +2147,7 @@
         "commitBoundLiveAuditStatus": "blocked-registry-currentness-closeout-required"
       },
       "prState": "OPEN",
-      "prHeadSha": "ed7ee728400adfae02bd524291269ca72c419c47"
+      "prHeadSha": "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3"
     },
     {
       "taskId": "SENA-EVIDENCEFLOW-V1-20260828",
@@ -5864,20 +5864,20 @@
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
-      "headSha": "ed7ee728400adfae02bd524291269ca72c419c47",
+      "headSha": "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "ed7ee728400adfae02bd524291269ca72c419c47",
-      "remoteObservedAt": "2026-09-03T01:25:39Z",
+      "remoteHeadSha": "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3",
+      "remoteObservedAt": "2026-09-03T01:48:30Z",
       "pr": 83,
       "plannedPullRequestNumber": 83,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "ed7ee728400adfae02bd524291269ca72c419c47",
+      "prHeadSha": "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3",
       "prBase": "main",
       "noPrReason": null,
       "pr79InitialChecks": {
@@ -6541,13 +6541,13 @@
         "annotationsEmpty": true,
         "commitBoundLiveAuditStatus": "blocked-registry-currentness-closeout-required"
       },
-      "lastOwnerHeartbeatAt": "2026-09-03T01:34:26Z",
-      "lastObservedAt": "2026-09-03T01:34:26Z",
-      "lastCommitAt": "2026-09-03T09:22:36+08:00",
-      "nextReviewAt": "2026-09-04T01:34:26Z",
+      "lastOwnerHeartbeatAt": "2026-09-03T01:54:24Z",
+      "lastObservedAt": "2026-09-03T01:54:24Z",
+      "lastCommitAt": "2026-09-03T09:45:36+08:00",
+      "nextReviewAt": "2026-09-04T01:54:24Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "active",
-      "closeout": "three-path final-test phase correction awaiting local gates and exact-head CI; final heartbeat remains registry-only",
+      "closeout": "three-path final-test network-isolation correction awaiting local gates and exact-head CI; final heartbeat remains registry-only",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN"
     },
