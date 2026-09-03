@@ -1683,6 +1683,34 @@ function stagedChangedPaths() {
     .filter(Boolean);
 }
 
+function unstagedChangedPaths() {
+  return gitText(["diff", "--name-only", "--diff-filter=ACMRTD", "--no-renames", "-z"])
+    .split("\0")
+    .filter(Boolean);
+}
+
+export function postPr82FinalHeartbeatPreCommitCleanClaimAllowed({
+  taskId,
+  dirtyState,
+  lifecycleStatus,
+  preCommit,
+  registryFromIndex,
+  dirtyPaths,
+  stagedPaths,
+  unstagedPaths
+} = {}) {
+  return (
+    taskId === "SENA-A01-REPO-GOVERNANCE-20260827" &&
+    dirtyState === "clean-registry-only-post-pr82-topology-heartbeat-final" &&
+    lifecycleStatus === POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS &&
+    preCommit === true &&
+    registryFromIndex === true &&
+    sameJson(dirtyPaths, POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_SCOPE) &&
+    sameJson(stagedPaths, POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_SCOPE) &&
+    sameJson(unstagedPaths, [])
+  );
+}
+
 function runWritePolicy(flags) {
   if (!flags.has("registry-from-index") || !flags.has("staged")) {
     throw new Error("write-policy requires --registry-from-index --staged");
@@ -1696,6 +1724,7 @@ function runWritePolicy(flags) {
   validateProtectedCurrentnessRepairIndexTransition(registry);
 
   const findings = [];
+  const stagedPaths = stagedChangedPaths();
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
   const branchName = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
   const currentItem = (registry.workItems ?? []).find(
@@ -1704,6 +1733,13 @@ function runWritePolicy(flags) {
   const branchRecord = (registry.branches ?? []).find((branch) => branch.name === branchName);
   const expectedRef = branchName ? `refs/heads/${branchName}` : "detached-head";
 
+  if (stagedPaths.length === 0) {
+    addFinding(findings, {
+      path: "index",
+      rule: "empty-staged-index-not-authorized",
+      source: "write-policy"
+    });
+  }
   if (!branchName || !currentItem || !branchRecord) {
     addFinding(findings, { path: expectedRef, rule: "index-writer-unregistered", source: "write-policy" });
   } else {
@@ -1714,7 +1750,7 @@ function runWritePolicy(flags) {
     ) {
       addFinding(findings, { path: expectedRef, rule: "index-writer-ownership-mismatch", source: "write-policy" });
     }
-    for (const path of stagedChangedPaths()) {
+    for (const path of stagedPaths) {
       if (!pathIsAllowed(path, currentItem.allowedPaths)) {
         addFinding(findings, { path, rule: "staged-path-outside-commit-registry-allowlist", source: "index" });
       }
@@ -1726,7 +1762,7 @@ function runWritePolicy(flags) {
 
   const cleaned = findings.map(({ key: _key, ...finding }) => finding);
   if (cleaned.length === 0) {
-    process.stdout.write(`SENA_WRITE_POLICY pass staged=${stagedChangedPaths().length} registrySource=index\n`);
+    process.stdout.write(`SENA_WRITE_POLICY pass staged=${stagedPaths.length} registrySource=index\n`);
     return;
   }
   for (const finding of cleaned) {
@@ -2417,6 +2453,862 @@ function pr80FinalObservationContextFromEnvironment(sourceContext) {
   };
 }
 
+const POST_PR82_TOPOLOGY_HEARTBEAT_LIFECYCLE_KEY =
+  "postPr82TopologyHeartbeatLifecycle";
+const POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA =
+  "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6";
+const POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_TREE_SHA =
+  "377b0fb476bf9a752b2868b1d2683f211ebfbecb";
+const POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_REGISTRY_BLOB_SHA =
+  "3619d4bacd79b8a016b629309b6c9328b63ce67f";
+const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_REGISTRY_SHA256 =
+  "b73eb29fd3270c8c590aeeea760c31f48ab248747a39a000301c020b0dac1371";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_HEAD_SHA =
+  "d279dfe7ba5ce94d889323dc80e9e25228c6c266";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TREE_SHA =
+  "95cb2ff06089b39f8fbec8ff1ed46bfb1eee160c";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_REGISTRY_BLOB_SHA =
+  "923a7b89c8eccd786a4be986c1f7a87c171f98b5";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_VERIFIER_BLOB_SHA =
+  "bf2d5741e9083707e3e9d668549e0be90bacaa31";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA =
+  "cacd4fab3f56e9a1277b9686a0f51ee0fc4ddf04";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256 =
+  "54d76a30ed6993a8d0e92314dc17bb877cc1bf7da933b5fffae121d3d3a83646";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_HEAD_SHA =
+  "7d5121759c984b07fc777a646f7fb3b29e6ebb31";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TREE_SHA =
+  "7e859135ad01ea2c98cf7ec3109108bfd7c56317";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_REGISTRY_BLOB_SHA =
+  "e3b0ed983975afba00afda1bcf236d6c608ba9ff";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_VERIFIER_BLOB_SHA =
+  "c40434e90ed3336ccc762881defaf1ffc4646c44";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TEST_BLOB_SHA =
+  "59022f85395dbc56c531d5fd3095d306c36ddcb6";
+const POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256 =
+  "615c7501354e8d55269d67f770ced3cff7d5f6f98e679253ba6dfccabe79a899";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_HEAD_SHA =
+  "ed7ee728400adfae02bd524291269ca72c419c47";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TREE_SHA =
+  "4343dfa69c9e1f7f5b20ea30732348db9994774a";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_REGISTRY_BLOB_SHA =
+  "337496c96f7457fdac22c3ab5bd23d0f0385c34c";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_VERIFIER_BLOB_SHA =
+  "c39f6408268b6c9bfe04f2b63c57101830d6b2ab";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TEST_BLOB_SHA =
+  "ec7d144bf15a62a657b4bce654fc0981b65b14e1";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_REGISTRY_SHA256 =
+  "6d34f65797fdfc5d0eac992c46b4c8f25a5e84270a09f0142731cee2dd445944";
+const POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_HEAD_SHA =
+  "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3";
+const POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_TREE_SHA =
+  "c3bf02e8d05ac45e8c6bc47925f5859dd3d98441";
+const POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_REGISTRY_BLOB_SHA =
+  "45b0556f1913933a86c5299c3729d32e14add6f5";
+const POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_VERIFIER_BLOB_SHA =
+  "ee7e83a1ebc7e9a40bbdcc45dbfecc293c45dcff";
+const POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_TEST_BLOB_SHA =
+  "b882e485baf8a7a72aee992beb2b21830b09a6f9";
+const POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_REGISTRY_SHA256 =
+  "d9f4d7590f6fabce9829f99cdf865d1c85ecaa832c3ca0fc0860d83e985240e2";
+const POST_PR82_TOPOLOGY_HEARTBEAT_NORMALIZED_REGISTRY_SHA256 =
+  "8dbb91878a1831a1610028841a90654b68480c8eccc2bb3b945b4f485fc2368c";
+const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS =
+  "three-path-post-pr82-topology-heartbeat-bootstrap-candidate";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS =
+  "three-path-post-pr82-topology-heartbeat-bootstrap-correction-candidate";
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS =
+  "registry-only-post-pr82-topology-heartbeat-final-candidate";
+const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE = [
+  REGISTRY_REPO_PATH,
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_SCOPE = [REGISTRY_REPO_PATH];
+const POST_PR82_TOPOLOGY_HEARTBEAT_AUTHORIZATION_BOUNDARY = {
+  threePathBootstrapCommitAuthorizedAfterGates: true,
+  threePathBootstrapPushAndDraftPrAuthorizedAfterGates: true,
+  finalRegistryOnlyHeartbeatAuthorizedAfterBootstrapChecks: true,
+  prReadyAuthorizedAfterFinalHeadChecks: true,
+  protectedMergeAuthorizedAfterFinalHeadChecks: true,
+  forwardFixCommitAuthorizedNow: false,
+  prReadyAuthorizedNow: false,
+  heartbeatMergeAuthorizedNow: false,
+  pr46MutationAuthorized: false,
+  casAuthorized: false,
+  localRefRetirementAuthorized: false,
+  retirementReceiptMintingAuthorized: false,
+  branchDeletionAuthorized: false,
+  worktreeRemovalAuthorized: false,
+  orphanWorktreeMutationAuthorized: false,
+  targetRefMutationAuthorized: false,
+  targetTagMutationAuthorized: false,
+  quarantineMutationAuthorized: false,
+  deploymentAuthorized: false,
+  providerMutationAuthorized: false,
+  resetAuthorized: false,
+  rebaseAuthorized: false,
+  stashAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false
+};
+
+function postPr82TopologyHeartbeatLifecycle(registry) {
+  return pr80RepairLifecycleWorkItem(registry)?.[
+    POST_PR82_TOPOLOGY_HEARTBEAT_LIFECYCLE_KEY
+  ];
+}
+
+function postPr82TopologyHeartbeatCompletionContextFromEnvironment() {
+  return {
+    headSha: process.env.SENA_POST_PR82_BOOTSTRAP_HEAD ?? "",
+    treeSha: process.env.SENA_POST_PR82_BOOTSTRAP_TREE ?? "",
+    registryBlobSha: process.env.SENA_POST_PR82_BOOTSTRAP_REGISTRY_BLOB ?? "",
+    verifierBlobSha: process.env.SENA_POST_PR82_BOOTSTRAP_VERIFIER_BLOB ?? "",
+    governanceTestBlobSha:
+      process.env.SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TEST_BLOB ?? "",
+    buildRunId: Number(process.env.SENA_POST_PR82_BOOTSTRAP_BUILD_RUN_ID),
+    repositorySecurityRunIds: commaSeparatedPositiveIntegers(
+      process.env.SENA_POST_PR82_BOOTSTRAP_REPOSITORY_SECURITY_RUN_IDS
+    ),
+    checkJobIds: commaSeparatedPositiveIntegers(
+      process.env.SENA_POST_PR82_BOOTSTRAP_CHECK_JOB_IDS
+    ),
+    requiredChecksPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_REQUIRED_CHECKS_PASSED === "true",
+    annotationsEmpty:
+      process.env.SENA_POST_PR82_BOOTSTRAP_ANNOTATIONS_EMPTY === "true",
+    governanceTestsPassed: Number(
+      process.env.SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TESTS_PASSED
+    ),
+    governanceTestsTotal: Number(
+      process.env.SENA_POST_PR82_BOOTSTRAP_GOVERNANCE_TESTS_TOTAL
+    ),
+    registryPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_REGISTRY_PASSED === "true",
+    liveAuditPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_LIVE_AUDIT_PASSED === "true",
+    liveAuditErrors: [],
+    liveAuditOwnerBlockers: [],
+    unreachableCommitCount: Number(
+      process.env.SENA_POST_PR82_BOOTSTRAP_UNREACHABLE_COMMIT_COUNT
+    ),
+    writePolicyPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_WRITE_POLICY_PASSED === "true",
+    securityPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_SECURITY_PASSED === "true",
+    preCommitPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_PRE_COMMIT_PASSED === "true",
+    syntaxPassed:
+      process.env.SENA_POST_PR82_BOOTSTRAP_SYNTAX_PASSED === "true",
+    localTypecheckStatus:
+      process.env.SENA_POST_PR82_BOOTSTRAP_LOCAL_TYPECHECK_STATUS ?? "",
+    ciBuildRequired:
+      process.env.SENA_POST_PR82_BOOTSTRAP_CI_BUILD_REQUIRED === "true"
+  };
+}
+
+function validatePostPr82TopologyHeartbeatCompletionEvidence(
+  evidence,
+  sourceHeadSha,
+  sourceRegistry,
+  observedContext = null
+) {
+  const failGit = () => {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-source-git-mismatch");
+  };
+  if (
+    !isPlainRecord(evidence) ||
+    !isSha(sourceHeadSha) ||
+    evidence.headSha !== sourceHeadSha ||
+    !isSha(evidence.treeSha) ||
+    !isSha(evidence.registryBlobSha) ||
+    !isSha(evidence.verifierBlobSha) ||
+    !isSha(evidence.governanceTestBlobSha) ||
+    !Number.isInteger(evidence.buildRunId) ||
+    evidence.buildRunId <= 0 ||
+    !exactDistinctPositiveIntegerArray(evidence.repositorySecurityRunIds, 2) ||
+    !exactDistinctPositiveIntegerArray(evidence.checkJobIds, 3) ||
+    evidence.requiredChecksPassed !== true ||
+    evidence.annotationsEmpty !== true ||
+    evidence.governanceTestsPassed !== 98 ||
+    evidence.governanceTestsTotal !== 98 ||
+    evidence.registryPassed !== true ||
+    evidence.liveAuditPassed !== true ||
+    !sameJson(evidence.liveAuditErrors, []) ||
+    !sameJson(evidence.liveAuditOwnerBlockers, []) ||
+    evidence.unreachableCommitCount !== 0 ||
+    evidence.writePolicyPassed !== true ||
+    evidence.securityPassed !== true ||
+    evidence.preCommitPassed !== true ||
+    evidence.syntaxPassed !== true ||
+    evidence.localTypecheckStatus !== "not-proved-missing-local-dependencies" ||
+    evidence.ciBuildRequired !== true
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-evidence-invalid");
+  }
+  try {
+    if (
+      !gitObjectExists(`${sourceHeadSha}^{commit}`) ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !== evidence.treeSha ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        evidence.registryBlobSha ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== evidence.verifierBlobSha ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== evidence.governanceTestBlobSha ||
+      !sameJson(loadRegistryFromCommit(sourceHeadSha).parsed, sourceRegistry)
+    ) {
+      failGit();
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message ===
+        "rule=post-pr82-topology-heartbeat-final-source-git-mismatch"
+    ) {
+      throw error;
+    }
+    failGit();
+  }
+  if (observedContext && !sameJson(evidence, observedContext)) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-evidence-context-mismatch");
+  }
+  return true;
+}
+
+function githubApiJson(path) {
+  const result = spawnSync("gh", ["api", "--hostname", "github.com", path], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    maxBuffer: 4 * 1024 * 1024,
+    env: process.env
+  });
+  if (result.status !== 0) {
+    throw new Error("rule=post-pr82-topology-heartbeat-live-github-readback-failed");
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new Error("rule=post-pr82-topology-heartbeat-live-github-readback-failed");
+  }
+}
+
+function validatePostPr82TopologyHeartbeatLiveGitHubEvidence(
+  evidence,
+  pullRequestNumber,
+  sourceHeadSha
+) {
+  const buildRun = githubApiJson(
+    `repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`
+  );
+  const securityRuns = evidence.repositorySecurityRunIds.map((runId) =>
+    githubApiJson(`repos/HUDongpin/SENA/actions/runs/${runId}`)
+  );
+  const jobs = evidence.checkJobIds.map((jobId) =>
+    githubApiJson(`repos/HUDongpin/SENA/actions/jobs/${jobId}`)
+  );
+  const annotations = evidence.checkJobIds.map((jobId) =>
+    githubApiJson(`repos/HUDongpin/SENA/check-runs/${jobId}/annotations`)
+  );
+  const pullRequest = githubApiJson(
+    `repos/HUDongpin/SENA/pulls/${pullRequestNumber}`
+  );
+  const remoteRef = githubApiJson(
+    "repos/HUDongpin/SENA/git/ref/heads/codex/sena-a01-repo-governance-20260827"
+  );
+  const runExact = (run, name, event) =>
+    isPlainRecord(run) &&
+    run.name === name &&
+    run.event === event &&
+    run.head_sha === sourceHeadSha &&
+    run.head_branch === "codex/sena-a01-repo-governance-20260827" &&
+    run.head_repository?.full_name === "HUDongpin/SENA" &&
+    run.status === "completed" &&
+    run.conclusion === "success";
+  const jobExact = (job, runId, name) =>
+    isPlainRecord(job) &&
+    job.run_id === runId &&
+    job.name === name &&
+    job.status === "completed" &&
+    job.conclusion === "success";
+  if (
+    !runExact(buildRun, "build-gate", "pull_request") ||
+    !runExact(securityRuns[0], "repo-security-gate", "push") ||
+    !runExact(securityRuns[1], "repo-security-gate", "pull_request") ||
+    !jobExact(jobs[0], evidence.buildRunId, "build") ||
+    !jobExact(
+      jobs[1],
+      evidence.repositorySecurityRunIds[0],
+      "repository-security"
+    ) ||
+    !jobExact(
+      jobs[2],
+      evidence.repositorySecurityRunIds[1],
+      "repository-security"
+    ) ||
+    annotations.some((entry) => !Array.isArray(entry) || entry.length !== 0) ||
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== pullRequestNumber ||
+    pullRequest.state !== "open" ||
+    pullRequest.draft !== true ||
+    pullRequest.head?.sha !== sourceHeadSha ||
+    pullRequest.head?.ref !== "codex/sena-a01-repo-governance-20260827" ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !==
+      "refs/heads/codex/sena-a01-repo-governance-20260827" ||
+    remoteRef.object?.sha !== sourceHeadSha
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-live-github-readback-invalid");
+  }
+  return true;
+}
+
+function validatePostPr82TopologyHeartbeatLifecycleShape(registry) {
+  const lifecycle = postPr82TopologyHeartbeatLifecycle(registry);
+  if (
+    !isPlainRecord(lifecycle) ||
+    ![
+      POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS,
+      POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS,
+      POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS
+    ].includes(lifecycle.status) ||
+    lifecycle.oneShot !== true ||
+    !sameJson(lifecycle.protectedSource, {
+      mainSha: POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA,
+      treeSha: POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_TREE_SHA,
+      registryBlobSha: POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_REGISTRY_BLOB_SHA,
+      releaseReceiptPrefixCount: 48,
+      releaseReceiptPrefixSha256:
+        "f075a2a3ff47de7e19c437c20e1411d1ef7a48fc6585795adfdc00838caa08c9"
+    }) ||
+    !sameJson(lifecycle.requiredCandidatePaths, POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE) ||
+    (lifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+      Object.hasOwn(lifecycle, "bootstrapCorrectionSource")) ||
+    (lifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+      !sameJson(lifecycle.bootstrapCorrectionSource, {
+        headSha: POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_HEAD_SHA,
+        treeSha: POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TREE_SHA,
+        registryBlobSha:
+          POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_REGISTRY_BLOB_SHA,
+        verifierBlobSha:
+          POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_VERIFIER_BLOB_SHA,
+        governanceTestBlobSha:
+          POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA
+      })) ||
+    !sameJson(
+      lifecycle.authorizationBoundary,
+      POST_PR82_TOPOLOGY_HEARTBEAT_AUTHORIZATION_BOUNDARY
+    ) ||
+    (lifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+      Object.hasOwn(lifecycle, "bootstrapCompletionEvidence")) ||
+    (lifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS &&
+      !Object.hasOwn(lifecycle, "bootstrapCompletionEvidence"))
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-lifecycle-invalid");
+  }
+  return lifecycle;
+}
+
+export function validatePostPr82IntegratedCurrentnessSnapshot(registry) {
+  const heartbeat = validatePostPr82TopologyHeartbeatLifecycleShape(registry);
+  if (heartbeat.status === POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS) {
+    const sourceHeadSha = heartbeat.bootstrapCompletionEvidence?.headSha;
+    if (!isSha(sourceHeadSha)) {
+      throw new Error("rule=post-pr82-topology-heartbeat-final-evidence-invalid");
+    }
+    validatePostPr82TopologyHeartbeatCompletionEvidence(
+      heartbeat.bootstrapCompletionEvidence,
+      sourceHeadSha,
+      loadRegistryFromCommit(sourceHeadSha).parsed
+    );
+  }
+  const repairItem = protectedCurrentnessRepairWorkItem(registry);
+  const repairBranch = protectedCurrentnessRepairBranch(registry);
+  const repairLifecycle = repairItem?.protectedCurrentnessActivationRepairLifecycle;
+  const repairReceipt = (registry.releaseReceipts ?? []).find(
+    (entry) => entry?.receiptKind === PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
+  );
+  const rootItem = (registry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+  );
+  const mainBranch = (registry.branches ?? []).find(
+    (entry) => entry?.name === "main"
+  );
+  const evidenceFlowItem = evidenceFlowCurrentnessWorkItem(registry);
+  const retirementItem = (registry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+  );
+  const retirementBranch = (registry.branches ?? []).find(
+    (entry) => entry?.name === "codex/sena-branch-retirement-20260829"
+  );
+  const forwardFixItem = (registry.workItems ?? []).find(
+    (entry) => entry?.taskId === "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902"
+  );
+  const forwardFixBranch = (registry.branches ?? []).find(
+    (entry) => entry?.name === "codex/sena-pr82-clean-final-forward-fix-20260902"
+  );
+  const lastMerged = repairItem?.lastMergedPullRequest;
+  if (
+    !heartbeat ||
+    normalizedPostPr82TopologyHeartbeatFinalSha256(registry) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_NORMALIZED_REGISTRY_SHA256 ||
+    repairItem?.headSha !== "e16ec80b749ca9130d11d8b3aa9dfe2581653f41" ||
+    !sameJson(repairItem?.aheadBehind, { baseRef: "origin/main", ahead: 0, behind: 1 }) ||
+    repairItem.prState !== "MERGED" ||
+    repairItem.prIsDraft !== false ||
+    repairItem.prReadyForReview !== false ||
+    repairItem.mergeAuthorized !== false ||
+    repairItem.prHeadSha !== repairItem.headSha ||
+    repairItem.disposition !== "integrated" ||
+    repairLifecycle?.status !== PROTECTED_CURRENTNESS_REPAIR_FINAL_STATUS ||
+    repairLifecycle.finalAuthorizationMetadataCommitAuthorizedAfterInitialChecks !== false ||
+    repairLifecycle.repairReadyAndProtectedMergeAuthorizedAfterFinalChecks !== false ||
+    repairBranch?.headSha !== repairItem.headSha ||
+    repairBranch.remoteHeadSha !== repairItem.headSha ||
+    repairBranch.prHeadSha !== repairItem.headSha ||
+    repairBranch.prState !== "MERGED" ||
+    repairBranch.prIsDraft !== false ||
+    repairBranch.prReadyForReview !== false ||
+    repairBranch.mergeAuthorized !== false ||
+    repairBranch.disposition !== "integrated" ||
+    lastMerged?.number !== 82 ||
+    lastMerged.headSha !== repairItem.headSha ||
+    lastMerged.mergeCommitSha !== POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA ||
+    !sameJson(lastMerged.orderedParentShas, [
+      "969a206b798c159e15ae0b6e5c76d0c94cca92ea",
+      "e16ec80b749ca9130d11d8b3aa9dfe2581653f41"
+    ]) ||
+    lastMerged.postMainChecksPassed !== true ||
+    lastMerged.annotationsEmpty !== true ||
+    lastMerged.commitBoundLiveAuditStatus !== "pass" ||
+    !sameJson(lastMerged.commitBoundLiveAuditErrors, []) ||
+    !sameJson(lastMerged.commitBoundLiveAuditOwnerBlockers, []) ||
+    lastMerged.unreachableCommitCount !== 0 ||
+    repairReceipt?.authorizationBoundary
+      ?.repairReadyAndProtectedMergeAuthorizedAfterFinalChecks !== false ||
+    repairReceipt?.authorizationBoundary?.consumedByProtectedMergeCommitSha !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA ||
+    repairReceipt?.authorizationBoundary?.consumedAt !== "2026-09-02T15:11:17Z" ||
+    !sameJson(rootItem?.aheadBehind, { baseRef: "origin/main", ahead: 0, behind: 16 }) ||
+    mainBranch?.remoteHeadSha !== POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA ||
+    !sameJson(evidenceFlowItem?.aheadBehind, {
+      baseRef: "origin/main",
+      ahead: 16,
+      behind: 95
+    }) ||
+    !sameJson(retirementItem?.aheadBehind, {
+      baseRef: "origin/main",
+      ahead: 8,
+      behind: 21
+    }) ||
+    retirementItem.disposition !== "frozen-recovery" ||
+    retirementBranch?.disposition !== "frozen-recovery" ||
+    forwardFixItem?.headSha !== POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA ||
+    forwardFixItem.disposition !== "frozen-recovery" ||
+    forwardFixBranch?.headSha !== POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA ||
+    forwardFixBranch.disposition !== "frozen-recovery" ||
+    forwardFixBranch.remotePresent !== false ||
+    forwardFixBranch.pr !== null
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-integrated-currentness-invalid");
+  }
+  return true;
+}
+
+function normalizedPostPr82TopologyHeartbeatFinalSha256(registry) {
+  const copy = structuredClone(registry);
+  copy.updatedAt = "<post-pr82-heartbeat-currentness>";
+  const item = pr80RepairLifecycleWorkItem(copy);
+  const lifecycle = item?.[POST_PR82_TOPOLOGY_HEARTBEAT_LIFECYCLE_KEY];
+  if (lifecycle) {
+    lifecycle.status = "<post-pr82-heartbeat-lifecycle-status>";
+    lifecycle.bootstrapCompletionEvidence =
+      "<post-pr82-heartbeat-bootstrap-completion-evidence>";
+  }
+  const branch = (copy.branches ?? []).find(
+    (entry) => entry?.name === "codex/sena-a01-repo-governance-20260827"
+  );
+  for (const field of [
+    "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
+    "prNumber", "plannedPullRequestNumber", "prState", "prIsDraft",
+    "prHeadSha", "noPrReason", "dirtyState", "evidenceState"
+  ]) {
+    if (item) item[field] = `<post-pr82-heartbeat-item:${field}>`;
+  }
+  for (const field of [
+    "headSha", "remoteHeadSha", "remoteObservedAt", "pr",
+    "plannedPullRequestNumber", "prState", "prIsDraft", "prReadyForReview",
+    "mergeAuthorized", "prHeadSha", "noPrReason", "lastOwnerHeartbeatAt",
+    "lastObservedAt", "lastCommitAt", "nextReviewAt", "closeout", "mergeable",
+    "mergeStateStatus"
+  ]) {
+    if (branch) branch[field] = `<post-pr82-heartbeat-branch:${field}>`;
+  }
+  return sha256Buffer(Buffer.from(JSON.stringify(copy)));
+}
+
+export function validatePostPr82TopologyHeartbeatBootstrapTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (postPr82TopologyHeartbeatLifecycle(sourceRegistry)) {
+    throw new Error("rule=post-pr82-topology-heartbeat-bootstrap-replay");
+  }
+  if (
+    !postPr82TopologyHeartbeatLifecycle(candidateRegistry) ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-bootstrap-invalid");
+  }
+  return true;
+}
+
+export function validatePostPr82TopologyHeartbeatCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = postPr82TopologyHeartbeatLifecycle(sourceRegistry);
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle?.status !== POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS ||
+    Object.hasOwn(sourceLifecycle, "bootstrapCorrectionSource") ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_REGISTRY_SHA256 ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-correction-invalid");
+  }
+  return true;
+}
+
+export function validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-pre-final-hook-correction-invalid");
+  }
+  return true;
+}
+
+export function validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_REGISTRY_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-test-phase-correction-invalid");
+  }
+  return true;
+}
+
+export function validatePostPr82TopologyHeartbeatTestNetworkCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_REGISTRY_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-test-network-correction-invalid");
+  }
+  return true;
+}
+
+export function validatePostPr82TopologyHeartbeatFinalTransition(
+  sourceRegistry,
+  candidateRegistry,
+  sourceHeadSha,
+  observedCompletionContext = null
+) {
+  const sourceLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  const item = pr80RepairLifecycleWorkItem(candidateRegistry);
+  const branch = (candidateRegistry.branches ?? []).find(
+    (entry) => entry?.name === "codex/sena-a01-repo-governance-20260827"
+  );
+  if (
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    !sameJson(candidateLifecycle, {
+      ...sourceLifecycle,
+      status: POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS,
+      bootstrapCompletionEvidence: candidateLifecycle.bootstrapCompletionEvidence
+    }) ||
+    normalizedPostPr82TopologyHeartbeatFinalSha256(sourceRegistry) !==
+      normalizedPostPr82TopologyHeartbeatFinalSha256(candidateRegistry) ||
+    item?.headSha !== sourceHeadSha ||
+    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 5, behind: 0 }) ||
+    !Number.isInteger(item?.prNumber) ||
+    item.prNumber <= 0 ||
+    item.plannedPullRequestNumber !== item.prNumber ||
+    item.prState !== "OPEN" ||
+    item.prIsDraft !== true ||
+    item.prReadyForReview !== false ||
+    item.mergeAuthorized !== false ||
+    item.prHeadSha !== sourceHeadSha ||
+    item.noPrReason !== null ||
+    branch?.headSha !== sourceHeadSha ||
+    branch.remoteHeadSha !== sourceHeadSha ||
+    branch.remotePresent !== true ||
+    branch.pr !== item.prNumber ||
+    branch.plannedPullRequestNumber !== item.prNumber ||
+    branch.prState !== "OPEN" ||
+    branch.prIsDraft !== true ||
+    branch.prReadyForReview !== false ||
+    branch.mergeAuthorized !== false ||
+    branch.prHeadSha !== sourceHeadSha ||
+    branch.noPrReason !== null ||
+    branch.mergeable !== "MERGEABLE" ||
+    branch.mergeStateStatus !== "CLEAN"
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-invalid");
+  }
+  validatePostPr82TopologyHeartbeatCompletionEvidence(
+    candidateLifecycle.bootstrapCompletionEvidence,
+    sourceHeadSha,
+    sourceRegistry,
+    observedCompletionContext
+  );
+  const observedAt = item.lastObservedAt;
+  const expectedEvidenceState = {
+    local: `post-PR82 bootstrap ${sourceHeadSha} is clean; registry-only final heartbeat staged`,
+    ci: `exact bootstrap head ${sourceHeadSha} build/security checks passed with zero annotations`,
+    merged: `Draft PR #${item.prNumber} remains OPEN and unmerged`,
+    deployed: "not in scope and not authorized",
+    live: `protected main remains ${POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA}; no protected merge has occurred`
+  };
+  const sourceCommitAt = gitText([
+    "show",
+    "-s",
+    "--format=%cI",
+    sourceHeadSha
+  ]).trim();
+  if (
+    candidateRegistry.updatedAt !== observedAt ||
+    item.lastHeartbeatAt !== observedAt ||
+    branch.remoteObservedAt !== observedAt ||
+    branch.lastOwnerHeartbeatAt !== observedAt ||
+    branch.lastObservedAt !== observedAt ||
+    branch.nextReviewAt !== item.nextReviewAt ||
+    Date.parse(item.nextReviewAt) <= Date.parse(observedAt) ||
+    item.dirtyState !==
+      "clean-registry-only-post-pr82-topology-heartbeat-final" ||
+    !sameJson(item.evidenceState, expectedEvidenceState) ||
+    branch.lastCommitAt !== sourceCommitAt ||
+    branch.closeout !==
+      "registry-only final heartbeat awaiting exact-head checks; Ready and protected merge remain gated"
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-invalid");
+  }
+  return true;
+}
+
+function validatePostPr82TopologyHeartbeatIndexTransition(
+  sourceRegistry,
+  candidateRegistry,
+  sourceHeadSha
+) {
+  const sourceLifecycle = postPr82TopologyHeartbeatLifecycle(sourceRegistry);
+  const candidateLifecycle = postPr82TopologyHeartbeatLifecycle(candidateRegistry);
+  if (!candidateLifecycle) return false;
+  if (!sourceLifecycle) {
+    if (
+      sourceHeadSha !== POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_HEAD_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_REGISTRY_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-bootstrap-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatBootstrapTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS
+  ) {
+    if (
+      sourceHeadSha !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_HEAD_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatCorrectionTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    sourceHeadSha === POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_HEAD_SHA
+  ) {
+    if (
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_TEST_NETWORK_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-test-network-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatTestNetworkCorrectionTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    sourceHeadSha === POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_HEAD_SHA
+  ) {
+    if (
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_TEST_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-final-test-phase-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatFinalTestPhaseCorrectionTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS
+  ) {
+    if (
+      sourceHeadSha !== POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_HEAD_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_PRE_FINAL_HOOK_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-pre-final-hook-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatPreFinalHookCorrectionTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (!sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_SCOPE)) {
+    throw new Error("rule=post-pr82-topology-heartbeat-final-path-set-invalid");
+  }
+  validatePostPr82TopologyHeartbeatFinalTransition(
+    sourceRegistry,
+    candidateRegistry,
+    sourceHeadSha,
+    postPr82TopologyHeartbeatCompletionContextFromEnvironment()
+  );
+  validatePostPr82TopologyHeartbeatLiveGitHubEvidence(
+    candidateLifecycle.bootstrapCompletionEvidence,
+    pr80RepairLifecycleWorkItem(candidateRegistry)?.prNumber,
+    sourceHeadSha
+  );
+  return true;
+}
+
 export function assertPr80RepairA01ProjectionAdvanced(currentRegistry, candidateRegistry) {
   const currentLifecycle = pr80RepairLifecycleWorkItem(currentRegistry)
     ?.pr80FinalReadyTestRepairLifecycle;
@@ -2448,8 +3340,18 @@ function validatePr80RepairIndexTransition(candidateRegistry) {
   ) {
     return;
   }
+  if (stagedChangedPaths().length === 0) return;
   const currentHeadSha = gitText(["rev-parse", "HEAD"]).trim();
   const currentHeadRegistry = loadRegistryFromCommit(currentHeadSha).parsed;
+  if (
+    validatePostPr82TopologyHeartbeatIndexTransition(
+      currentHeadRegistry,
+      candidateRegistry,
+      currentHeadSha
+    )
+  ) {
+    return;
+  }
   assertPr80RepairA01ProjectionAdvanced(currentHeadRegistry, candidateRegistry);
   const sourceHeadSha = lifecycle.status === PR80_REPAIR_INITIAL_STATUS
     ? lifecycle.protectedBaseSha
@@ -7904,20 +8806,27 @@ function validateRegistry(registry) {
       PROTECTED_CURRENTNESS_REPAIR_FINAL_RECEIPT
     ].includes(entry?.receiptKind)
   );
+  const hasPostPr82TopologyHeartbeat = Boolean(
+    postPr82TopologyHeartbeatLifecycle(registry)
+  );
   if (hasProtectedCurrentnessRepairLifecycle || hasProtectedCurrentnessRepairReceipt) {
     try {
-      const repairLifecycle = protectedCurrentnessRepairWorkItem(registry)
-        ?.protectedCurrentnessActivationRepairLifecycle;
-      const allowExactFrozenLegacyInitialPrHead =
-        repairLifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
-        sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
-          PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_CANONICAL_SHA256;
-      validateProtectedCurrentnessRepairLifecycleSnapshot(
-        registry,
-        PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY,
-        null,
-        { allowExactFrozenLegacyInitialPrHead }
-      );
+      if (hasPostPr82TopologyHeartbeat) {
+        validatePostPr82IntegratedCurrentnessSnapshot(registry);
+      } else {
+        const repairLifecycle = protectedCurrentnessRepairWorkItem(registry)
+          ?.protectedCurrentnessActivationRepairLifecycle;
+        const allowExactFrozenLegacyInitialPrHead =
+          repairLifecycle?.status === PROTECTED_CURRENTNESS_REPAIR_INITIAL_STATUS &&
+          sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
+            PROTECTED_CURRENTNESS_REPAIR_CORRECTION_SOURCE_REGISTRY_CANONICAL_SHA256;
+        validateProtectedCurrentnessRepairLifecycleSnapshot(
+          registry,
+          PROTECTED_CURRENTNESS_REPAIR_SNAPSHOT_STRUCTURAL_ONLY,
+          null,
+          { allowExactFrozenLegacyInitialPrHead }
+        );
+      }
     } catch (error) {
       errors.push(
         error instanceof Error
@@ -7936,7 +8845,9 @@ function validateRegistry(registry) {
   );
   if (hasEvidenceFlowCurrentnessLifecycle || hasEvidenceFlowCurrentnessReceipt) {
     try {
-      validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
+      if (!hasPostPr82TopologyHeartbeat) {
+        validateEvidenceFlowCurrentnessLifecycleSnapshot(registry);
+      }
     } catch (error) {
       errors.push(
         error instanceof Error
@@ -9869,6 +10780,8 @@ function runAudit(flags) {
   const workItemsByPath = new Map(
     (registry.workItems ?? []).map((item) => [canonicalExistingPath(item.worktreePath), item])
   );
+  const preCommitStagedPaths = flags.has("pre-commit") ? stagedChangedPaths() : [];
+  const preCommitUnstagedPaths = flags.has("pre-commit") ? unstagedChangedPaths() : [];
   for (const worktree of registered) {
     if (!workItemsByPath.has(canonicalExistingPath(worktree.path))) {
       errors.push(`registered worktree lacks an explicit write/read-only workItem: ${worktree.path}`);
@@ -9924,7 +10837,23 @@ function runAudit(flags) {
       if (unexpectedDirty.length > 0) {
         errors.push(`workItem has dirty paths outside allowedPaths: ${item.taskId} count=${unexpectedDirty.length}`);
       }
-      if (item.dirtyState.startsWith("clean") && dirtyPaths.length > 0) {
+      const finalHeartbeatCleanClaimAllowed =
+        postPr82FinalHeartbeatPreCommitCleanClaimAllowed({
+          taskId: item.taskId,
+          dirtyState: item.dirtyState,
+          lifecycleStatus:
+            item.postPr82TopologyHeartbeatLifecycle?.status,
+          preCommit: flags.has("pre-commit"),
+          registryFromIndex: flags.has("registry-from-index"),
+          dirtyPaths,
+          stagedPaths: preCommitStagedPaths,
+          unstagedPaths: preCommitUnstagedPaths
+        });
+      if (
+        item.dirtyState.startsWith("clean") &&
+        dirtyPaths.length > 0 &&
+        !finalHeartbeatCleanClaimAllowed
+      ) {
         errors.push(`workItem declared clean but worktree is dirty: ${item.taskId}`);
       }
     }
