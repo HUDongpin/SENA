@@ -2435,10 +2435,24 @@ const POST_PR82_TOPOLOGY_HEARTBEAT_SOURCE_REGISTRY_BLOB_SHA =
   "3619d4bacd79b8a016b629309b6c9328b63ce67f";
 const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_REGISTRY_SHA256 =
   "b73eb29fd3270c8c590aeeea760c31f48ab248747a39a000301c020b0dac1371";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_HEAD_SHA =
+  "d279dfe7ba5ce94d889323dc80e9e25228c6c266";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TREE_SHA =
+  "95cb2ff06089b39f8fbec8ff1ed46bfb1eee160c";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_REGISTRY_BLOB_SHA =
+  "923a7b89c8eccd786a4be986c1f7a87c171f98b5";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_VERIFIER_BLOB_SHA =
+  "bf2d5741e9083707e3e9d668549e0be90bacaa31";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA =
+  "cacd4fab3f56e9a1277b9686a0f51ee0fc4ddf04";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256 =
+  "54d76a30ed6993a8d0e92314dc17bb877cc1bf7da933b5fffae121d3d3a83646";
 const POST_PR82_TOPOLOGY_HEARTBEAT_NORMALIZED_REGISTRY_SHA256 =
-  "31d93b7833b965adee346f01945da22089a07d16778af63213c87c0f1fce65ae";
+  "8dbb91878a1831a1610028841a90654b68480c8eccc2bb3b945b4f485fc2368c";
 const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS =
   "three-path-post-pr82-topology-heartbeat-bootstrap-candidate";
+const POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS =
+  "three-path-post-pr82-topology-heartbeat-bootstrap-correction-candidate";
 const POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS =
   "registry-only-post-pr82-topology-heartbeat-final-candidate";
 const POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE = [
@@ -2699,6 +2713,7 @@ function validatePostPr82TopologyHeartbeatLifecycleShape(registry) {
     !isPlainRecord(lifecycle) ||
     ![
       POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS,
+      POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS,
       POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS
     ].includes(lifecycle.status) ||
     lifecycle.oneShot !== true ||
@@ -2711,6 +2726,19 @@ function validatePostPr82TopologyHeartbeatLifecycleShape(registry) {
         "f075a2a3ff47de7e19c437c20e1411d1ef7a48fc6585795adfdc00838caa08c9"
     }) ||
     !sameJson(lifecycle.requiredCandidatePaths, POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE) ||
+    (lifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+      Object.hasOwn(lifecycle, "bootstrapCorrectionSource")) ||
+    (lifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+      !sameJson(lifecycle.bootstrapCorrectionSource, {
+        headSha: POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_HEAD_SHA,
+        treeSha: POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TREE_SHA,
+        registryBlobSha:
+          POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_REGISTRY_BLOB_SHA,
+        verifierBlobSha:
+          POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_VERIFIER_BLOB_SHA,
+        governanceTestBlobSha:
+          POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA
+      })) ||
     !sameJson(
       lifecycle.authorizationBoundary,
       POST_PR82_TOPOLOGY_HEARTBEAT_AUTHORIZATION_BOUNDARY
@@ -2880,6 +2908,28 @@ export function validatePostPr82TopologyHeartbeatBootstrapTransition(
   return true;
 }
 
+export function validatePostPr82TopologyHeartbeatCorrectionTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const sourceLifecycle = postPr82TopologyHeartbeatLifecycle(sourceRegistry);
+  const candidateLifecycle = validatePostPr82TopologyHeartbeatLifecycleShape(
+    candidateRegistry
+  );
+  if (
+    sourceLifecycle?.status !== POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS ||
+    Object.hasOwn(sourceLifecycle, "bootstrapCorrectionSource") ||
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_REGISTRY_SHA256 ||
+    candidateLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_REGISTRY_SHA256
+  ) {
+    throw new Error("rule=post-pr82-topology-heartbeat-correction-invalid");
+  }
+  return true;
+}
+
 export function validatePostPr82TopologyHeartbeatFinalTransition(
   sourceRegistry,
   candidateRegistry,
@@ -2897,7 +2947,7 @@ export function validatePostPr82TopologyHeartbeatFinalTransition(
     (entry) => entry?.name === "codex/sena-a01-repo-governance-20260827"
   );
   if (
-    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS ||
+    sourceLifecycle.status !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS ||
     !sameJson(candidateLifecycle, {
       ...sourceLifecycle,
       status: POST_PR82_TOPOLOGY_HEARTBEAT_FINAL_STATUS,
@@ -2906,7 +2956,7 @@ export function validatePostPr82TopologyHeartbeatFinalTransition(
     normalizedPostPr82TopologyHeartbeatFinalSha256(sourceRegistry) !==
       normalizedPostPr82TopologyHeartbeatFinalSha256(candidateRegistry) ||
     item?.headSha !== sourceHeadSha ||
-    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 1, behind: 0 }) ||
+    !sameJson(item?.aheadBehind, { baseRef: "origin/main", ahead: 2, behind: 0 }) ||
     !Number.isInteger(item?.prNumber) ||
     item.prNumber <= 0 ||
     item.plannedPullRequestNumber !== item.prNumber ||
@@ -2992,6 +3042,34 @@ function validatePostPr82TopologyHeartbeatIndexTransition(
       throw new Error("rule=post-pr82-topology-heartbeat-bootstrap-source-invalid");
     }
     validatePostPr82TopologyHeartbeatBootstrapTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    sourceLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_STATUS &&
+    candidateLifecycle.status === POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_STATUS
+  ) {
+    if (
+      sourceHeadSha !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_HEAD_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TREE_SHA ||
+      gitText(["rev-parse", `${sourceHeadSha}:${REGISTRY_REPO_PATH}`]).trim() !==
+        POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR82_TOPOLOGY_HEARTBEAT_CORRECTION_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(stagedChangedPaths(), POST_PR82_TOPOLOGY_HEARTBEAT_BOOTSTRAP_SCOPE)
+    ) {
+      throw new Error("rule=post-pr82-topology-heartbeat-correction-source-invalid");
+    }
+    validatePostPr82TopologyHeartbeatCorrectionTransition(
       sourceRegistry,
       candidateRegistry
     );

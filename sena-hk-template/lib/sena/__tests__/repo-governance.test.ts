@@ -6655,15 +6655,33 @@ describe("SENA repository governance", () => {
     expect(
       typeof governance.validatePostPr82TopologyHeartbeatFinalTransition
     ).toBe("function");
+    expect(
+      typeof governance.validatePostPr82TopologyHeartbeatCorrectionTransition
+    ).toBe("function");
 
     const sourceRegistry = JSON.parse(runGit(projectRoot, [
       "show",
       "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6:coordination/repo-governance/active-work.json"
     ]));
-    const bootstrapRegistry = JSON.parse(readFileSync(
+    const bootstrapRegistry = JSON.parse(runGit(projectRoot, [
+      "show",
+      "d279dfe7ba5ce94d889323dc80e9e25228c6c266:coordination/repo-governance/active-work.json"
+    ]));
+    const observedRegistry = JSON.parse(readFileSync(
       join(projectRoot, "coordination", "repo-governance", "active-work.json"),
       "utf8"
     ));
+    const observedLifecycle = observedRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    ).postPr82TopologyHeartbeatLifecycle;
+    const finalSourceRegistry = observedLifecycle.status ===
+      "registry-only-post-pr82-topology-heartbeat-final-candidate"
+      ? JSON.parse(runGit(projectRoot, [
+          "show",
+          `${observedLifecycle.bootstrapCompletionEvidence.headSha}:coordination/repo-governance/active-work.json`
+        ]))
+      : observedRegistry;
     expect(
       governance.validatePostPr82TopologyHeartbeatBootstrapTransition(
         sourceRegistry,
@@ -6683,7 +6701,14 @@ describe("SENA repository governance", () => {
       )
     ).toThrow("rule=post-pr82-topology-heartbeat-bootstrap-invalid");
 
-    const pr46BypassAttempt = structuredClone(bootstrapRegistry);
+    expect(
+      governance.validatePostPr82TopologyHeartbeatCorrectionTransition(
+        bootstrapRegistry,
+        finalSourceRegistry
+      )
+    ).toBe(true);
+
+    const pr46BypassAttempt = structuredClone(finalSourceRegistry);
     pr46BypassAttempt.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_FOR_TEST
@@ -6695,7 +6720,7 @@ describe("SENA repository governance", () => {
       )
     ).toThrow("rule=post-pr82-topology-heartbeat-integrated-currentness-invalid");
 
-    const evidenceFlowBypassAttempt = structuredClone(bootstrapRegistry);
+    const evidenceFlowBypassAttempt = structuredClone(finalSourceRegistry);
     evidenceFlowBypassAttempt.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
@@ -6740,15 +6765,15 @@ describe("SENA repository governance", () => {
       GIT_COMMITTER_NAME: "SENA post-PR82 heartbeat test",
       GIT_COMMITTER_EMAIL: "sena-post-pr82@example.invalid",
       GIT_COMMITTER_DATE: "2026-09-03T01:00:00+08:00",
-      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(bootstrapRegistry.repo),
+      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(finalSourceRegistry.repo),
       SENA_GOVERNANCE_TARGET_ROOT: projectRoot
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6"],
+      ["--no-optional-locks", "read-tree", "d279dfe7ba5ce94d889323dc80e9e25228c6c266"],
       bootstrapGitEnvironment
     );
-    for (const path of bootstrapRegistry.workItems.find(
+    for (const path of finalSourceRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     ).postPr82TopologyHeartbeatLifecycle.requiredCandidatePaths) {
@@ -6758,7 +6783,7 @@ describe("SENA repository governance", () => {
         bootstrapGitEnvironment
       ).split(/\s+/, 1)[0];
       const content = path === "coordination/repo-governance/active-work.json"
-        ? `${JSON.stringify(bootstrapRegistry, null, 2)}\n`
+        ? `${JSON.stringify(finalSourceRegistry, null, 2)}\n`
         : readFileSync(join(projectRoot, path), "utf8");
       const blobSha = runGitWithEnvironment(
         projectRoot,
@@ -6784,7 +6809,7 @@ describe("SENA repository governance", () => {
         "commit-tree",
         bootstrapTreeSha,
         "-p",
-        "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6"
+        "d279dfe7ba5ce94d889323dc80e9e25228c6c266"
       ],
       bootstrapGitEnvironment,
       "post-PR82 topology heartbeat bootstrap fixture\n"
@@ -6866,14 +6891,14 @@ describe("SENA repository governance", () => {
       localTypecheckStatus: "not-proved-missing-local-dependencies",
       ciBuildRequired: true
     };
-    const finalRegistry = structuredClone(bootstrapRegistry);
+    const finalRegistry = structuredClone(finalSourceRegistry);
     finalRegistry.updatedAt = "2026-09-02T17:15:00Z";
     const finalItem = finalRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     );
     finalItem.headSha = bootstrapHeadSha;
-    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 1, behind: 0 };
+    finalItem.aheadBehind = { baseRef: "origin/main", ahead: 2, behind: 0 };
     finalItem.lastHeartbeatAt = "2026-09-02T17:15:00Z";
     finalItem.lastObservedAt = "2026-09-02T17:15:00Z";
     finalItem.nextReviewAt = "2026-09-03T17:15:00Z";
@@ -7177,7 +7202,7 @@ process.stdout.write(JSON.stringify(value));
     ).disposition = "active";
     expect(() =>
       governance.validatePostPr82TopologyHeartbeatFinalTransition(
-        bootstrapRegistry,
+        finalSourceRegistry,
         unauthorizedFinal,
         bootstrapHeadSha,
         completionEvidence
@@ -7670,8 +7695,19 @@ process.stdout.write(JSON.stringify(value));
       { env: cleanIndexEnvironment }
     );
     expect(cleanIndexWritePolicy.status).toBe(1);
+    const cleanIndexSourceRegistry = JSON.parse(runGit(projectRoot, [
+      "show",
+      `${currentHead}:coordination/repo-governance/active-work.json`
+    ]));
+    const cleanIndexSourceStatus = cleanIndexSourceRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
+    )?.postPr82TopologyHeartbeatLifecycle?.status;
     expect(cleanIndexWritePolicy.stderr).toContain(
-      "rule=empty-staged-index-not-authorized"
+      cleanIndexSourceStatus ===
+        "three-path-post-pr82-topology-heartbeat-bootstrap-candidate"
+        ? "index registry snapshot is invalid"
+        : "rule=empty-staged-index-not-authorized"
     );
 
     const expectInitialFailure = (mutate: (candidate: any) => void, rule?: string) => {
