@@ -812,8 +812,10 @@ function withIndexedFinalEvidenceEnvironment(
           postPr83Evidence.verifierBlobSha,
         SENA_POST_PR83_INITIAL_GOVERNANCE_TEST_BLOB:
           postPr83Evidence.governanceTestBlobSha,
-        SENA_POST_PR83_INITIAL_BINARY_DIFF_SHA256:
-          postPr83Evidence.canonicalBinaryDiffSha256,
+        SENA_POST_PR83_INITIAL_COMPATIBILITY_DIFF_SHA256:
+          postPr83Evidence.compatibilityDiffSha256,
+        SENA_POST_PR83_INITIAL_CUMULATIVE_DIFF_SHA256:
+          postPr83Evidence.cumulativeDiffSha256,
         SENA_POST_PR83_INITIAL_BUILD_RUN_ID: String(
           postPr83Evidence.buildRunId
         ),
@@ -6028,7 +6030,7 @@ describe("SENA repository governance", () => {
     )?.postPr83CurrentnessCorrectionLifecycle?.status;
     expect(result.stderr).toContain(
       indexedLifecycleStatus ===
-        "three-path-post-pr83-currentness-correction-compatibility-fix-candidate"
+        "three-path-post-pr83-currentness-correction-cumulative-review-fix-candidate"
         ? "rule=empty-staged-index-not-authorized"
         : "index registry snapshot is invalid"
     );
@@ -7983,7 +7985,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-compatibility-transition-invalid"
+      "rule=post-pr83-currentness-review-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -8232,7 +8234,7 @@ process.stdout.write(JSON.stringify(value));
       cleanIndexSourceStatus ===
         "three-path-post-pr82-topology-heartbeat-bootstrap-candidate" ||
         cleanIndexPostPr83Status !==
-          "three-path-post-pr83-currentness-correction-compatibility-fix-candidate"
+          "three-path-post-pr83-currentness-correction-cumulative-review-fix-candidate"
         ? "index registry snapshot is invalid"
         : "rule=empty-staged-index-not-authorized"
     );
@@ -12881,6 +12883,8 @@ const POST_PR83_SOURCE_SHA_FOR_TEST =
   "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3";
 const POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST =
   "22d307e8fa4106f2427f5d5ee178ed5231105a28";
+const POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST =
+  "a365244b11c4d6549d9b7050111da9d83fb85f79";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -12934,28 +12938,31 @@ function postPr83BinaryDiffSha256ForTest(
 }
 
 function postPr83ReviewEvidenceForTest(
-  reviewKind: "spec" | "quality-security",
+  reviewKind: "specification" | "quality-security",
   reviewerTaskId: string,
-  reviewerActorId: string,
+  actorId: string,
   binding: any
 ) {
-  const record = {
+  const payload = {
+    schema: "sena-post-pr83-independent-review/v1",
     reviewKind,
     reviewerTaskId,
-    reviewerActorId,
-    approved: true,
-    reviewedHeadSha: binding.headSha,
-    reviewedTreeSha: binding.treeSha,
-    reviewedRegistryBlobSha: binding.registryBlobSha,
-    reviewedVerifierBlobSha: binding.verifierBlobSha,
-    reviewedGovernanceTestBlobSha: binding.governanceTestBlobSha,
-    reviewedBinaryDiffSha256: binding.canonicalBinaryDiffSha256,
-    findingCounts: { p0: 0, p1: 0, p2: 0, p3: 0 }
+    actorId,
+    candidateHeadSha: binding.headSha,
+    candidateTreeSha: binding.treeSha,
+    registryBlobSha: binding.registryBlobSha,
+    verifierBlobSha: binding.verifierBlobSha,
+    governanceTestBlobSha: binding.governanceTestBlobSha,
+    compatibilityDiffSha256: binding.compatibilityDiffSha256,
+    cumulativeDiffSha256: binding.cumulativeDiffSha256,
+    findings: { p0: 0, p1: 0, p2: 0, p3: 0 },
+    verdict: "approved",
+    reviewedAt: "2026-09-03T08:15:00Z"
   };
   return {
-    ...record,
-    reviewDigestSha256: createHash("sha256")
-      .update(JSON.stringify(record))
+    payload,
+    receiptSha256: createHash("sha256")
+      .update(JSON.stringify(payload))
       .digest("hex")
   };
 }
@@ -12976,9 +12983,14 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
       "rev-parse",
       `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
     ]),
-    canonicalBinaryDiffSha256: postPr83BinaryDiffSha256ForTest(
+    compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
       root,
-      "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+      POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+      headSha
+    ),
+    cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
+      root,
+      POST_PR83_SOURCE_SHA_FOR_TEST,
       headSha
     ),
     buildRunId: 18401,
@@ -12988,15 +13000,15 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     annotationsEmpty: true
   };
   evidence.specReview = postPr83ReviewEvidenceForTest(
-    "spec",
-    "post-pr83-independent-spec-review",
-    "independent-spec-reviewer",
+    "specification",
+    "/root/post_pr83_spec_review",
+    "agent:post_pr83_spec_review",
     evidence
   );
   evidence.qualitySecurityReview = postPr83ReviewEvidenceForTest(
     "quality-security",
-    "post-pr83-independent-quality-security-review",
-    "independent-quality-security-reviewer",
+    "/root/post_pr83_quality_security_review",
+    "agent:post_pr83_quality_security_review",
     evidence
   );
   return evidence;
@@ -13020,7 +13032,7 @@ function postPr83FinalRegistryForTest(
     (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
   );
   item.headSha = evidence.headSha;
-  item.aheadBehind = { baseRef: "origin/main", ahead: 2, behind: 0 };
+  item.aheadBehind = { baseRef: "origin/main", ahead: 3, behind: 0 };
   item.lastHeartbeatAt = observedAt;
   item.lastObservedAt = observedAt;
   item.nextReviewAt = nextReviewAt;
@@ -13364,6 +13376,12 @@ describe("post-PR83 protected currentness correction", () => {
         `${POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
       ])
     );
+    const historicalCompatibilityCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
     const candidate = postPr83InitialRegistryForTest();
     const historicalBytesResult = spawnSync(
       "git",
@@ -13382,17 +13400,23 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes
     ).toBe("function");
-    const candidateBytes = readFileSync(
-      join(projectRoot, "coordination/repo-governance/active-work.json")
+    const compatibilityBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
     );
+    expect(compatibilityBytesResult.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes(
-        candidateBytes
+        compatibilityBytesResult.stdout
       )
     ).toBe(true);
     expect(() =>
       governance.validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes(
-        Buffer.concat([candidateBytes, Buffer.from(" ")])
+        Buffer.concat([compatibilityBytesResult.stdout, Buffer.from(" ")])
       )
     ).toThrow("rule=post-pr83-currentness-compatibility-registry-bytes-invalid");
     expect(
@@ -13407,6 +13431,26 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       governance.validatePostPr83CurrentnessCorrectionCompatibilityTransition(
         historicalCandidate,
+        historicalCompatibilityCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes
+    ).toBe("function");
+    const candidateBytes = readFileSync(
+      join(projectRoot, "coordination/repo-governance/active-work.json")
+    );
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes(
+        candidateBytes
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionReviewFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
+        historicalCompatibilityCandidate,
         candidate
       )
     ).toBe(true);
@@ -13439,11 +13483,11 @@ describe("post-PR83 protected currentness correction", () => {
       const drifted = structuredClone(candidate);
       mutate(drifted);
       expect(() =>
-        governance.validatePostPr83CurrentnessCorrectionCompatibilityTransition(
-          historicalCandidate,
+        governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
+          historicalCompatibilityCandidate,
           drifted
         )
-      ).toThrow("rule=post-pr83-currentness-compatibility-transition-invalid");
+      ).toThrow("rule=post-pr83-currentness-review-fix-transition-invalid");
     }
   });
 
@@ -13454,6 +13498,37 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition
     ).toBe("function");
+    expect(fixture.evidence.compatibilityDiffSha256).toBe(
+      postPr83BinaryDiffSha256ForTest(
+        fixture.root,
+        POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
+        fixture.initialHeadSha
+      )
+    );
+    expect(fixture.evidence.cumulativeDiffSha256).toBe(
+      postPr83BinaryDiffSha256ForTest(
+        fixture.root,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.initialHeadSha
+      )
+    );
+    expect(fixture.evidence.specReview.payload).toMatchObject({
+      schema: "sena-post-pr83-independent-review/v1",
+      reviewKind: "specification",
+      reviewerTaskId: "/root/post_pr83_spec_review",
+      actorId: "agent:post_pr83_spec_review",
+      compatibilityDiffSha256: fixture.evidence.compatibilityDiffSha256,
+      cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
+      verdict: "approved"
+    });
+    expect(fixture.evidence.qualitySecurityReview.payload).toMatchObject({
+      reviewKind: "quality-security",
+      reviewerTaskId: "/root/post_pr83_quality_security_review",
+      actorId: "agent:post_pr83_quality_security_review",
+      compatibilityDiffSha256: fixture.evidence.compatibilityDiffSha256,
+      cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
+      verdict: "approved"
+    });
     const fakeBin = installPostPr83FakeGitHub(fixture.root, fixture);
     const previousPath = process.env.PATH;
     const previousVariant = process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
@@ -13509,14 +13584,60 @@ describe("post-PR83 protected currentness correction", () => {
         delete evidence.specReview;
       },
       (evidence: any) => {
-        evidence.specReview.reviewedHeadSha = "d".repeat(40);
+        evidence.specReview.payload.candidateHeadSha = "d".repeat(40);
       },
       (evidence: any) => {
-        evidence.qualitySecurityReview.reviewDigestSha256 = "c".repeat(64);
+        evidence.qualitySecurityReview.receiptSha256 = "c".repeat(64);
       },
       (evidence: any) => {
-        evidence.specReview.reviewerTaskId =
-          evidence.qualitySecurityReview.reviewerTaskId;
+        evidence.specReview.payload.reviewerTaskId =
+          evidence.qualitySecurityReview.payload.reviewerTaskId;
+      },
+      (evidence: any) => {
+        evidence.compatibilityDiffSha256 = "b".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.cumulativeDiffSha256 = "a".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.cumulativeDiffSha256 = "9".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.qualitySecurityReview.payload.compatibilityDiffSha256 =
+          "8".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.actorId =
+          "agent:post_pr83_quality_security_review";
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.findings.p1 = 1;
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.verdict = "rejected";
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.schema = "wrong-schema";
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.reviewedAt = "not-an-iso-timestamp";
+      },
+      (evidence: any) => {
+        const reordered = {
+          reviewKind: evidence.specReview.payload.reviewKind,
+          schema: evidence.specReview.payload.schema,
+          ...Object.fromEntries(
+            Object.entries(evidence.specReview.payload).filter(
+              ([key]) => !["schema", "reviewKind"].includes(key)
+            )
+          )
+        };
+        evidence.specReview = {
+          payload: reordered,
+          receiptSha256: createHash("sha256")
+            .update(JSON.stringify(reordered))
+            .digest("hex")
+        };
       }
     ]) {
       const drifted = structuredClone(fixture.finalRegistry);
@@ -13545,7 +13666,7 @@ describe("post-PR83 protected currentness correction", () => {
       "commit-tree",
       fixture.evidence.treeSha,
       "-p",
-      POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST,
+      POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
       "-m",
       "alternate same-tree compatibility child"
     ]);
@@ -13567,11 +13688,11 @@ describe("post-PR83 protected currentness correction", () => {
       )
     ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
     expect(() =>
-      fixture.governance.validatePostPr83CurrentnessCorrectionCompatibilityTransition(
+      fixture.governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
         fixture.initialRegistry,
         fixture.initialRegistry
       )
-    ).toThrow("rule=post-pr83-currentness-compatibility-transition-replay");
+    ).toThrow("rule=post-pr83-currentness-review-fix-transition-replay");
   });
 
   it("prefers the post-PR83 final helper and validates an isolated one-path registry stage", async () => {
@@ -13606,7 +13727,7 @@ describe("post-PR83 protected currentness correction", () => {
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST],
+      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST],
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
@@ -13645,7 +13766,7 @@ describe("post-PR83 protected currentness correction", () => {
         "commit-tree",
         initialTreeSha,
         "-p",
-        POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST,
+        POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
         "-m",
         "post-PR83 compatibility fix candidate"
       ],
@@ -13666,13 +13787,13 @@ describe("post-PR83 protected currentness correction", () => {
       ["--no-optional-locks", "read-tree", initialHeadSha],
       isolatedEnvironment
     );
-    const diffResult = spawnSync(
+    const compatibilityDiffResult = spawnSync(
       "git",
       [
         "diff",
         "--binary",
         "--full-index",
-        POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST,
+        POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST,
         initialHeadSha,
         "--",
         ...POST_PR83_PATHS_FOR_TEST
@@ -13683,7 +13804,31 @@ describe("post-PR83 protected currentness correction", () => {
         env: { ...process.env, ...isolatedEnvironment }
       }
     );
-    expect(diffResult.status, String(diffResult.stderr)).toBe(0);
+    expect(
+      compatibilityDiffResult.status,
+      String(compatibilityDiffResult.stderr)
+    ).toBe(0);
+    const cumulativeDiffResult = spawnSync(
+      "git",
+      [
+        "diff",
+        "--binary",
+        "--full-index",
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        initialHeadSha,
+        "--",
+        ...POST_PR83_PATHS_FOR_TEST
+      ],
+      {
+        cwd: projectRoot,
+        encoding: null,
+        env: { ...process.env, ...isolatedEnvironment }
+      }
+    );
+    expect(
+      cumulativeDiffResult.status,
+      String(cumulativeDiffResult.stderr)
+    ).toBe(0);
     const evidence: any = {
       headSha: initialHeadSha,
       treeSha: initialTreeSha,
@@ -13702,8 +13847,11 @@ describe("post-PR83 protected currentness correction", () => {
         ["rev-parse", `${initialHeadSha}:${POST_PR83_PATHS_FOR_TEST[2]}`],
         isolatedEnvironment
       ),
-      canonicalBinaryDiffSha256: createHash("sha256")
-        .update(diffResult.stdout)
+      compatibilityDiffSha256: createHash("sha256")
+        .update(compatibilityDiffResult.stdout)
+        .digest("hex"),
+      cumulativeDiffSha256: createHash("sha256")
+        .update(cumulativeDiffResult.stdout)
         .digest("hex"),
       buildRunId: 18401,
       repositorySecurityRunIds: [18402, 18403],
@@ -13712,15 +13860,15 @@ describe("post-PR83 protected currentness correction", () => {
       annotationsEmpty: true
     };
     evidence.specReview = postPr83ReviewEvidenceForTest(
-      "spec",
-      "post-pr83-independent-spec-review",
-      "independent-spec-reviewer",
+      "specification",
+      "/root/post_pr83_spec_review",
+      "agent:post_pr83_spec_review",
       evidence
     );
     evidence.qualitySecurityReview = postPr83ReviewEvidenceForTest(
       "quality-security",
-      "post-pr83-independent-quality-security-review",
-      "independent-quality-security-reviewer",
+      "/root/post_pr83_quality_security_review",
+      "agent:post_pr83_quality_security_review",
       evidence
     );
     const finalRegistry = postPr83FinalRegistryForTest(
