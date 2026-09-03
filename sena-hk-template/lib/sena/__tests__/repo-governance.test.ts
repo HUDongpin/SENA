@@ -5759,11 +5759,7 @@ describe("SENA repository governance", () => {
   });
 
   it("reports a closed incident with restored root control plane as pass", () => {
-    const result = runNode(governanceScript, [
-      "audit",
-      "--registry-from-commit",
-      runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"])
-    ]);
+    const result = runNode(governanceScript, ["audit"]);
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("pass");
@@ -7596,6 +7592,10 @@ process.stdout.write(JSON.stringify(value));
         (receipt: any) =>
           receipt.receiptKind === "task7.9-test-phase-compatibility-currentness-candidate"
       );
+      const hasPostPr83CurrentnessReceipt = suffixReceipts.some(
+        (receipt: any) =>
+          receipt.receiptKind === "post-pr83-currentness-correction-initial-candidate"
+      );
       const expectedSuffixKinds = [...expectedKinds];
       const finalReceiptIndex = expectedSuffixKinds.length === 3
         ? expectedSuffixKinds.length - 1
@@ -7644,6 +7644,11 @@ process.stdout.write(JSON.stringify(value));
             : expectedSuffixKinds.length,
           0,
           "task7.9-test-phase-compatibility-currentness-candidate"
+        );
+      }
+      if (hasPostPr83CurrentnessReceipt) {
+        expectedSuffixKinds.push(
+          "post-pr83-currentness-correction-initial-candidate"
         );
       }
       expect(suffixReceipts).toHaveLength(expectedSuffixKinds.length);
@@ -7732,7 +7737,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr82-topology-heartbeat-integrated-currentness-invalid"
+      "rule=post-pr83-currentness-initial-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -12617,5 +12622,640 @@ describe("protected activation completion and PR46 repair rebinding", () => {
         )
       ).toThrow("rule=protected-currentness-repair-pr46-activation-delta-invalid");
     }
+  });
+});
+
+const POST_PR83_SOURCE_SHA_FOR_TEST =
+  "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3";
+const POST_PR83_BRANCH_FOR_TEST =
+  "codex/sena-post-pr83-currentness-correction-20260903";
+const POST_PR83_TASK_FOR_TEST =
+  "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903";
+const POST_PR83_PATHS_FOR_TEST = [
+  "coordination/repo-governance/active-work.json",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+
+function postPr83SourceRegistryForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${POST_PR83_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function postPr83InitialRegistryForTest() {
+  return JSON.parse(
+    readFileSync(
+      join(projectRoot, "coordination/repo-governance/active-work.json"),
+      "utf8"
+    )
+  );
+}
+
+function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
+  return {
+    headSha,
+    treeSha: runGit(root, ["rev-parse", `${headSha}^{tree}`]),
+    registryBlobSha: runGit(root, [
+      "rev-parse",
+      `${headSha}:coordination/repo-governance/active-work.json`
+    ]),
+    verifierBlobSha: runGit(root, [
+      "rev-parse",
+      `${headSha}:scripts/verify-sena-repo-governance.mjs`
+    ]),
+    governanceTestBlobSha: runGit(root, [
+      "rev-parse",
+      `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+    ]),
+    buildRunId: 18401,
+    repositorySecurityRunIds: [18402, 18403],
+    checkJobIds: [18404, 18405, 18406],
+    requiredChecksPassed: true,
+    annotationsEmpty: true
+  };
+}
+
+function postPr83FinalRegistryForTest(
+  initialRegistry: any,
+  evidence: any,
+  sourceRoot: string,
+  pullRequestNumber = 184
+) {
+  const finalRegistry = structuredClone(initialRegistry);
+  const observedAt = "2026-09-03T07:00:00Z";
+  const nextReviewAt = "2026-09-04T07:00:00Z";
+  finalRegistry.updatedAt = observedAt;
+  const item = finalRegistry.workItems.find(
+    (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+  );
+  const branch = finalRegistry.branches.find(
+    (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
+  );
+  item.headSha = evidence.headSha;
+  item.aheadBehind = { baseRef: "origin/main", ahead: 1, behind: 0 };
+  item.lastHeartbeatAt = observedAt;
+  item.lastObservedAt = observedAt;
+  item.nextReviewAt = nextReviewAt;
+  item.prNumber = pullRequestNumber;
+  item.noPrReason = null;
+  item.prState = "OPEN";
+  item.prIsDraft = true;
+  item.prReadyForReview = false;
+  item.mergeAuthorized = false;
+  item.prHeadSha = evidence.headSha;
+  item.dirtyState =
+    "clean-registry-only-post-pr83-currentness-correction-final-candidate";
+  item.evidenceState = {
+    local: `initial three-path correction ${evidence.headSha} is clean; registry-only final candidate staged`,
+    ci: `exact initial head ${evidence.headSha} build/security checks passed with zero annotations`,
+    merged: `Draft PR #${pullRequestNumber} remains OPEN and unmerged; Ready and merge remain false pending final-head checks`,
+    deployed: "not in scope and not authorized",
+    live: `named remote and Draft PR #${pullRequestNumber} both bind exact initial head ${evidence.headSha}; protected main remains ${POST_PR83_SOURCE_SHA_FOR_TEST}`
+  };
+  item.postPr83CurrentnessCorrectionLifecycle.status =
+    "registry-only-post-pr83-currentness-correction-final-candidate";
+  item.postPr83CurrentnessCorrectionLifecycle.initialCandidateCompletionEvidence =
+    evidence;
+
+  branch.headSha = evidence.headSha;
+  branch.upstream = `origin/${POST_PR83_BRANCH_FOR_TEST}`;
+  branch.upstreamState = "live";
+  branch.upstreamCacheState = "present";
+  branch.remotePresent = true;
+  branch.remoteHeadSha = evidence.headSha;
+  branch.remoteObservedAt = observedAt;
+  branch.pr = pullRequestNumber;
+  branch.prState = "OPEN";
+  branch.prIsDraft = true;
+  branch.prReadyForReview = false;
+  branch.mergeAuthorized = false;
+  branch.prHeadSha = evidence.headSha;
+  branch.prBase = "main";
+  branch.prStateObservationMode = "monotonic";
+  branch.noPrReason = null;
+  branch.lastOwnerHeartbeatAt = observedAt;
+  branch.lastObservedAt = observedAt;
+  branch.lastCommitAt = runGit(sourceRoot, [
+    "show",
+    "-s",
+    "--format=%cI",
+    evidence.headSha
+  ]);
+  branch.nextReviewAt = nextReviewAt;
+  branch.closeout =
+    "registry-only final candidate awaiting exact-final-head checks; Ready and protected merge remain false";
+  branch.mergeable = "MERGEABLE";
+  branch.mergeStateStatus = "CLEAN";
+  return finalRegistry;
+}
+
+async function createPostPr83LifecycleFixture(label: string) {
+  const fixtureRoot = temporaryRoot(label);
+  const root = join(fixtureRoot, "repo");
+  runGit(fixtureRoot, ["clone", "-q", "--no-local", projectRoot, root]);
+  runGit(root, [
+    "checkout",
+    "-q",
+    "-B",
+    POST_PR83_BRANCH_FOR_TEST,
+    POST_PR83_SOURCE_SHA_FOR_TEST
+  ]);
+  runGit(root, ["config", "user.name", "SENA post-PR83 test"]);
+  runGit(root, ["config", "user.email", "sena-post-pr83@example.invalid"]);
+  for (const path of POST_PR83_PATHS_FOR_TEST) {
+    const target = join(root, path);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(join(projectRoot, path), target);
+  }
+  runGit(root, ["add", ...POST_PR83_PATHS_FOR_TEST]);
+  runGit(root, ["commit", "-q", "-m", "post-PR83 initial candidate"]);
+  const initialHeadSha = runGit(root, ["rev-parse", "HEAD"]);
+  const evidence = postPr83CompletionEvidenceForTest(root, initialHeadSha);
+  const initialRegistry = postPr83InitialRegistryForTest();
+  const finalRegistry = postPr83FinalRegistryForTest(
+    initialRegistry,
+    evidence,
+    root
+  );
+  writeFileSync(
+    join(root, POST_PR83_PATHS_FOR_TEST[0]),
+    `${JSON.stringify(finalRegistry, null, 2)}\n`
+  );
+  runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  runGit(root, ["commit", "-q", "-m", "post-PR83 final metadata"]);
+  const finalHeadSha = runGit(root, ["rev-parse", "HEAD"]);
+  const finalTreeSha = runGit(root, ["rev-parse", `${finalHeadSha}^{tree}`]);
+  const mergeCommitSha = runGit(root, [
+    "commit-tree",
+    finalTreeSha,
+    "-p",
+    POST_PR83_SOURCE_SHA_FOR_TEST,
+    "-p",
+    finalHeadSha,
+    "-m",
+    "protected post-PR83 correction merge"
+  ]);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", mergeCommitSha]);
+  const previousTargetRoot = process.env.SENA_GOVERNANCE_TARGET_ROOT;
+  process.env.SENA_GOVERNANCE_TARGET_ROOT = root;
+  let governance: any;
+  try {
+    governance = await import(
+      `${pathToFileURL(governanceScript).href}?postPr83=${Date.now()}-${Math.random()}`
+    );
+  } finally {
+    if (previousTargetRoot === undefined) {
+      delete process.env.SENA_GOVERNANCE_TARGET_ROOT;
+    } else {
+      process.env.SENA_GOVERNANCE_TARGET_ROOT = previousTargetRoot;
+    }
+  }
+  return {
+    root,
+    governance,
+    initialRegistry,
+    initialHeadSha,
+    evidence,
+    finalRegistry,
+    finalHeadSha,
+    finalTreeSha,
+    mergeCommitSha
+  };
+}
+
+function installPostPr83FakeGitHub(root: string, fixture: any) {
+  const bin = join(root, "fake-gh-bin");
+  const gh = join(bin, "gh");
+  mkdirSync(bin, { recursive: true });
+  const evidence = fixture.evidence;
+  const run = (name: string, event: string, runId: number) => ({
+    id: runId,
+    name,
+    event,
+    head_sha: fixture.initialHeadSha,
+    head_branch: POST_PR83_BRANCH_FOR_TEST,
+    head_repository: { full_name: "HUDongpin/SENA" },
+    status: "completed",
+    conclusion: "success"
+  });
+  const responses = {
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`]:
+      run("build-gate", "pull_request", evidence.buildRunId),
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[0]}`]:
+      run("repo-security-gate", "push", evidence.repositorySecurityRunIds[0]),
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[1]}`]:
+      run("repo-security-gate", "pull_request", evidence.repositorySecurityRunIds[1]),
+    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[0]}`]: {
+      id: evidence.checkJobIds[0],
+      run_id: evidence.buildRunId,
+      name: "build",
+      head_sha: fixture.initialHeadSha,
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[1]}`]: {
+      id: evidence.checkJobIds[1],
+      run_id: evidence.repositorySecurityRunIds[0],
+      name: "repository-security",
+      head_sha: fixture.initialHeadSha,
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[2]}`]: {
+      id: evidence.checkJobIds[2],
+      run_id: evidence.repositorySecurityRunIds[1],
+      name: "repository-security",
+      head_sha: fixture.initialHeadSha,
+      status: "completed",
+      conclusion: "success"
+    },
+    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[0]}/annotations`]: [],
+    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[1]}/annotations`]: [],
+    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[2]}/annotations`]: [],
+    "repos/HUDongpin/SENA/pulls/184": {
+      number: 184,
+      state: "open",
+      draft: true,
+      head: {
+        sha: fixture.initialHeadSha,
+        ref: POST_PR83_BRANCH_FOR_TEST,
+        repo: { full_name: "HUDongpin/SENA" }
+      },
+      base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+    },
+    [`repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`]: {
+      ref: `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`,
+      object: { sha: fixture.initialHeadSha }
+    }
+  };
+  writeFileSync(
+    gh,
+    `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (JSON.stringify(args.slice(0, 3)) !== JSON.stringify(["api", "--hostname", "github.com"])) process.exit(2);
+const responses = ${JSON.stringify(responses)};
+const value = responses[args[3]];
+if (value === undefined) process.exit(3);
+const clone = JSON.parse(JSON.stringify(value));
+if (process.env.SENA_POST_PR83_FAKE_GH_VARIANT === "wrong-head") {
+  if (clone && !Array.isArray(clone) && Object.hasOwn(clone, "head_sha")) clone.head_sha = "f".repeat(40);
+  if (clone?.head?.sha) clone.head.sha = "f".repeat(40);
+  if (clone?.object?.sha) clone.object.sha = "f".repeat(40);
+}
+if (process.env.SENA_POST_PR83_FAKE_GH_VARIANT === "annotations" && Array.isArray(clone)) clone.push({ path: "unexpected" });
+process.stdout.write(JSON.stringify(clone));
+`
+  );
+  chmodSync(gh, 0o755);
+  return bin;
+}
+
+describe("post-PR83 protected currentness correction", () => {
+  it("accepts only the exact source-to-initial three-path registry transition", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?postPr83Initial=${Date.now()}-${Math.random()}`
+    );
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionInitialTransition
+    ).toBe("function");
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionInitialRegistryBytes
+    ).toBe("function");
+    const source = postPr83SourceRegistryForTest();
+    const candidate = postPr83InitialRegistryForTest();
+    const candidateBytes = readFileSync(
+      join(projectRoot, "coordination/repo-governance/active-work.json")
+    );
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionInitialRegistryBytes(
+        candidateBytes
+      )
+    ).toBe(true);
+    expect(() =>
+      governance.validatePostPr83CurrentnessCorrectionInitialRegistryBytes(
+        Buffer.concat([candidateBytes, Buffer.from(" ")])
+      )
+    ).toThrow("rule=post-pr83-currentness-initial-registry-bytes-invalid");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionInitialTransition(
+        source,
+        candidate
+      )
+    ).toBe(true);
+    for (const mutate of [
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === POST_PR83_TASK_FOR_TEST
+        ).taskId = "SENA-WRONG-TASK";
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).headSha = "f".repeat(40);
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+        ).dirtyState = "mutated";
+      },
+      (value: any) => {
+        delete value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === POST_PR83_TASK_FOR_TEST
+        ).postPr83CurrentnessCorrectionLifecycle;
+      }
+    ]) {
+      const drifted = structuredClone(candidate);
+      mutate(drifted);
+      expect(() =>
+        governance.validatePostPr83CurrentnessCorrectionInitialTransition(
+          source,
+          drifted
+        )
+      ).toThrow("rule=post-pr83-currentness-initial-transition-invalid");
+    }
+  });
+
+  it("allows the registry-only final transition only with exact commit, CI, Draft PR, and named-ref evidence", async () => {
+    const fixture = await createPostPr83LifecycleFixture("post-pr83-final");
+    expect(
+      typeof fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition
+    ).toBe("function");
+    const fakeBin = installPostPr83FakeGitHub(fixture.root, fixture);
+    const previousPath = process.env.PATH;
+    const previousVariant = process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
+    process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
+    try {
+      expect(
+        fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+          fixture.initialRegistry,
+          fixture.finalRegistry,
+          fixture.initialHeadSha,
+          fixture.evidence
+        )
+      ).toBe(true);
+      for (const variant of ["wrong-head", "annotations"]) {
+        process.env.SENA_POST_PR83_FAKE_GH_VARIANT = variant;
+        expect(() =>
+          fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+            fixture.initialRegistry,
+            fixture.finalRegistry,
+            fixture.initialHeadSha,
+            fixture.evidence
+          )
+        ).toThrow("rule=post-pr83-currentness-live-github-readback-invalid");
+      }
+    } finally {
+      process.env.PATH = previousPath;
+      if (previousVariant === undefined) {
+        delete process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
+      } else {
+        process.env.SENA_POST_PR83_FAKE_GH_VARIANT = previousVariant;
+      }
+    }
+    const missingEvidence = structuredClone(fixture.finalRegistry);
+    delete missingEvidence.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+    ).postPr83CurrentnessCorrectionLifecycle.initialCandidateCompletionEvidence;
+    expect(() =>
+      fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+        fixture.initialRegistry,
+        missingEvidence,
+        fixture.initialHeadSha,
+        fixture.evidence
+      )
+    ).toThrow();
+  });
+
+  it("permits behind growth only for exact protected lanes across a fully accepted main chain", async () => {
+    const fixture = await createPostPr83LifecycleFixture("post-pr83-lanes");
+    expect(
+      typeof fixture.governance.protectedLaneMainAdvanceObservationAllowed
+    ).toBe("function");
+    const rootItem = fixture.finalRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+    const observed = {
+      baseRef: "origin/main",
+      ahead: rootItem.aheadBehind.ahead,
+      behind: rootItem.aheadBehind.behind + 3
+    };
+    expect(
+      fixture.governance.protectedLaneMainAdvanceObservationAllowed(
+        rootItem,
+        rootItem.headSha,
+        observed,
+        fixture.finalRegistry
+      )
+    ).toBe(true);
+    for (const mutate of [
+      (item: any, value: any) => {
+        item.taskId = "SENA-WRONG-TASK";
+      },
+      (item: any, value: any) => {
+        item.headSha = "f".repeat(40);
+      },
+      (item: any, value: any) => {
+        value.ahead += 1;
+      },
+      (item: any, value: any) => {
+        value.behind = item.aheadBehind.behind;
+      },
+      (item: any, value: any) => {
+        value.behind = item.aheadBehind.behind - 1;
+      },
+      (item: any, value: any) => {
+        item.disposition = "active";
+      },
+      (item: any, value: any) => {
+        item.aheadBehindObservationMode = "lower-bound";
+      }
+    ]) {
+      const item = structuredClone(rootItem);
+      const value = structuredClone(observed);
+      mutate(item, value);
+      expect(
+        fixture.governance.protectedLaneMainAdvanceObservationAllowed(
+          item,
+          rootItem.headSha,
+          value,
+          fixture.finalRegistry
+        )
+      ).toBe(false);
+    }
+    runGit(fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      POST_PR83_SOURCE_SHA_FOR_TEST
+    ]);
+    expect(
+      fixture.governance.protectedLaneMainAdvanceObservationAllowed(
+        rootItem,
+        rootItem.headSha,
+        observed,
+        fixture.finalRegistry
+      )
+    ).toBe(false);
+  });
+
+  it("recognizes only the exact future protected merge and rejects unknown, wrong-parent, wrong-tree, extra-path, or missing-evidence variants", async () => {
+    const fixture = await createPostPr83LifecycleFixture("post-pr83-merge");
+    expect(
+      typeof fixture.governance.validatePostPr83ProtectedMainMergeDescriptor
+    ).toBe("function");
+    expect(
+      fixture.governance.protectedMainAdvanceChainResolution(
+        fixture.finalRegistry,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.mergeCommitSha
+      )
+    ).toMatchObject({
+      allowed: true,
+      mergeCommitShas: [fixture.mergeCommitSha],
+      failedCommitSha: null
+    });
+    const descriptor = {
+      mergeTimeRegistry: fixture.finalRegistry,
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      secondParentSha: fixture.finalHeadSha,
+      mergeTreeSha: fixture.finalTreeSha,
+      registryBlobSha: runGit(fixture.root, [
+        "rev-parse",
+        `${fixture.finalHeadSha}:coordination/repo-governance/active-work.json`
+      ]),
+      currentObservationRegistry: fixture.finalRegistry
+    };
+    expect(
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor(descriptor)
+    ).toBe(true);
+    expect(
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor({
+        ...descriptor,
+        orderedParentShas: [fixture.finalHeadSha, POST_PR83_SOURCE_SHA_FOR_TEST]
+      })
+    ).toBe(false);
+    expect(
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor({
+        ...descriptor,
+        mergeTreeSha: runGit(fixture.root, [
+          "rev-parse",
+          `${POST_PR83_SOURCE_SHA_FOR_TEST}^{tree}`
+        ])
+      })
+    ).toBe(false);
+
+    const unknownTree = runGit(fixture.root, [
+      "rev-parse",
+      `${POST_PR83_SOURCE_SHA_FOR_TEST}^{tree}`
+    ]);
+    const unknownSecondParent = runGit(fixture.root, [
+      "commit-tree",
+      unknownTree,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-m",
+      "unknown candidate"
+    ]);
+    const unknownMerge = runGit(fixture.root, [
+      "commit-tree",
+      unknownTree,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-p",
+      unknownSecondParent,
+      "-m",
+      "unknown protected merge"
+    ]);
+    runGit(fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      unknownMerge
+    ]);
+    expect(
+      fixture.governance.protectedMainAdvanceChainResolution(
+        fixture.finalRegistry,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        unknownMerge
+      )
+    ).toMatchObject({
+      allowed: false,
+      rule: "protected-advance-lifecycle-unrecognized"
+    });
+
+    runGit(fixture.root, [
+      "checkout",
+      "-q",
+      "-B",
+      "post-pr83-extra-path",
+      POST_PR83_SOURCE_SHA_FOR_TEST
+    ]);
+    for (const path of POST_PR83_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, path), join(fixture.root, path));
+    }
+    writeFileSync(join(fixture.root, "post-pr83-extra.txt"), "extra path\n");
+    runGit(fixture.root, [
+      "add",
+      ...POST_PR83_PATHS_FOR_TEST,
+      "post-pr83-extra.txt"
+    ]);
+    runGit(fixture.root, ["commit", "-q", "-m", "extra-path initial"]);
+    const extraInitialHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const extraEvidence = postPr83CompletionEvidenceForTest(
+      fixture.root,
+      extraInitialHead
+    );
+    const extraFinalRegistry = postPr83FinalRegistryForTest(
+      fixture.initialRegistry,
+      extraEvidence,
+      fixture.root
+    );
+    writeFileSync(
+      join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]),
+      `${JSON.stringify(extraFinalRegistry, null, 2)}\n`
+    );
+    runGit(fixture.root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+    runGit(fixture.root, ["commit", "-q", "-m", "extra-path final metadata"]);
+    const extraFinalHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const extraFinalTree = runGit(fixture.root, [
+      "rev-parse",
+      `${extraFinalHead}^{tree}`
+    ]);
+    const extraPathMerge = runGit(fixture.root, [
+      "commit-tree",
+      extraFinalTree,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-p",
+      extraFinalHead,
+      "-m",
+      "extra-path protected merge"
+    ]);
+    runGit(fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      extraPathMerge
+    ]);
+    expect(
+      fixture.governance.protectedMainAdvanceChainResolution(
+        extraFinalRegistry,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        extraPathMerge
+      )
+    ).toMatchObject({
+      allowed: false,
+      rule: "protected-advance-lifecycle-unrecognized"
+    });
   });
 });
