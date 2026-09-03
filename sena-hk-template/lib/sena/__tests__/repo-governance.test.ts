@@ -10,7 +10,8 @@ import {
   symlinkSync,
   chmodSync,
   existsSync,
-  realpathSync
+  realpathSync,
+  statSync
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -650,95 +651,6 @@ process.stdout.write(JSON.stringify(value));
   };
 }
 
-function withFakePostPr83InitialGitHubEvidence(
-  base: NodeJS.ProcessEnv,
-  evidence: any,
-  headSha: string,
-  pullRequestNumber: number
-) {
-  const fakeBin = join(temporaryRoot("post-pr83-final-github"), "bin");
-  const fakeGh = join(fakeBin, "gh");
-  mkdirSync(fakeBin, { recursive: true });
-  const run = (name: string, event: string, runId: number) => ({
-    id: runId,
-    name,
-    event,
-    head_sha: headSha,
-    head_branch: "codex/sena-post-pr83-currentness-correction-20260903",
-    head_repository: { full_name: "HUDongpin/SENA" },
-    status: "completed",
-    conclusion: "success"
-  });
-  const responses = {
-    [`repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`]:
-      run("build-gate", "pull_request", evidence.buildRunId),
-    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[0]}`]:
-      run("repo-security-gate", "push", evidence.repositorySecurityRunIds[0]),
-    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[1]}`]:
-      run("repo-security-gate", "pull_request", evidence.repositorySecurityRunIds[1]),
-    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[0]}`]: {
-      id: evidence.checkJobIds[0],
-      run_id: evidence.buildRunId,
-      name: "build",
-      head_sha: headSha,
-      status: "completed",
-      conclusion: "success"
-    },
-    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[1]}`]: {
-      id: evidence.checkJobIds[1],
-      run_id: evidence.repositorySecurityRunIds[0],
-      name: "repository-security",
-      head_sha: headSha,
-      status: "completed",
-      conclusion: "success"
-    },
-    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[2]}`]: {
-      id: evidence.checkJobIds[2],
-      run_id: evidence.repositorySecurityRunIds[1],
-      name: "repository-security",
-      head_sha: headSha,
-      status: "completed",
-      conclusion: "success"
-    },
-    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[0]}/annotations`]: [],
-    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[1]}/annotations`]: [],
-    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[2]}/annotations`]: [],
-    [`repos/HUDongpin/SENA/pulls/${pullRequestNumber}`]: {
-      number: pullRequestNumber,
-      state: "open",
-      draft: true,
-      head: {
-        sha: headSha,
-        ref: "codex/sena-post-pr83-currentness-correction-20260903",
-        repo: { full_name: "HUDongpin/SENA" }
-      },
-      base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
-    },
-    "repos/HUDongpin/SENA/git/ref/heads/codex/sena-post-pr83-currentness-correction-20260903": {
-      ref: "refs/heads/codex/sena-post-pr83-currentness-correction-20260903",
-      object: { sha: headSha }
-    }
-  };
-  writeFileSync(
-    fakeGh,
-    `#!/usr/bin/env node
-const args = process.argv.slice(2);
-if (JSON.stringify(args.slice(0, 3)) !== JSON.stringify(["api", "--hostname", "github.com"])) process.exit(2);
-const responses = JSON.parse(process.env.SENA_TEST_POST_PR83_GITHUB_RESPONSES ?? "{}");
-const value = responses[args[3]];
-if (value === undefined) process.exit(3);
-process.stdout.write(JSON.stringify(value));
-`
-  );
-  chmodSync(fakeGh, 0o700);
-  return {
-    ...base,
-    PATH: `${fakeBin}:${base.PATH ?? process.env.PATH ?? ""}`,
-    GH_HOST: "untrusted.invalid",
-    SENA_TEST_POST_PR83_GITHUB_RESPONSES: JSON.stringify(responses)
-  };
-}
-
 function withIndexedFinalEvidenceEnvironment(
   base: NodeJS.ProcessEnv,
   stagedPaths: string[],
@@ -801,8 +713,7 @@ function withIndexedFinalEvidenceEnvironment(
         "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ], base as Record<string, string>)
     );
-    return withFakePostPr83InitialGitHubEvidence(
-      {
+    return {
         ...base,
         SENA_POST_PR83_INITIAL_HEAD: postPr83Evidence.headSha,
         SENA_POST_PR83_INITIAL_TREE: postPr83Evidence.treeSha,
@@ -834,12 +745,11 @@ function withIndexedFinalEvidenceEnvironment(
         ),
         SENA_POST_PR83_INITIAL_QUALITY_SECURITY_REVIEW_JSON: JSON.stringify(
           postPr83Evidence.qualitySecurityReview
+        ),
+        SENA_POST_PR83_INITIAL_ROOT_CUSTODY_ATTESTATION_JSON: JSON.stringify(
+          postPr83Evidence.rootCustodyAttestation
         )
-      },
-      postPr83Evidence,
-      actualHead,
-      postPr83Item.prNumber
-    );
+      };
   }
   const postPr82Item = registry.workItems.find(
     (entry: { taskId?: string }) =>
@@ -7985,7 +7895,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+      "rule=post-pr83-currentness-quality-security-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -12887,6 +12797,8 @@ const POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST =
   "a365244b11c4d6549d9b7050111da9d83fb85f79";
 const POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST =
   "073ef0a715b350ef82d869e897c69470d405c102";
+const POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST =
+  "14243fd6c38e39021ee9f1baae0ec17619a2c079";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -12943,7 +12855,8 @@ function postPr83ReviewEvidenceForTest(
   reviewKind: "specification" | "quality-security",
   reviewerTaskId: string,
   actorId: string,
-  binding: any
+  binding: any,
+  reviewedAt = "2026-09-03T08:15:00Z"
 ) {
   const payload = {
     schema: "sena-post-pr83-independent-review/v1",
@@ -12959,7 +12872,39 @@ function postPr83ReviewEvidenceForTest(
     cumulativeDiffSha256: binding.cumulativeDiffSha256,
     findings: { p0: 0, p1: 0, p2: 0, p3: 0 },
     verdict: "approved",
-    reviewedAt: "2026-09-03T08:15:00Z"
+    reviewedAt
+  };
+  return {
+    payload,
+    receiptSha256: createHash("sha256")
+      .update(JSON.stringify(payload))
+      .digest("hex")
+  };
+}
+
+function postPr83RootCustodyAttestationForTest(
+  binding: any,
+  specReview: any,
+  qualitySecurityReview: any,
+  acknowledgedAt: string
+) {
+  const payload = {
+    schema: "sena-post-pr83-root-review-custody/v1",
+    attestorTaskId: "/root",
+    actorId: "agent:root",
+    candidateHeadSha: binding.headSha,
+    candidateTreeSha: binding.treeSha,
+    registryBlobSha: binding.registryBlobSha,
+    verifierBlobSha: binding.verifierBlobSha,
+    governanceTestBlobSha: binding.governanceTestBlobSha,
+    compatibilityDiffSha256: binding.compatibilityDiffSha256,
+    cumulativeDiffSha256: binding.cumulativeDiffSha256,
+    specificationReceiptSha256: specReview.receiptSha256,
+    qualitySecurityReceiptSha256: qualitySecurityReview.receiptSha256,
+    ownerAuthorizationMessageSha256:
+      "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
+    trustBoundary: "external-orchestrator-custody-not-cryptographic-signature",
+    acknowledgedAt
   };
   return {
     payload,
@@ -12987,7 +12932,7 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     ]),
     compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
       root,
-      POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
+      POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST,
       headSha
     ),
     cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
@@ -13001,17 +12946,28 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     requiredChecksPassed: true,
     annotationsEmpty: true
   };
+  const reviewedAt = new Date(
+    runGit(root, ["show", "-s", "--format=%cI", headSha])
+  ).toISOString();
   evidence.specReview = postPr83ReviewEvidenceForTest(
     "specification",
     "/root/post_pr83_spec_review",
     "agent:post_pr83_spec_review",
-    evidence
+    evidence,
+    reviewedAt
   );
   evidence.qualitySecurityReview = postPr83ReviewEvidenceForTest(
     "quality-security",
     "/root/post_pr83_quality_security_review",
     "agent:post_pr83_quality_security_review",
-    evidence
+    evidence,
+    reviewedAt
+  );
+  evidence.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+    evidence,
+    evidence.specReview,
+    evidence.qualitySecurityReview,
+    reviewedAt
   );
   return evidence;
 }
@@ -13034,7 +12990,7 @@ function postPr83FinalRegistryForTest(
     (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
   );
   item.headSha = evidence.headSha;
-  item.aheadBehind = { baseRef: "origin/main", ahead: 4, behind: 0 };
+  item.aheadBehind = { baseRef: "origin/main", ahead: 5, behind: 0 };
   item.lastHeartbeatAt = observedAt;
   item.lastObservedAt = observedAt;
   item.nextReviewAt = nextReviewAt;
@@ -13188,61 +13144,121 @@ async function createPostPr83LifecycleFixture(
   };
 }
 
-function installPostPr83FakeGitHub(root: string, fixture: any) {
-  const bin = join(root, "fake-gh-bin");
-  const gh = join(bin, "gh");
-  mkdirSync(bin, { recursive: true });
-  const evidence = fixture.evidence;
-  const run = (name: string, event: string, runId: number) => ({
+function postPr83InProcessGitHubTransportForTest(
+  fixture: any,
+  options: {
+    listSuites?: boolean;
+    suiteVariant?: "valid" | "bypass" | "wrong-merge";
+    runHistory?: "two-successes" | "newest-failure" | "newest-pending";
+    liveVariant?:
+      | "final-run-failure"
+      | "final-annotations"
+      | "pr-open"
+      | "wrong-merge"
+      | "wrong-ruleset"
+      | "missing-ref";
+  } = {}
+) {
+  const calls: string[] = [];
+  const run = (
+    name: string,
+    event: string,
+    runId: number,
+    createdAt: string,
+    runNumber: number
+  ): any => ({
     id: runId,
     name,
     event,
-    head_sha: fixture.initialHeadSha,
+    head_sha: fixture.finalHeadSha,
     head_branch: POST_PR83_BRANCH_FOR_TEST,
     head_repository: { full_name: "HUDongpin/SENA" },
     status: "completed",
-    conclusion: "success"
+    conclusion: "success",
+    created_at: createdAt,
+    run_number: runNumber,
+    run_attempt: 1
   });
+  const latestRuns = [
+    run("build-gate", "pull_request", 28401, "2026-09-03T09:01:00Z", 401),
+    run("repo-security-gate", "push", 28402, "2026-09-03T09:02:00Z", 402),
+    run(
+      "repo-security-gate",
+      "pull_request",
+      28403,
+      "2026-09-03T09:03:00Z",
+      403
+    )
+  ];
+  latestRuns[0].run_attempt = 2;
+  if (
+    options.runHistory === "newest-failure" ||
+    options.liveVariant === "final-run-failure"
+  ) {
+    latestRuns[0].conclusion = "failure";
+  } else if (options.runHistory === "newest-pending") {
+    latestRuns[0].status = "in_progress";
+    latestRuns[0].conclusion = null;
+  }
+  const olderRuns = [
+    run("build-gate", "pull_request", 28301, "2026-09-03T08:01:00Z", 391),
+    run("repo-security-gate", "push", 28302, "2026-09-03T08:02:00Z", 392),
+    run(
+      "repo-security-gate",
+      "pull_request",
+      28303,
+      "2026-09-03T08:03:00Z",
+      393
+    )
+  ];
+  const runs = options.runHistory
+    ? [...olderRuns, ...latestRuns]
+    : latestRuns;
+  const suite = {
+    id: 28601,
+    actor_name: "HUDongpin",
+    before_sha: POST_PR83_SOURCE_SHA_FOR_TEST,
+    after_sha:
+      options.suiteVariant === "wrong-merge"
+        ? "f".repeat(40)
+        : fixture.mergeCommitSha,
+    repository_name: "SENA",
+    result: "pass",
+    rule_evaluations: [
+      "required_status_checks",
+      "pull_request",
+      "non_fast_forward",
+      "deletion"
+    ].map((rule_type, index) => ({
+      enforcement: "active",
+      result:
+        (options.suiteVariant === "bypass" ||
+          options.liveVariant === "wrong-ruleset") && index === 0
+          ? "bypass"
+          : "pass",
+      rule_source: {
+        id: 21232887,
+        name: "main-minimum-safety",
+        type: "ruleset"
+      },
+      rule_type
+    }))
+  };
   const responses: Record<string, any> = {
-    [`repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`]:
-      run("build-gate", "pull_request", evidence.buildRunId),
-    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[0]}`]:
-      run("repo-security-gate", "push", evidence.repositorySecurityRunIds[0]),
-    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[1]}`]:
-      run("repo-security-gate", "pull_request", evidence.repositorySecurityRunIds[1]),
-    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[0]}`]: {
-      id: evidence.checkJobIds[0],
-      run_id: evidence.buildRunId,
-      name: "build",
-      head_sha: fixture.initialHeadSha,
-      status: "completed",
-      conclusion: "success"
+    [`repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.finalHeadSha}&per_page=100&page=1`]: {
+      workflow_runs: runs
     },
-    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[1]}`]: {
-      id: evidence.checkJobIds[1],
-      run_id: evidence.repositorySecurityRunIds[0],
-      name: "repository-security",
-      head_sha: fixture.initialHeadSha,
-      status: "completed",
-      conclusion: "success"
-    },
-    [`repos/HUDongpin/SENA/actions/jobs/${evidence.checkJobIds[2]}`]: {
-      id: evidence.checkJobIds[2],
-      run_id: evidence.repositorySecurityRunIds[1],
-      name: "repository-security",
-      head_sha: fixture.initialHeadSha,
-      status: "completed",
-      conclusion: "success"
-    },
-    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[0]}/annotations`]: [],
-    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[1]}/annotations`]: [],
-    [`repos/HUDongpin/SENA/check-runs/${evidence.checkJobIds[2]}/annotations`]: [],
     "repos/HUDongpin/SENA/pulls/184": {
       number: 184,
-      state: "open",
-      draft: true,
+      state: options.liveVariant === "pr-open" ? "open" : "closed",
+      draft: options.liveVariant === "pr-open",
+      merged: options.liveVariant !== "pr-open",
+      merge_commit_sha:
+        options.liveVariant === "wrong-merge"
+          ? "f".repeat(40)
+          : fixture.mergeCommitSha,
       head: {
-        sha: fixture.initialHeadSha,
+        sha: fixture.finalHeadSha,
         ref: POST_PR83_BRANCH_FOR_TEST,
         repo: { full_name: "HUDongpin/SENA" }
       },
@@ -13250,116 +13266,149 @@ function installPostPr83FakeGitHub(root: string, fixture: any) {
     },
     [`repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`]: {
       ref: `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`,
-      object: { sha: fixture.initialHeadSha }
+      object: { sha: fixture.finalHeadSha }
+    },
+    "repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1":
+      options.listSuites === false
+        ? []
+        : [{
+            id: suite.id,
+            actor_name: suite.actor_name,
+            before_sha: suite.before_sha,
+            after_sha: suite.after_sha,
+            repository_name: suite.repository_name,
+            result: suite.result
+          }],
+    [`repos/HUDongpin/SENA/rulesets/rule-suites/${suite.id}`]: suite
+  };
+  for (const workflowRun of runs) {
+    const jobId = workflowRun.id + 100;
+    responses[
+      `repos/HUDongpin/SENA/actions/runs/${workflowRun.id}/attempts/${workflowRun.run_attempt}/jobs`
+    ] = {
+      jobs: [{
+        id: jobId,
+        run_id: workflowRun.id,
+        run_attempt: workflowRun.run_attempt,
+        name: workflowRun.name === "build-gate" ? "build" : "repository-security",
+        head_sha: fixture.finalHeadSha,
+        status: "completed",
+        conclusion: "success"
+      }]
+    };
+    responses[`repos/HUDongpin/SENA/check-runs/${jobId}/annotations`] =
+      options.liveVariant === "final-annotations" && workflowRun.id === 28401
+        ? [{ path: "unexpected" }]
+        : [];
+  }
+  if (options.liveVariant === "missing-ref") {
+    delete responses[
+      `repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`
+    ];
+  }
+  return {
+    calls,
+    transport(path: string) {
+      calls.push(path);
+      if (!Object.hasOwn(responses, path)) {
+        throw new Error(`unexpected post-PR83 GitHub path: ${path}`);
+      }
+      return structuredClone(responses[path]);
     }
   };
-  if (fixture.finalHeadSha && fixture.mergeCommitSha) {
-    const finalRuns = [
-      run("build-gate", "pull_request", 28401),
-      run("repo-security-gate", "push", 28402),
-      run("repo-security-gate", "pull_request", 28403)
-    ].map((entry) => ({ ...entry, head_sha: fixture.finalHeadSha }));
-    responses[
-      `repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.finalHeadSha}&per_page=100`
-    ] = { workflow_runs: finalRuns };
-    for (const [index, workflowRun] of finalRuns.entries()) {
-      const jobId = 28501 + index;
-      responses[`repos/HUDongpin/SENA/actions/runs/${workflowRun.id}/jobs`] = {
-        jobs: [
-          {
-            id: jobId,
-            run_id: workflowRun.id,
-            name: index === 0 ? "build" : "repository-security",
-            head_sha: fixture.finalHeadSha,
-            status: "completed",
-            conclusion: "success"
-          }
-        ]
-      };
-      responses[`repos/HUDongpin/SENA/check-runs/${jobId}/annotations`] = [];
-    }
-    responses["repos/HUDongpin/SENA/pulls/184"] = {
+}
+
+function postPr83InitialGitHubTransportForTest(
+  fixture: any,
+  variant: "valid" | "wrong-head" | "annotations" = "valid"
+) {
+  const evidence = fixture.evidence;
+  const run = (name: string, event: string, runId: number) => ({
+    id: runId,
+    name,
+    event,
+    head_sha:
+      variant === "wrong-head" ? "f".repeat(40) : fixture.initialHeadSha,
+    head_branch: POST_PR83_BRANCH_FOR_TEST,
+    head_repository: { full_name: "HUDongpin/SENA" },
+    status: "completed",
+    conclusion: "success"
+  });
+  const jobs = [
+    [evidence.checkJobIds[0], evidence.buildRunId, "build"],
+    [
+      evidence.checkJobIds[1],
+      evidence.repositorySecurityRunIds[0],
+      "repository-security"
+    ],
+    [
+      evidence.checkJobIds[2],
+      evidence.repositorySecurityRunIds[1],
+      "repository-security"
+    ]
+  ];
+  const responses: Record<string, any> = {
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`]: run(
+      "build-gate",
+      "pull_request",
+      evidence.buildRunId
+    ),
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[0]}`]:
+      run(
+        "repo-security-gate",
+        "push",
+        evidence.repositorySecurityRunIds[0]
+      ),
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[1]}`]:
+      run(
+        "repo-security-gate",
+        "pull_request",
+        evidence.repositorySecurityRunIds[1]
+      ),
+    "repos/HUDongpin/SENA/pulls/184": {
       number: 184,
-      state: "closed",
-      draft: false,
-      merged: true,
-      merge_commit_sha: fixture.mergeCommitSha,
+      state: "open",
+      draft: true,
       head: {
-        sha: fixture.finalHeadSha,
+        sha:
+          variant === "wrong-head"
+            ? "f".repeat(40)
+            : fixture.initialHeadSha,
         ref: POST_PR83_BRANCH_FOR_TEST,
         repo: { full_name: "HUDongpin/SENA" }
       },
       base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
-    };
-    responses[
-      `repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`
-    ] = {
+    },
+    [`repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`]: {
       ref: `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`,
-      object: { sha: fixture.finalHeadSha }
-    };
-    responses[
-      "repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=day&per_page=100"
-    ] = [
-      {
-        id: 28601,
-        actor_name: "HUDongpin",
-        before_sha: POST_PR83_SOURCE_SHA_FOR_TEST,
-        after_sha: fixture.mergeCommitSha,
-        repository_name: "SENA",
-        result: "pass"
+      object: {
+        sha:
+          variant === "wrong-head"
+            ? "f".repeat(40)
+            : fixture.initialHeadSha
       }
-    ];
-    responses["repos/HUDongpin/SENA/rulesets/rule-suites/28601"] = {
-      id: 28601,
-      actor_name: "HUDongpin",
-      before_sha: POST_PR83_SOURCE_SHA_FOR_TEST,
-      after_sha: fixture.mergeCommitSha,
-      repository_name: "SENA",
-      result: "pass",
-      rule_evaluations: [
-        "required_status_checks",
-        "pull_request",
-        "non_fast_forward",
-        "deletion"
-      ].map((rule_type) => ({
-        enforcement: "active",
-        result: "pass",
-        rule_source: {
-          id: 21232887,
-          name: "main-minimum-safety",
-          type: "ruleset"
-        },
-        rule_type
-      }))
+    }
+  };
+  for (const [jobId, runId, name] of jobs) {
+    responses[`repos/HUDongpin/SENA/actions/jobs/${jobId}`] = {
+      id: jobId,
+      run_id: runId,
+      name,
+      head_sha: fixture.initialHeadSha,
+      status: "completed",
+      conclusion: "success"
     };
+    responses[`repos/HUDongpin/SENA/check-runs/${jobId}/annotations`] =
+      variant === "annotations" && jobId === evidence.checkJobIds[0]
+        ? [{ path: "unexpected" }]
+        : [];
   }
-  writeFileSync(
-    gh,
-    `#!/usr/bin/env node
-const args = process.argv.slice(2);
-if (JSON.stringify(args.slice(0, 3)) !== JSON.stringify(["api", "--hostname", "github.com"])) process.exit(2);
-const responses = ${JSON.stringify(responses)};
-const value = responses[args[3]];
-if (value === undefined) process.exit(3);
-const clone = JSON.parse(JSON.stringify(value));
-if (process.env.SENA_POST_PR83_FAKE_GH_VARIANT === "wrong-head") {
-  if (clone && !Array.isArray(clone) && Object.hasOwn(clone, "head_sha")) clone.head_sha = "f".repeat(40);
-  if (clone?.head?.sha) clone.head.sha = "f".repeat(40);
-  if (clone?.object?.sha) clone.object.sha = "f".repeat(40);
-}
-if (process.env.SENA_POST_PR83_FAKE_GH_VARIANT === "annotations" && Array.isArray(clone)) clone.push({ path: "unexpected" });
-const variant = process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
-if (variant === "final-run-failure" && args[3].includes("actions/runs?head_sha=")) clone.workflow_runs[0].conclusion = "failure";
-if (variant === "final-annotations" && args[3].endsWith("check-runs/28501/annotations")) clone.push({ path: "unexpected" });
-if (variant === "pr-open" && args[3].endsWith("pulls/184")) { clone.state = "open"; clone.draft = true; clone.merged = false; }
-if (variant === "wrong-merge" && args[3].endsWith("pulls/184")) clone.merge_commit_sha = "f".repeat(40);
-if (variant === "wrong-ruleset" && args[3].endsWith("rule-suites/28601")) clone.rule_evaluations[0].result = "bypass";
-if (variant === "missing-ref" && args[3].includes("git/ref/heads/")) process.exit(4);
-process.stdout.write(JSON.stringify(clone));
-`
-  );
-  chmodSync(gh, 0o755);
-  return bin;
+  return (path: string) => {
+    if (!Object.hasOwn(responses, path)) {
+      throw new Error(`unexpected post-PR83 GitHub path: ${path}`);
+    }
+    return structuredClone(responses[path]);
+  };
 }
 
 describe("post-PR83 protected currentness correction", () => {
@@ -13390,6 +13439,12 @@ describe("post-PR83 protected currentness correction", () => {
       runGit(projectRoot, [
         "show",
         `${POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalQualitySecurityCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
       ])
     );
     const candidate = postPr83InitialRegistryForTest();
@@ -13473,12 +13528,18 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes
     ).toBe("function");
-    const candidateBytes = readFileSync(
-      join(projectRoot, "coordination/repo-governance/active-work.json")
+    const pushReadinessBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
     );
+    expect(pushReadinessBytesResult.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
-        candidateBytes
+        pushReadinessBytesResult.stdout
       )
     ).toBe(true);
     expect(
@@ -13487,6 +13548,25 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
         historicalReviewFixCandidate,
+        historicalQualitySecurityCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixRegistryBytes
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixRegistryBytes(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json")
+        )
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+        historicalQualitySecurityCandidate,
         candidate
       )
     ).toBe(true);
@@ -13519,12 +13599,12 @@ describe("post-PR83 protected currentness correction", () => {
       const drifted = structuredClone(candidate);
       mutate(drifted);
       expect(() =>
-        governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
-          historicalReviewFixCandidate,
+        governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+          historicalQualitySecurityCandidate,
           drifted
         )
       ).toThrow(
-        "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+        "rule=post-pr83-currentness-quality-security-fix-transition-invalid"
       );
     }
   });
@@ -13539,7 +13619,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(fixture.evidence.compatibilityDiffSha256).toBe(
       postPr83BinaryDiffSha256ForTest(
         fixture.root,
-        POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
+        POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST,
         fixture.initialHeadSha
       )
     );
@@ -13567,37 +13647,32 @@ describe("post-PR83 protected currentness correction", () => {
       cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
       verdict: "approved"
     });
-    const fakeBin = installPostPr83FakeGitHub(fixture.root, fixture);
-    const previousPath = process.env.PATH;
-    const previousVariant = process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
-    process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
-    try {
-      expect(
+    expect(
+      fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+        fixture.initialRegistry,
+        fixture.finalRegistry,
+        fixture.initialHeadSha,
+        fixture.evidence,
+        {
+          githubTransport: postPr83InitialGitHubTransportForTest(fixture)
+        }
+      )
+    ).toBe(true);
+    for (const variant of ["wrong-head", "annotations"] as const) {
+      expect(() =>
         fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
           fixture.initialRegistry,
           fixture.finalRegistry,
           fixture.initialHeadSha,
-          fixture.evidence
+          fixture.evidence,
+          {
+            githubTransport: postPr83InitialGitHubTransportForTest(
+              fixture,
+              variant
+            )
+          }
         )
-      ).toBe(true);
-      for (const variant of ["wrong-head", "annotations"]) {
-        process.env.SENA_POST_PR83_FAKE_GH_VARIANT = variant;
-        expect(() =>
-          fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
-            fixture.initialRegistry,
-            fixture.finalRegistry,
-            fixture.initialHeadSha,
-            fixture.evidence
-          )
-        ).toThrow("rule=post-pr83-currentness-live-github-readback-invalid");
-      }
-    } finally {
-      process.env.PATH = previousPath;
-      if (previousVariant === undefined) {
-        delete process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
-      } else {
-        process.env.SENA_POST_PR83_FAKE_GH_VARIANT = previousVariant;
-      }
+      ).toThrow("rule=post-pr83-currentness-live-github-readback-invalid");
     }
     const missingEvidence = structuredClone(fixture.finalRegistry);
     delete missingEvidence.workItems.find(
@@ -13704,7 +13779,7 @@ describe("post-PR83 protected currentness correction", () => {
       "commit-tree",
       fixture.evidence.treeSha,
       "-p",
-      POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
+      POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST,
       "-m",
       "alternate same-tree compatibility child"
     ]);
@@ -13726,16 +13801,16 @@ describe("post-PR83 protected currentness correction", () => {
       )
     ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
     expect(() =>
-      fixture.governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+      fixture.governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
         fixture.initialRegistry,
         fixture.initialRegistry
       )
     ).toThrow(
-      "rule=post-pr83-currentness-push-readiness-fix-transition-replay"
+      "rule=post-pr83-currentness-quality-security-fix-transition-replay"
     );
   });
 
-  it("authorizes push and Draft readiness only for a clean exact head with both detached reviews", async () => {
+  it("authorizes push and Draft readiness only for a clean exact head with three detached custody receipts", async () => {
     const fixture = await createPostPr83LifecycleFixture(
       "post-pr83-push-draft-readiness",
       { stageFinal: false }
@@ -13746,7 +13821,8 @@ describe("post-PR83 protected currentness correction", () => {
     ).toBe("function");
     const receipts = {
       specReview: fixture.evidence.specReview,
-      qualitySecurityReview: fixture.evidence.qualitySecurityReview
+      qualitySecurityReview: fixture.evidence.qualitySecurityReview,
+      rootCustodyAttestation: fixture.evidence.rootCustodyAttestation
     };
     expect(
       fixture.governance.validatePostPr83PushDraftReadiness(
@@ -13771,7 +13847,9 @@ describe("post-PR83 protected currentness correction", () => {
             receipts.specReview
           ),
           SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON:
-            JSON.stringify(receipts.qualitySecurityReview)
+            JSON.stringify(receipts.qualitySecurityReview),
+          SENA_POST_PR83_PUSH_DRAFT_ROOT_CUSTODY_ATTESTATION_JSON:
+            JSON.stringify(receipts.rootCustodyAttestation)
         }
       }
     );
@@ -13796,12 +13874,31 @@ describe("post-PR83 protected currentness correction", () => {
     expect(missingReceiptCommand.stderr).toContain(
       "rule=post-pr83-push-draft-readiness-invalid"
     );
+    const missingRootCommand = runNode(
+      join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["post-pr83-push-draft-readiness"],
+      {
+        cwd: fixture.root,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
+          SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
+            receipts.specReview
+          ),
+          SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON:
+            JSON.stringify(receipts.qualitySecurityReview)
+        }
+      }
+    );
+    expect(missingRootCommand.status).toBe(1);
+    expect(missingRootCommand.stderr).toContain(
+      "rule=post-pr83-push-draft-readiness-invalid"
+    );
 
     const falseOnlyRegistry = structuredClone(fixture.initialRegistry);
     falseOnlyRegistry.workItems.find(
       (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
     ).postPr83CurrentnessCorrectionLifecycle.authorizationBoundary
-      .cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews =
+      .qualitySecurityFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
       false;
     expect(() =>
       fixture.governance.validatePostPr83PushDraftReadiness(
@@ -13884,7 +13981,7 @@ describe("post-PR83 protected currentness correction", () => {
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST],
+      ["--no-optional-locks", "read-tree", POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST],
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
@@ -13923,7 +14020,7 @@ describe("post-PR83 protected currentness correction", () => {
         "commit-tree",
         initialTreeSha,
         "-p",
-        POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
+        POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST,
         "-m",
         "post-PR83 compatibility fix candidate"
       ],
@@ -13950,7 +14047,7 @@ describe("post-PR83 protected currentness correction", () => {
         "diff",
         "--binary",
         "--full-index",
-        POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST,
+        POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST,
         initialHeadSha,
         "--",
         ...POST_PR83_PATHS_FOR_TEST
@@ -14028,6 +14125,12 @@ describe("post-PR83 protected currentness correction", () => {
       "agent:post_pr83_quality_security_review",
       evidence
     );
+    evidence.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+      evidence,
+      evidence.specReview,
+      evidence.qualitySecurityReview,
+      evidence.qualitySecurityReview.payload.reviewedAt
+    );
     const finalRegistry = postPr83FinalRegistryForTest(
       initialRegistry,
       evidence,
@@ -14085,23 +14188,40 @@ describe("post-PR83 protected currentness correction", () => {
       { cwd: projectRoot, env: environment }
     );
     expect(registryCheck.status, registryCheck.stderr).toBe(0);
-    const result = runNode(
-      governanceScript,
-      ["write-policy", "--registry-from-index", "--staged"],
-      { cwd: projectRoot, env: environment }
+    const previousEnvironment = Object.fromEntries(
+      Object.keys(runtimeEnvironment).map((name) => [name, process.env[name]])
     );
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain(
-      "SENA_WRITE_POLICY pass staged=1 registrySource=index"
-    );
+    Object.assign(process.env, runtimeEnvironment);
+    try {
+      const governance = await import(
+        `${pathToFileURL(governanceScript).href}?postPr83FinalIndex=${Date.now()}-${Math.random()}`
+      );
+      expect(
+        governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+          initialRegistry,
+          finalRegistry,
+          initialHeadSha,
+          evidence,
+          {
+            githubTransport: postPr83InitialGitHubTransportForTest({
+              evidence,
+              initialHeadSha
+            })
+          }
+        )
+      ).toBe(true);
+    } finally {
+      for (const [name, value] of Object.entries(previousEnvironment)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 
   it("permits behind growth only for exact protected lanes across a fully accepted main chain", async () => {
     const fixture = await createPostPr83LifecycleFixture("post-pr83-lanes");
-    const fakeBin = installPostPr83FakeGitHub(fixture.root, fixture);
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
-    try {
+    const githubTransport =
+      postPr83InProcessGitHubTransportForTest(fixture).transport;
     expect(
       typeof fixture.governance.protectedLaneMainAdvanceObservationAllowed
     ).toBe("function");
@@ -14127,7 +14247,8 @@ describe("post-PR83 protected currentness correction", () => {
         rootItem,
         rootItem.headSha,
         observed,
-        fixture.finalRegistry
+        fixture.finalRegistry,
+        { githubTransport, observedAt: "2026-09-03T09:05:00Z" }
       )
     ).toBe(true);
     for (const mutate of [
@@ -14161,7 +14282,8 @@ describe("post-PR83 protected currentness correction", () => {
           item,
           rootItem.headSha,
           value,
-          fixture.finalRegistry
+          fixture.finalRegistry,
+          { githubTransport, observedAt: "2026-09-03T09:05:00Z" }
         )
       ).toBe(false);
     }
@@ -14175,22 +14297,16 @@ describe("post-PR83 protected currentness correction", () => {
         rootItem,
         rootItem.headSha,
         observed,
-        fixture.finalRegistry
+        fixture.finalRegistry,
+        { githubTransport, observedAt: "2026-09-03T09:05:00Z" }
       )
     ).toBe(false);
-    } finally {
-      process.env.PATH = previousPath;
-      delete process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
-    }
   });
 
   it("recognizes only the exact future protected merge and rejects unknown, wrong-parent, wrong-tree, extra-path, or missing-evidence variants", async () => {
     const fixture = await createPostPr83LifecycleFixture("post-pr83-merge");
-    const fakeBin = installPostPr83FakeGitHub(fixture.root, fixture);
-    const previousPath = process.env.PATH;
-    const previousVariant = process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
-    process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
-    try {
+    const validTransport =
+      postPr83InProcessGitHubTransportForTest(fixture).transport;
     expect(
       typeof fixture.governance.validatePostPr83ProtectedMainMergeDescriptor
     ).toBe("function");
@@ -14198,7 +14314,11 @@ describe("post-PR83 protected currentness correction", () => {
       fixture.governance.protectedMainAdvanceChainResolution(
         fixture.finalRegistry,
         POST_PR83_SOURCE_SHA_FOR_TEST,
-        fixture.mergeCommitSha
+        fixture.mergeCommitSha,
+        {
+          githubTransport: validTransport,
+          observedAt: "2026-09-03T09:05:00Z"
+        }
       )
     ).toMatchObject({
       allowed: true,
@@ -14212,13 +14332,20 @@ describe("post-PR83 protected currentness correction", () => {
       "wrong-merge",
       "wrong-ruleset",
       "missing-ref"
-    ]) {
-      process.env.SENA_POST_PR83_FAKE_GH_VARIANT = variant;
+    ] as const) {
+      const variantTransport = postPr83InProcessGitHubTransportForTest(
+        fixture,
+        { liveVariant: variant }
+      ).transport;
       expect(
         fixture.governance.protectedMainAdvanceChainResolution(
           fixture.finalRegistry,
           POST_PR83_SOURCE_SHA_FOR_TEST,
-          fixture.mergeCommitSha
+          fixture.mergeCommitSha,
+          {
+            githubTransport: variantTransport,
+            observedAt: "2026-09-03T09:05:00Z"
+          }
         ),
         variant
       ).toMatchObject({
@@ -14226,7 +14353,6 @@ describe("post-PR83 protected currentness correction", () => {
         rule: "protected-advance-current-observation-invalid"
       });
     }
-    delete process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
     const descriptor = {
       mergeTimeRegistry: fixture.finalRegistry,
       mergeCommitSha: fixture.mergeCommitSha,
@@ -14243,7 +14369,13 @@ describe("post-PR83 protected currentness correction", () => {
       currentObservationRegistry: fixture.finalRegistry
     };
     expect(
-      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor(descriptor)
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor(
+        descriptor,
+        {
+          githubTransport: validTransport,
+          observedAt: "2026-09-03T09:05:00Z"
+        }
+      )
     ).toBe(true);
     expect(
       fixture.governance.validatePostPr83ProtectedMainMergeDescriptor({
@@ -14362,13 +14494,394 @@ describe("post-PR83 protected currentness correction", () => {
       allowed: false,
       rule: "protected-advance-lifecycle-unrecognized"
     });
+  });
+
+  it("emits a detached post-main rule-suite receipt and later revalidates it by direct suite lookup", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-rule-suite-receipt"
+    );
+    const descriptor = {
+      mergeTimeRegistry: fixture.finalRegistry,
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      secondParentSha: fixture.finalHeadSha,
+      mergeTreeSha: fixture.finalTreeSha,
+      registryBlobSha: runGit(fixture.root, [
+        "rev-parse",
+        `${fixture.finalHeadSha}:coordination/repo-governance/active-work.json`
+      ])
+    };
+    const discovery = postPr83InProcessGitHubTransportForTest(fixture);
+    const first = fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+      descriptor,
+      184,
+      {
+        githubTransport: discovery.transport,
+        observedAt: "2026-09-03T09:05:00Z"
+      }
+    );
+    expect(first.validated).toBe(true);
+    expect(first.ruleSuiteReceipt.payload).toEqual({
+      schema: "sena-post-pr83-post-main-rule-suite/v1",
+      suiteId: 28601,
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      pullRequestNumber: 184,
+      finalHeadSha: fixture.finalHeadSha,
+      rulesetId: 21232887,
+      rulesetName: "main-minimum-safety",
+      evaluations: [
+        "deletion",
+        "non_fast_forward",
+        "pull_request",
+        "required_status_checks"
+      ].map((ruleType) => ({
+        ruleType,
+        enforcement: "active",
+        result: "pass"
+      })),
+      observedAt: "2026-09-03T09:05:00Z",
+      custody: "external-task-output-not-repo-persistence"
+    });
+    expect(first.ruleSuiteReceipt.receiptSha256).toBe(
+      createHash("sha256")
+        .update(JSON.stringify(first.ruleSuiteReceipt.payload))
+        .digest("hex")
+    );
+    expect(discovery.calls).toContain(
+      "repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1"
+    );
+
+    const direct = postPr83InProcessGitHubTransportForTest(fixture, {
+      listSuites: false
+    });
+    const second = fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+      descriptor,
+      184,
+      {
+        githubTransport: direct.transport,
+        ruleSuiteReceipt: first.ruleSuiteReceipt
+      }
+    );
+    expect(second.ruleSuiteReceipt).toEqual(first.ruleSuiteReceipt);
+    expect(direct.calls).toContain(
+      "repos/HUDongpin/SENA/rulesets/rule-suites/28601"
+    );
+    expect(
+      direct.calls.some((path) => path.includes("rule-suites?"))
+    ).toBe(false);
+
+    const chainTransport = postPr83InProcessGitHubTransportForTest(fixture);
+    const chain = fixture.governance.protectedMainAdvanceChainResolution(
+      fixture.finalRegistry,
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      fixture.mergeCommitSha,
+      {
+        githubTransport: chainTransport.transport,
+        observedAt: "2026-09-03T09:05:00Z"
+      }
+    );
+    expect(chain).toMatchObject({
+      allowed: true,
+      postPr83RuleSuiteReceipts: [first.ruleSuiteReceipt]
+    });
+
+    for (const invalid of [
+      {
+        receipt: {
+          ...first.ruleSuiteReceipt,
+          receiptSha256: "f".repeat(64)
+        },
+        variant: "valid" as const
+      },
+      { receipt: first.ruleSuiteReceipt, variant: "wrong-merge" as const },
+      { receipt: first.ruleSuiteReceipt, variant: "bypass" as const }
+    ]) {
+      const transport = postPr83InProcessGitHubTransportForTest(fixture, {
+        listSuites: false,
+        suiteVariant: invalid.variant
+      });
+      expect(() =>
+        fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+          descriptor,
+          184,
+          {
+            githubTransport: transport.transport,
+            ruleSuiteReceipt: invalid.receipt
+          }
+        )
+      ).toThrow("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+  });
+
+  it("selects the deterministic latest exact-head workflow run and its latest-attempt job", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-latest-runs"
+    );
+    const descriptor = {
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      secondParentSha: fixture.finalHeadSha
+    };
+    const twoSuccesses = postPr83InProcessGitHubTransportForTest(fixture, {
+      runHistory: "two-successes"
+    });
+    expect(
+      fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+        descriptor,
+        184,
+        {
+          githubTransport: twoSuccesses.transport,
+          observedAt: "2026-09-03T09:05:00Z"
+        }
+      ).validated
+    ).toBe(true);
+    for (const [latestRun, latestAttempt] of [
+      [28401, 2],
+      [28402, 1],
+      [28403, 1]
+    ]) {
+      expect(twoSuccesses.calls).toContain(
+        `repos/HUDongpin/SENA/actions/runs/${latestRun}/attempts/${latestAttempt}/jobs`
+      );
+      expect(twoSuccesses.calls).not.toContain(
+        `repos/HUDongpin/SENA/actions/runs/${latestRun - 100}/attempts/1/jobs`
+      );
+    }
+
+    for (const runHistory of [
+      "newest-failure",
+      "newest-pending"
+    ] as const) {
+      const transport = postPr83InProcessGitHubTransportForTest(fixture, {
+        runHistory
+      });
+      expect(() =>
+        fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+          descriptor,
+          184,
+          {
+            githubTransport: transport.transport,
+            observedAt: "2026-09-03T09:05:00Z"
+          }
+        )
+      ).toThrow("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+  });
+
+  it("requires ordered independent reviews plus detached root custody before authorizing push readiness", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-root-review-custody",
+      { stageFinal: false }
+    );
+    const candidateCommitAt = new Date(
+      runGit(fixture.root, [
+        "show",
+        "-s",
+        "--format=%cI",
+        fixture.initialHeadSha
+      ])
+    ).toISOString();
+    const specReview = postPr83ReviewEvidenceForTest(
+      "specification",
+      "/root/post_pr83_spec_review",
+      "agent:post_pr83_spec_review",
+      fixture.evidence,
+      candidateCommitAt
+    );
+    const qualitySecurityReview = postPr83ReviewEvidenceForTest(
+      "quality-security",
+      "/root/post_pr83_quality_security_review",
+      "agent:post_pr83_quality_security_review",
+      fixture.evidence,
+      candidateCommitAt
+    );
+    const rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+      fixture.evidence,
+      specReview,
+      qualitySecurityReview,
+      candidateCommitAt
+    );
+    const withoutRoot = fixture.governance.validatePostPr83PushDraftReadiness(
+      fixture.initialRegistry,
+      { specReview, qualitySecurityReview }
+    );
+    expect(withoutRoot).toMatchObject({
+      authorized: false,
+      structurallyValid: true,
+      trustModel: "external-custody-not-cryptographic-reviewer-authentication"
+    });
+    const authorized = fixture.governance.validatePostPr83PushDraftReadiness(
+      fixture.initialRegistry,
+      { specReview, qualitySecurityReview, rootCustodyAttestation },
+      { now: candidateCommitAt }
+    );
+    expect(authorized).toMatchObject({
+      authorized: true,
+      structurallyValid: true,
+      headSha: fixture.initialHeadSha,
+      trustModel: "external-custody-not-cryptographic-reviewer-authentication"
+    });
+
+    const expectRejected = (
+      mutate: (context: any) => void,
+      now = candidateCommitAt
+    ) => {
+      const context = structuredClone({
+        specReview,
+        qualitySecurityReview,
+        rootCustodyAttestation
+      });
+      mutate(context);
+      expect(() =>
+        fixture.governance.validatePostPr83PushDraftReadiness(
+          fixture.initialRegistry,
+          context,
+          { now }
+        )
+      ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+    };
+    expectRejected((context) => {
+      context.rootCustodyAttestation.receiptSha256 = "f".repeat(64);
+    });
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.specificationReceiptSha256 =
+        "e".repeat(64);
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.trustBoundary = "cryptographic";
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.candidateTreeSha = "d".repeat(40);
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+    expectRejected((context) => {
+      const beforeCommit = new Date(
+        Date.parse(candidateCommitAt) - 1
+      ).toISOString();
+      context.specReview = postPr83ReviewEvidenceForTest(
+        "specification",
+        "/root/post_pr83_spec_review",
+        "agent:post_pr83_spec_review",
+        fixture.evidence,
+        beforeCommit
+      );
+      context.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+        fixture.evidence,
+        context.specReview,
+        context.qualitySecurityReview,
+        candidateCommitAt
+      );
+    });
+    expectRejected((context) => {
+      context.specReview.payload.reviewedAt = "2026-09-03T08:15:02Z";
+      context.specReview.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.specReview.payload))
+        .digest("hex");
+      context.qualitySecurityReview.payload.reviewedAt =
+        "2026-09-03T08:15:01Z";
+      context.qualitySecurityReview.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.qualitySecurityReview.payload))
+        .digest("hex");
+      context.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+        fixture.evidence,
+        context.specReview,
+        context.qualitySecurityReview,
+        "2026-09-03T08:15:03Z"
+      );
+    }, "2026-09-03T08:15:03Z");
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.acknowledgedAt =
+        "2099-01-01T00:00:00Z";
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+  }, 120_000);
+
+  it("ignores caller PATH shadows when resolving the production post-PR83 GitHub CLI", async () => {
+    const root = temporaryRoot("post-pr83-gh-path-shadow");
+    const fakeBin = join(root, "bin");
+    const fakeGh = join(fakeBin, "gh");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o777);
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?postPr83Gh=${Date.now()}-${Math.random()}`
+    );
+    expect(typeof governance.resolveTrustedPostPr83GitHubCli).toBe("function");
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
+    try {
+      const resolved = governance.resolveTrustedPostPr83GitHubCli();
+      expect(resolved).not.toBe(fakeGh);
+      expect(resolved.startsWith(root)).toBe(false);
+      expect(resolved.startsWith("/tmp/")).toBe(false);
+      expect(resolved.startsWith("/private/tmp/")).toBe(false);
+      expect(resolved.startsWith(realpathSync(projectRoot))).toBe(false);
+      expect((statSync(resolved).mode & 0o022)).toBe(0);
     } finally {
       process.env.PATH = previousPath;
-      if (previousVariant === undefined) {
-        delete process.env.SENA_POST_PR83_FAKE_GH_VARIANT;
-      } else {
-        process.env.SENA_POST_PR83_FAKE_GH_VARIANT = previousVariant;
-      }
+    }
+  });
+
+  it("binds the exact root thread while preserving EvidenceFlow and PR46 lane records", () => {
+    const candidate = postPr83InitialRegistryForTest();
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        "14243fd6c38e39021ee9f1baae0ec17619a2c079:coordination/repo-governance/active-work.json"
+      ])
+    );
+    expect(
+      candidate.workItems.find(
+        (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+      ).threadId
+    ).toBe("01a0414a-a4a5-7051-ba59-34b7b4d1aee3");
+    for (const taskId of [
+      "SENA-EVIDENCEFLOW-V1-20260828",
+      "SENA-BRANCH-RETIREMENT-20260829"
+    ]) {
+      expect(
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === taskId
+        )
+      ).toEqual(
+        source.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === taskId
+        )
+      );
+    }
+    for (const branchName of [
+      "codex/sena-evidenceflow-v1-20260828",
+      "codex/sena-branch-retirement-20260829"
+    ]) {
+      expect(
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === branchName
+        )
+      ).toEqual(
+        source.branches.find(
+          (entry: { name?: string }) => entry.name === branchName
+        )
+      );
     }
   });
 });

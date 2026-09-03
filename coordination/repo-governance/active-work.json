@@ -2202,7 +2202,7 @@
     },
     {
       "taskId": "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903",
-      "threadId": "post-pr83-currentness-correction-20260903",
+      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
       "repo": "/Volumes/Starship/SENA",
       "cwd": "/Volumes/Starship/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
       "owner": "Codex post-PR83 currentness correction writer",
@@ -2212,10 +2212,10 @@
       "branch": "codex/sena-post-pr83-currentness-correction-20260903",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
       "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
-      "headSha": "073ef0a715b350ef82d869e897c69470d405c102",
+      "headSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 4,
         "behind": 0
       },
       "allowedPaths": [
@@ -2229,23 +2229,23 @@
       "nextReviewAt": "2026-09-04T08:00:00Z",
       "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
       "prNumber": null,
-      "noPrReason": "The Draft PR is created only after the exact initial three-path candidate is committed, pushed, and locally gated.",
+      "noPrReason": "The Draft PR is created only after the exact replacement three-path candidate is committed, passes exact local gates, and has specification, quality/security, and root-custody detached receipts.",
       "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "dirtyState": "three-path-post-pr83-push-draft-readiness-fix-candidate",
+      "dirtyState": "three-path-post-pr83-quality-security-fix-candidate",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "review-rejected cumulative-review commit 073ef0a7 is clean and preserved; this worktree stages one exact three-path push/Draft-readiness fix as its sole direct child",
-        "ci": "073ef0a7 passed local gates but its independent specification review returned P1=1 because every push/Draft field remained false; replacement-candidate reviews and remote CI do not exist yet",
-        "merged": "not merged; no correction PR exists, push/Draft becomes conditionally reachable only after exact local gates and both detached reviews, and Ready/merge remain false",
+        "local": "quality/security-rejected commit 14243fd6 is clean and preserved; this worktree stages one exact three-path durability, run-selection, review-custody, trusted-GitHub, and thread-binding fix as its sole direct child",
+        "ci": "14243fd6 passed local gates but quality/security review returned P1=4 and P2=1; replacement-candidate reviews, root custody attestation, remote CI, and rule-suite receipt do not exist yet",
+        "merged": "not merged; no correction PR exists, push/Draft becomes conditionally reachable only after exact local gates and three detached receipts, and Ready/merge remain false",
         "deployed": "not in scope and not authorized",
-        "live": "live and cached main are exact c1a7eb3e; a read-only local readiness resolver may authorize the first push and Draft PR only after both exact detached reviews, while the later final metadata still binds remote CI, Draft PR, and named-ref evidence"
+        "live": "live and cached main are exact c1a7eb3e; a read-only local readiness resolver may authorize the first push and Draft PR only after ordered exact reviews plus root custody, while a future post-main audit must emit or directly revalidate an externally held rule-suite receipt"
       },
       "disposition": "active",
       "freezeException": "governance-preservation",
       "postPr83CurrentnessCorrectionLifecycle": {
-        "status": "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
+        "status": "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
         "oneShot": true,
         "sourceBinding": {
           "headSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
@@ -2289,11 +2289,22 @@
           "rawRegistrySha256": "6155283f4f648f1efedd7d6e61423652781b8618b66207b7f4e7270bb5788e82",
           "canonicalParsedRegistrySha256": "69356f9ab07b9657b745c880459ddc9d7661bf45874b722607da2d346dcf8197"
         },
+        "qualitySecurityFixSourceBinding": {
+          "headSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+          "treeSha": "c70c5302e7475eebf812162ba07fd4fb04a24b83",
+          "parentSha": "073ef0a715b350ef82d869e897c69470d405c102",
+          "registryBlobSha": "2d7bcbf790fbee8c2429d62ff3e936ade9453229",
+          "verifierBlobSha": "f9fa8ab0655fb761507c16e67e8fb1864b48b899",
+          "governanceTestBlobSha": "e11c9d7a7a263608fd0287d6fdb359d33731961d",
+          "rawRegistrySha256": "3a7172a62b685e674c9654e5fc714c0d8ad09d15ddeb6b8673ba29cbb6792c42",
+          "canonicalParsedRegistrySha256": "3e05eb48646e8c9b2ca2fa40808dfbccb35a94525e862ee07e97577919aa2a18"
+        },
         "approvedInitialChain": [
           "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
           "22d307e8fa4106f2427f5d5ee178ed5231105a28",
           "a365244b11c4d6549d9b7050111da9d83fb85f79",
-          "073ef0a715b350ef82d869e897c69470d405c102"
+          "073ef0a715b350ef82d869e897c69470d405c102",
+          "14243fd6c38e39021ee9f1baae0ec17619a2c079"
         ],
         "compatibilityTransition": {
           "mode": "one-exact-direct-three-path-child-of-review-rejected-22d307e8",
@@ -2343,6 +2354,22 @@
           "candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts": true,
           "replayOrOtherDescendantAuthorized": false
         },
+        "qualitySecurityFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-quality-security-rejected-14243fd6",
+          "requiredParentSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
         "pushDraftReadinessPrerequisites": {
           "exactCandidateHeadAndLocalBranchRequired": true,
           "cleanWorktreeAndIndexRequired": true,
@@ -2351,6 +2378,9 @@
           "securityTreeScanRequired": true,
           "exactSpecificationReceiptRequired": true,
           "exactQualitySecurityReceiptRequired": true,
+          "exactRootCustodyAttestationRequired": true,
+          "orderedReviewAndCustodyTimestampsRequired": true,
+          "cryptographicReviewerAuthenticationClaimed": false,
           "pullRequestOrCiRequired": false
         },
         "authorization": {
@@ -2398,9 +2428,12 @@
           "compatibilityFixPushOrDraftPrAuthorizedNow": false,
           "cumulativeReviewFixCommitAuthorizedAfterGates": false,
           "cumulativeReviewFixPushOrDraftPrAuthorizedNow": false,
-          "cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews": true,
-          "pushReadinessFixCommitAuthorizedAfterGates": true,
+          "cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews": false,
+          "pushReadinessFixCommitAuthorizedAfterGates": false,
           "pushReadinessFixPushOrDraftPrAuthorizedNow": false,
+          "qualitySecurityFixCommitAuthorizedAfterGates": true,
+          "qualitySecurityFixPushOrDraftPrAuthorizedNow": false,
+          "qualitySecurityFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": true,
           "finalRegistryOnlyTransitionAuthorizedAfterInitialChecks": true,
           "prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
           "protectedMergeMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
@@ -6839,7 +6872,7 @@
       "owner": "Codex post-PR83 currentness correction writer",
       "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
       "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
-      "headSha": "073ef0a715b350ef82d869e897c69470d405c102",
+      "headSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
       "upstream": null,
       "upstreamState": "base-only",
       "upstreamCacheState": "absent",
@@ -6853,14 +6886,14 @@
       "mergeAuthorized": false,
       "prHeadSha": null,
       "prBase": "main",
-      "noPrReason": "The Draft PR is created only after the exact initial three-path candidate is committed, pushed, and locally gated.",
+      "noPrReason": "The Draft PR is created only after the exact replacement three-path candidate is committed, passes exact local gates, and has specification, quality/security, and root-custody detached receipts.",
       "lastOwnerHeartbeatAt": "2026-09-03T08:00:00Z",
       "lastObservedAt": "2026-09-03T08:00:00Z",
-      "lastCommitAt": "2026-09-03T15:49:06+08:00",
+      "lastCommitAt": "2026-09-03T16:25:38+08:00",
       "nextReviewAt": "2026-09-04T08:00:00Z",
       "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
       "disposition": "active",
-      "closeout": "review-rejected 073ef0a7 is preserved with no upstream or PR; only one exact three-path push/Draft-readiness-fix child may be committed after gates, while actual push, Draft PR, Ready, merge, and every unrelated mutation remain false",
+      "closeout": "quality/security-rejected 14243fd6 is preserved with no upstream or PR; only one exact three-path durability and custody fix child may be committed after gates, while actual push, Draft PR, Ready, merge, and every unrelated mutation remain false",
       "mergeable": null,
       "mergeStateStatus": null
     },
@@ -10914,7 +10947,7 @@
     {
       "schemaVersion": "sena-registry-reconciliation-receipt/v1",
       "receiptKind": "post-pr83-currentness-correction-initial-candidate",
-      "status": "three-path-push-draft-readiness-fix-candidate-awaiting-local-gates",
+      "status": "three-path-quality-security-fix-candidate-awaiting-local-gates",
       "recordedAt": "2026-09-03T08:00:00Z",
       "taskId": "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903",
       "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
@@ -10965,11 +10998,22 @@
         "rawRegistrySha256": "6155283f4f648f1efedd7d6e61423652781b8618b66207b7f4e7270bb5788e82",
         "canonicalParsedRegistrySha256": "69356f9ab07b9657b745c880459ddc9d7661bf45874b722607da2d346dcf8197"
       },
+      "qualitySecurityFixSourceBinding": {
+        "headSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+        "treeSha": "c70c5302e7475eebf812162ba07fd4fb04a24b83",
+        "parentSha": "073ef0a715b350ef82d869e897c69470d405c102",
+        "registryBlobSha": "2d7bcbf790fbee8c2429d62ff3e936ade9453229",
+        "verifierBlobSha": "f9fa8ab0655fb761507c16e67e8fb1864b48b899",
+        "governanceTestBlobSha": "e11c9d7a7a263608fd0287d6fdb359d33731961d",
+        "rawRegistrySha256": "3a7172a62b685e674c9654e5fc714c0d8ad09d15ddeb6b8673ba29cbb6792c42",
+        "canonicalParsedRegistrySha256": "3e05eb48646e8c9b2ca2fa40808dfbccb35a94525e862ee07e97577919aa2a18"
+      },
       "approvedInitialChain": [
         "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
         "22d307e8fa4106f2427f5d5ee178ed5231105a28",
         "a365244b11c4d6549d9b7050111da9d83fb85f79",
-        "073ef0a715b350ef82d869e897c69470d405c102"
+        "073ef0a715b350ef82d869e897c69470d405c102",
+        "14243fd6c38e39021ee9f1baae0ec17619a2c079"
       ],
       "authorizationMessageSha256": "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
       "authorizationBoundary": {
@@ -10979,9 +11023,12 @@
         "compatibilityFixPushOrDraftPrAuthorizedNow": false,
         "cumulativeReviewFixCommitAuthorizedAfterGates": false,
         "cumulativeReviewFixPushOrDraftPrAuthorizedNow": false,
-        "cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews": true,
-        "pushReadinessFixCommitAuthorizedAfterGates": true,
+        "cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews": false,
+        "pushReadinessFixCommitAuthorizedAfterGates": false,
         "pushReadinessFixPushOrDraftPrAuthorizedNow": false,
+        "qualitySecurityFixCommitAuthorizedAfterGates": true,
+        "qualitySecurityFixPushOrDraftPrAuthorizedNow": false,
+        "qualitySecurityFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": true,
         "finalRegistryOnlyTransitionAuthorizedAfterInitialChecks": true,
         "prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
         "protectedMergeMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
