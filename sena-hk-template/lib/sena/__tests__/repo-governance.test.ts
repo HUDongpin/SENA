@@ -120,6 +120,27 @@ function runGitWithEnvironment(
   return result.stdout.trim();
 }
 
+function hashObjectContentWithEnvironment(
+  root: string,
+  environment: Record<string, string | undefined>,
+  content: string | Buffer
+) {
+  const contentRoot = temporaryRoot("hash-object-content");
+  const contentPath = join(contentRoot, "object-content");
+  writeFileSync(contentPath, content);
+  return runGitWithEnvironment(
+    root,
+    [
+      "--no-optional-locks",
+      "hash-object",
+      "-w",
+      "--no-filters",
+      contentPath
+    ],
+    environment
+  );
+}
+
 function treeFromCommitWithPathChanges(
   root: string,
   baseCommit: string,
@@ -155,9 +176,8 @@ function treeFromCommitWithPathChanges(
     } else if (change.kind === "copy") {
       installFromCommit(change.from, change.to);
     } else {
-      const blob = runGitWithEnvironment(
+      const blob = hashObjectContentWithEnvironment(
         root,
-        ["hash-object", "-w", "--stdin"],
         indexEnvironment,
         change.content
       );
@@ -5966,7 +5986,8 @@ describe("SENA repository governance", () => {
         "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
         "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
         "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
-        "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate"
+        "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
+        "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate"
       ].includes(indexedLifecycleStatus);
     expect(
       expectedEmptyIndexFailure
@@ -7241,9 +7262,8 @@ describe("SENA repository governance", () => {
       const content = path === "coordination/repo-governance/active-work.json"
         ? `${JSON.stringify(finalSourceRegistry, null, 2)}\n`
         : readFileSync(join(projectRoot, path), "utf8");
-      const blobSha = runGitWithEnvironment(
+      const blobSha = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         bootstrapGitEnvironment,
         content
       );
@@ -7411,9 +7431,8 @@ describe("SENA repository governance", () => {
       "registry-only final heartbeat awaiting exact-head checks; Ready and protected merge remain gated";
     finalBranch.mergeable = "MERGEABLE";
     finalBranch.mergeStateStatus = "CLEAN";
-    const finalRegistryBlob = runGitWithEnvironment(
+    const finalRegistryBlob = hashObjectContentWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
       bootstrapGitEnvironment,
       `${JSON.stringify(finalRegistry, null, 2)}\n`
     );
@@ -7625,9 +7644,8 @@ process.stdout.write(JSON.stringify(value));
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     ).postPr82TopologyHeartbeatLifecycle.bootstrapCompletionEvidence.treeSha =
       "f".repeat(40);
-    const sourceDriftBlob = runGitWithEnvironment(
+    const sourceDriftBlob = hashObjectContentWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
       bootstrapGitEnvironment,
       `${JSON.stringify(sourceDriftFinal, null, 2)}\n`
     );
@@ -7939,7 +7957,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -8190,7 +8208,8 @@ process.stdout.write(JSON.stringify(value));
       "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
       "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
       "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
-      "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate"
+      "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
+      "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate"
     ].includes(cleanIndexPostPr83Status);
     const cleanIndexSourceReviewIsOverdue = [
       ...(cleanIndexSourceRegistry.workItems ?? []),
@@ -9667,8 +9686,8 @@ process.stdout.write(JSON.stringify(value));
               `${candidateHead}:${path}`
             ])
           : path === "CONTEXT.md"
-          ? runTemporaryIndexGit(
-              ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+          ? hashObjectContentWithEnvironment(
+              projectRoot,
               env,
               `${readFileSync(join(projectRoot, path), "utf8")}\ntemporary-index-only\n`
             )
@@ -10033,14 +10052,11 @@ process.stdout.write(JSON.stringify(value));
       ],
       tempIndexEnvironment
     );
-    const hashResult = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
-      cwd: tempRepo,
-      encoding: "utf8",
-      env: tempIndexEnvironment,
-      input: finalBytes
-    });
-    expect(hashResult.status, hashResult.stderr).toBe(0);
-    const finalRegistryBlob = hashResult.stdout.trim();
+    const finalRegistryBlob = hashObjectContentWithEnvironment(
+      tempRepo,
+      tempIndexEnvironment,
+      finalBytes
+    );
     const updateResult = spawnSync(
       "git",
       [
@@ -10128,13 +10144,11 @@ process.stdout.write(JSON.stringify(value));
       behind: 0
     };
     const driftBytes = `${JSON.stringify(driftFinal.registry, null, 2)}\n`;
-    const driftHash = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
-      cwd: tempRepo,
-      encoding: "utf8",
-      env: tempIndexEnvironment,
-      input: driftBytes
-    });
-    expect(driftHash.status, driftHash.stderr).toBe(0);
+    const driftRegistryBlob = hashObjectContentWithEnvironment(
+      tempRepo,
+      tempIndexEnvironment,
+      driftBytes
+    );
     const driftUpdate = spawnSync(
       "git",
       [
@@ -10142,7 +10156,7 @@ process.stdout.write(JSON.stringify(value));
         "update-index",
         "--add",
         "--cacheinfo",
-        `100644,${driftHash.stdout.trim()},coordination/repo-governance/active-work.json`
+        `100644,${driftRegistryBlob},coordination/repo-governance/active-work.json`
       ],
       { cwd: tempRepo, encoding: "utf8", env: tempIndexEnvironment }
     );
@@ -11288,9 +11302,8 @@ process.stdout.write(JSON.stringify(value));
         ["--no-optional-locks", "ls-files", "-s", path],
         alternateEnvironment
       ).split(/\s+/, 1)[0];
-      const blob = runGitWithEnvironment(
+      const blob = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         alternateEnvironment,
         path === candidatePaths[0]
           ? `${JSON.stringify(candidate, null, 2)}\n`
@@ -11372,9 +11385,8 @@ process.stdout.write(JSON.stringify(value));
           ["--no-optional-locks", "rev-parse", `:${protectedPath}`],
           alternateEnvironment
         );
-        const mismatchedProtectedBlob = runGitWithEnvironment(
+        const mismatchedProtectedBlob = hashObjectContentWithEnvironment(
           projectRoot,
-          ["--no-optional-locks", "hash-object", "-w", "--stdin"],
           alternateEnvironment,
           `${readFileSync(join(projectRoot, protectedPath), "utf8")}\nindex-only-drift\n`
         );
@@ -11466,9 +11478,8 @@ process.stdout.write(JSON.stringify(value));
         { registry: candidate, context: {} },
         sourceEvidence
       ).registry;
-      const finalRegistryBlob = runGitWithEnvironment(
+      const finalRegistryBlob = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         alternateEnvironment,
         `${JSON.stringify(finalAfterEvidenceFlow, null, 2)}\n`
       );
@@ -11506,9 +11517,8 @@ process.stdout.write(JSON.stringify(value));
       ).not.toThrow();
       const mismatchedFinalRegistry = structuredClone(finalAfterEvidenceFlow);
       mismatchedFinalRegistry.updatedAt = "2026-09-02T08:14:53Z";
-      const mismatchedFinalRegistryBlob = runGitWithEnvironment(
+      const mismatchedFinalRegistryBlob = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         alternateEnvironment,
         `${JSON.stringify(mismatchedFinalRegistry, null, 2)}\n`
       );
@@ -12882,6 +12892,8 @@ const POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST =
   "4f3562f5ca075679485b14c73c30a60c3d46c0a2";
 const POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST =
   "f93fd2d3e2c0e326086fcc71838bca34e9d563ee";
+const POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST =
+  "b5620311d00ed50e4dfc7ea05b43ae801847bcf4";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -13015,7 +13027,7 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     ]),
     compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
       root,
-      POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
+      POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
       headSha
     ),
     cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
@@ -13073,7 +13085,7 @@ function postPr83FinalRegistryForTest(
     (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
   );
   item.headSha = evidence.headSha;
-  item.aheadBehind = { baseRef: "origin/main", ahead: 9, behind: 0 };
+  item.aheadBehind = { baseRef: "origin/main", ahead: 10, behind: 0 };
   item.lastHeartbeatAt = observedAt;
   item.lastObservedAt = observedAt;
   item.nextReviewAt = nextReviewAt;
@@ -13554,6 +13566,12 @@ describe("post-PR83 protected currentness correction", () => {
         `${POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
       ])
     );
+    const historicalStdinHangTestSource = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
     const candidate = postPr83InitialRegistryForTest();
     const historicalBytesResult = spawnSync(
       "git",
@@ -13765,11 +13783,18 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes
     ).toBe("function");
+    const observerOverdueTestBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(observerOverdueTestBytesResult.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json")
-        )
+        observerOverdueTestBytesResult.stdout
       )
     ).toBe(true);
     expect(
@@ -13778,6 +13803,25 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
         historicalObserverOverdueTestSource,
+        historicalStdinHangTestSource
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json")
+        )
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+        historicalStdinHangTestSource,
         candidate
       )
     ).toBe(true);
@@ -13810,12 +13854,12 @@ describe("post-PR83 protected currentness correction", () => {
       const drifted = structuredClone(candidate);
       mutate(drifted);
       expect(() =>
-        governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
-          historicalObserverOverdueTestSource,
+        governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+          historicalStdinHangTestSource,
           drifted
         )
       ).toThrow(
-        "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
+        "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
       );
     }
   });
@@ -13830,7 +13874,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(fixture.evidence.compatibilityDiffSha256).toBe(
       postPr83BinaryDiffSha256ForTest(
         fixture.root,
-        POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
+        POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
         fixture.initialHeadSha
       )
     );
@@ -13990,7 +14034,7 @@ describe("post-PR83 protected currentness correction", () => {
       "commit-tree",
       fixture.evidence.treeSha,
       "-p",
-      POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
+      POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
       "-m",
       "alternate same-tree compatibility child"
     ]);
@@ -14012,12 +14056,12 @@ describe("post-PR83 protected currentness correction", () => {
       )
     ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
     expect(() =>
-      fixture.governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+      fixture.governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
         fixture.initialRegistry,
         fixture.initialRegistry
       )
     ).toThrow(
-      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-replay"
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-replay"
     );
   });
 
@@ -14109,7 +14153,7 @@ describe("post-PR83 protected currentness correction", () => {
     falseOnlyRegistry.workItems.find(
       (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
     ).postPr83CurrentnessCorrectionLifecycle.authorizationBoundary
-      .observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
+      .stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
       false;
     expect(() =>
       fixture.governance.validatePostPr83PushDraftReadiness(
@@ -14192,7 +14236,7 @@ describe("post-PR83 protected currentness correction", () => {
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST],
+      ["--no-optional-locks", "read-tree", POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST],
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
@@ -14203,9 +14247,14 @@ describe("post-PR83 protected currentness correction", () => {
       ).split(/\s+/, 1)[0];
       const blobSha = runGitWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
-        isolatedEnvironment,
-        readFileSync(join(projectRoot, path), "utf8")
+        [
+          "--no-optional-locks",
+          "hash-object",
+          "-w",
+          "--no-filters",
+          join(projectRoot, path)
+        ],
+        isolatedEnvironment
       );
       runGitWithEnvironment(
         projectRoot,
@@ -14231,7 +14280,7 @@ describe("post-PR83 protected currentness correction", () => {
         "commit-tree",
         initialTreeSha,
         "-p",
-        POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
+        POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
         "-m",
         "post-PR83 compatibility fix candidate"
       ],
@@ -14258,7 +14307,7 @@ describe("post-PR83 protected currentness correction", () => {
         "diff",
         "--binary",
         "--full-index",
-        POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
+        POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
         initialHeadSha,
         "--",
         ...POST_PR83_PATHS_FOR_TEST
@@ -14349,11 +14398,24 @@ describe("post-PR83 protected currentness correction", () => {
       184,
       isolatedEnvironment
     );
+    const finalRegistryFixturePath = join(
+      isolatedRoot,
+      "post-pr83-final-registry.json"
+    );
+    writeFileSync(
+      finalRegistryFixturePath,
+      `${JSON.stringify(finalRegistry, null, 2)}\n`
+    );
     const finalRegistryBlob = runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
-      isolatedEnvironment,
-      `${JSON.stringify(finalRegistry, null, 2)}\n`
+      [
+        "--no-optional-locks",
+        "hash-object",
+        "-w",
+        "--no-filters",
+        finalRegistryFixturePath
+      ],
+      isolatedEnvironment
     );
     runGitWithEnvironment(
       projectRoot,

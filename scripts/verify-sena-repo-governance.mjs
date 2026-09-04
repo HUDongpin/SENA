@@ -8428,6 +8428,20 @@ const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256 =
   "aef943f78533e2fc24eaa0d8dc8d7a1bcbc14e636eab827121fc7a599b073774";
 const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256 =
   "b07a20e41be79c482b0ddff7f586209aa10782058f6af575047e9565d3ffcc2a";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA =
+  "b5620311d00ed50e4dfc7ea05b43ae801847bcf4";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TREE_SHA =
+  "856086f53838efcdfa50f144e289d41d23d66a17";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_REGISTRY_BLOB_SHA =
+  "66c2d11f92ddc4ae086c4d37c42a6acccbb69238";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_VERIFIER_BLOB_SHA =
+  "46a898f943a0325de61b85bed07d8f96246c78f4";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TEST_BLOB_SHA =
+  "b24f388028e7afb622f9f47723a6593dc2ad91c8";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256 =
+  "5b3cb4c5f1aa44f82e5450dab17f8d3f6d17129991abc18c870cbd762a283ab6";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256 =
+  "72ed5b8dbce9db07362f972f28d8e0e16fdc27aabbc3e6811f1a3ed1d386c162";
 const POST_PR83_CURRENTNESS_INITIAL_STATUS =
   "three-path-post-pr83-currentness-correction-initial-candidate";
 const POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS =
@@ -8446,6 +8460,8 @@ const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS =
   "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate";
 const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS =
   "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS =
+  "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate";
 const POST_PR83_CURRENTNESS_FINAL_STATUS =
   "registry-only-post-pr83-currentness-correction-final-candidate";
 const POST_PR83_CURRENTNESS_LIFECYCLE_KEY =
@@ -8580,6 +8596,18 @@ const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_BINDING = {
   canonicalParsedRegistrySha256:
     POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256
 };
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+  registryBlobSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256
+};
 const POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN = [
   POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
@@ -8589,7 +8617,8 @@ const POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN = [
   POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
-  POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+  POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
 ];
 const POST_PR83_CURRENTNESS_COMPATIBILITY_TRANSITION = {
   mode: "one-exact-direct-three-path-child-of-review-rejected-22d307e8",
@@ -8674,6 +8703,17 @@ const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_TRANSITION = {
     true,
   replayOrOtherDescendantAuthorized: false
 };
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_TRANSITION = {
+  mode:
+    "one-exact-direct-three-path-child-of-stdin-hang-test-failed-b5620311",
+  requiredParentSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
 const POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES = {
   exactCandidateHeadAndLocalBranchRequired: true,
   cleanWorktreeAndIndexRequired: true,
@@ -8746,9 +8786,13 @@ const POST_PR83_CURRENTNESS_AUTHORIZATION_BOUNDARY = {
   finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow: false,
   finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
     false,
-  observerOverdueTestFixCommitAuthorizedAfterGates: true,
+  observerOverdueTestFixCommitAuthorizedAfterGates: false,
   observerOverdueTestFixPushOrDraftPrAuthorizedNow: false,
   observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  stdinHangTestFixCommitAuthorizedAfterGates: true,
+  stdinHangTestFixPushOrDraftPrAuthorizedNow: false,
+  stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
     true,
   finalRegistryOnlyTransitionAuthorizedAfterInitialChecks: true,
   prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks: true,
@@ -8933,6 +8977,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       "buildCiTypeFixSourceBinding",
       "finalHeartbeatAuditExceptionFixSourceBinding",
       "observerOverdueTestFixSourceBinding",
+      "stdinHangTestFixSourceBinding",
       "approvedInitialChain",
       "compatibilityTransition",
       "reviewFixTransition",
@@ -8942,6 +8987,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       "buildCiTypeFixTransition",
       "finalHeartbeatAuditExceptionFixTransition",
       "observerOverdueTestFixTransition",
+      "stdinHangTestFixTransition",
       "pushDraftReadinessPrerequisites",
       "authorization",
       "protectedLaneContracts",
@@ -8958,6 +9004,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
       POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
       POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS,
       POST_PR83_CURRENTNESS_FINAL_STATUS
     ].includes(lifecycle.status) ||
     lifecycle.oneShot !== true ||
@@ -8995,6 +9042,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_BINDING
     ) ||
     !sameJson(
+      lifecycle.stdinHangTestFixSourceBinding,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_BINDING
+    ) ||
+    !sameJson(
       lifecycle.approvedInitialChain,
       POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
     ) ||
@@ -9029,6 +9080,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
     !sameJson(
       lifecycle.observerOverdueTestFixTransition,
       POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.stdinHangTestFixTransition,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_TRANSITION
     ) ||
     !sameJson(
       lifecycle.pushDraftReadinessPrerequisites,
@@ -9081,6 +9136,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_BINDING
     ) ||
     !sameJson(
+      receipt.stdinHangTestFixSourceBinding,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_BINDING
+    ) ||
+    !sameJson(
       receipt.approvedInitialChain,
       POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
     ) ||
@@ -9102,7 +9161,8 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
       POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
-      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
     ].includes(lifecycle.status) &&
       lifecycle.initialCandidateCompletionEvidence !== null) ||
     (lifecycle.status === POST_PR83_CURRENTNESS_FINAL_STATUS &&
@@ -9920,16 +9980,114 @@ export function validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTrans
       "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
     );
   }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83StdinHangTestSourceRegistry(sourceRegistry) {
   try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+    );
     if (
-      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
-      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS
     ) {
       throw new Error();
     }
   } catch {
     throw new Error(
-      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
+      "rule=post-pr83-currentness-stdin-hang-test-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-replay"
+    );
+  }
+  validatePostPr83StdinHangTestSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
+    );
+  }
+  try {
+    if (
+      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
     );
   }
   return true;
@@ -10095,7 +10253,7 @@ export function validatePostPr83PushDraftReadiness(
     const diffCheck = git([
       "diff",
       "--check",
-      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
       headSha,
       "--",
       ...POST_PR83_CURRENTNESS_INITIAL_PATHS
@@ -10116,7 +10274,7 @@ export function validatePostPr83PushDraftReadiness(
         `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
       ]).trim(),
       compatibilityDiffSha256: postPr83CanonicalBinaryDiffSha256(
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
         headSha
       ),
       cumulativeDiffSha256: postPr83CanonicalBinaryDiffSha256(
@@ -10132,13 +10290,13 @@ export function validatePostPr83PushDraftReadiness(
     };
     const now = options.now ?? new Date().toISOString();
     if (
-      lifecycle.status !== POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS ||
+      lifecycle.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
       !sameJson(
         lifecycle.pushDraftReadinessPrerequisites,
         POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES
       ) ||
       boundary
-        ?.observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts !==
+        ?.stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts !==
         true ||
       boundary?.cumulativeReviewFixPushOrDraftPrAuthorizedNow !== false ||
       boundary?.pushReadinessFixPushOrDraftPrAuthorizedNow !== false ||
@@ -10148,17 +10306,18 @@ export function validatePostPr83PushDraftReadiness(
       boundary?.finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow !==
         false ||
       boundary?.observerOverdueTestFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.stdinHangTestFixPushOrDraftPrAuthorizedNow !== false ||
       branchName !== POST_PR83_CURRENTNESS_BRANCH ||
       gitText([
         "rev-parse",
         `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}`
       ]).trim() !== headSha ||
       !sameJson(commitParents(headSha), [
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
       ]) ||
       !sameStringSet(
         protectedMainAdvanceChangedPaths(
-          POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+          POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
           headSha
         ) ?? [],
         POST_PR83_CURRENTNESS_INITIAL_PATHS
@@ -10172,9 +10331,9 @@ export function validatePostPr83PushDraftReadiness(
       ) ||
       !rawRegistry ||
       sha256Buffer(rawRegistry) !==
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256 ||
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256 ||
       sha256Buffer(Buffer.from(JSON.stringify(registry))) !==
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256 ||
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256 ||
       !sameJson(loadRegistryFromCommit(headSha).parsed, registry) ||
       gitText([
         "status",
@@ -10260,16 +10419,16 @@ function validatePostPr83CurrentnessCompletionEvidence(
       evidence.annotationsEmpty !== true ||
       !rawRegistry ||
       sha256Buffer(rawRegistry) !==
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256 ||
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256 ||
       !sameJson(sourceRegistry, loadRegistryFromCommit(sourceHeadSha).parsed) ||
       sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256 ||
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256 ||
       !sameJson(commitParents(sourceHeadSha), [
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
       ]) ||
       !sameStringSet(
         protectedMainAdvanceChangedPaths(
-          POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+          POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
           sourceHeadSha
         ) ?? [],
         POST_PR83_CURRENTNESS_INITIAL_PATHS
@@ -10296,7 +10455,7 @@ function validatePostPr83CurrentnessCompletionEvidence(
         POST_PR83_CURRENTNESS_INITIAL_PATHS
       ) ||
       postPr83CanonicalBinaryDiffSha256(
-        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
         sourceHeadSha
       ) !== evidence.compatibilityDiffSha256 ||
       postPr83CanonicalBinaryDiffSha256(
@@ -10443,14 +10602,14 @@ function validatePostPr83CurrentnessFinalFields(
     sourceHeadSha
   ]).trim();
   if (
-    sourceLifecycle.status !== POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS ||
+    sourceLifecycle.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
     candidateLifecycle.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
     normalizedPostPr83FinalRegistrySha256(sourceRegistry) !==
       normalizedPostPr83FinalRegistrySha256(candidateRegistry) ||
     item?.headSha !== sourceHeadSha ||
     !sameJson(item?.aheadBehind, {
       baseRef: "origin/main",
-      ahead: 9,
+      ahead: 10,
       behind: 0
     }) ||
     !Number.isInteger(item.prNumber) ||
@@ -11207,6 +11366,15 @@ export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
       ).parsed,
       registry
     );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
   } else {
     const sourceHeadSha =
       lifecycle.initialCandidateCompletionEvidence?.headSha;
@@ -11520,8 +11688,40 @@ function validatePostPr83CurrentnessIndexTransition(candidateRegistry) {
     return true;
   }
   if (
+    currentHeadSha === POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-stdin-hang-test-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-stdin-hang-test-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
     postPr83CurrentnessLifecycle(sourceRegistry)?.status ===
-      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
   ) {
     if (
       candidateLifecycle?.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
@@ -11570,6 +11770,7 @@ function postPr83ProtectedLaneContract(item, registry) {
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
       POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
       POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS,
       POST_PR83_CURRENTNESS_FINAL_STATUS
     ].includes(lifecycle?.status) ||
     !sameJson(
