@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-03T02:04:49Z",
+  "updatedAt": "2026-09-04T05:24:04Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -93,6 +93,19 @@
           "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
         ],
         "authorizationBasis": "Owner-scoped continuation after the comprehensive Task 1 gate exposed the owner-blocker fixture issue, limited to continuous governance protection; no new write or delete authority is granted."
+      },
+      {
+        "exception": "governance-preservation",
+        "taskId": "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903",
+        "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
+        "ownerLane": "SENA-A01/A10/A11 post-PR83 currentness correction",
+        "branch": "codex/sena-post-pr83-currentness-correction-20260903",
+        "allowedPaths": [
+          "coordination/repo-governance/active-work.json",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "authorizationBasis": "Exact owner authorization bound by SHA-256 6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279, limited to the post-PR83 three-path currentness correction and its protected lifecycle."
       }
     ],
     "refDeletionAuthorizations": [
@@ -1030,26 +1043,28 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 16
+        "behind": 23
       },
+      "aheadBehindObservationMode": "protected-main-merge-chain",
+      "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
       "allowedPaths": [
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
       "lastHeartbeatAt": "2026-09-01T03:18:16Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
-      "nextReviewAt": "2026-09-03T15:51:17Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
-      "dirtyState": "clean-read-only-root-at-a8da142-observing-pr82-protected-main-0f74b592",
+      "dirtyState": "clean-read-only-root-at-a8da142-observing-pr83-protected-main-c1a7eb3",
       "sensitivePaths": [],
       "evidenceState": {
         "local": "root control checkout remains clean at exact local main a8da14209a9e14a3a53e29e13c86ae8eecbd5928 with no staged, unstaged, or untracked paths",
-        "ci": "PR82 final build/security and protected-main post-merge build/security checks succeeded with zero annotations; these workflows did not run the full governance suite",
-        "merged": "PR82 final head e16ec80 merged at 2026-09-02T15:11:17Z as protected main 0f74b592 with ordered parents 969a206 and e16ec80; root intentionally remains read-only at a8da142 pending verified control-plane closeout",
+        "ci": "PR83 final build/security and protected-main post-merge build/security checks succeeded with zero annotations; these workflows did not run the full governance suite",
+        "merged": "PR83 final head 1cc64c17 merged at 2026-09-03T02:15:42Z as protected main c1a7eb3e with ordered parents 0f74b592 and 1cc64c17; root intentionally remains read-only at a8da142",
         "deployed": "not authorized and not claimed",
-        "live": "live and fetched main are exact 0f74b592; root local main is the clean ancestor a8da142, ahead 0/behind 16, and remains read-only. PR46 and forward-fix mutations remain frozen"
+        "live": "live and fetched main are exact c1a7eb3e; root local main remains exact a8da142, ahead 0/behind 23, and read-only. Only accepted protected-main merge-chain advances may increase behind; PR46 and forward-fix mutations remain frozen"
       },
       "disposition": "integrated"
     },
@@ -1065,12 +1080,13 @@
       "branch": "codex/sena-a01-repo-governance-20260827",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-a01-repo-governance-20260827",
       "baseSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
-      "headSha": "c2cf4b0ab71ce89c220cfaa500d6598725b24c86",
+      "headSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 5,
-        "behind": 0
+        "ahead": 0,
+        "behind": 1
       },
+      "aheadBehindObservationMode": "integrated-monotonic-behind",
       "allowedPaths": [
         ".github/workflows/repo-security-gate.yml",
         ".githooks/pre-push",
@@ -1084,44 +1100,44 @@
       ],
       "createdAt": "2026-08-27T04:00:00Z",
       "lastHeartbeatAt": "2026-09-03T02:04:49Z",
-      "lastObservedAt": "2026-09-03T02:04:49Z",
-      "nextReviewAt": "2026-09-04T02:04:49Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 83,
       "plannedPullRequestNumber": 83,
-      "prIsDraft": true,
+      "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "lastMergedPullRequest": {
-        "number": 80,
-        "headSha": "44a1c753a96490509a0951748b47412512787d8a",
-        "headTreeSha": "6c12c53974979565d118d62961bb1a6b248813ae",
-        "registryBlobSha": "07fafb5c98a8fc16bf8a5b47a7c28702975cb293",
-        "mergeCommitSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
-        "mergedAt": "2026-09-01T04:44:54Z",
+        "number": 83,
+        "headSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+        "headTreeSha": "df9aecbef2332451b050a0525752e6ebfe51c891",
+        "registryBlobSha": "bf3b09be4e64c50a337b8c7d4a185d7c9d90b6f1",
+        "mergeCommitSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+        "mergedAt": "2026-09-03T02:15:42Z",
         "orderedParentShas": [
-          "ca7d464e5e58e48996daaee01ac22f929b964b8f",
-          "44a1c753a96490509a0951748b47412512787d8a"
+          "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+          "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
         ],
-        "prBuildRunId": 33470802183,
-        "prBuildJobId": 99739997873,
+        "prBuildRunId": 33706655600,
+        "prBuildJobId": 100497110160,
         "prRepositorySecurityRunIds": [
-          33470802187,
-          33470799610
+          33706652552,
+          33706655635
         ],
         "prRepositorySecurityJobIds": [
-          99739998138,
-          99739990936
+          100497100484,
+          100497110231
         ],
-        "postMainBuildRunId": 33471002034,
-        "postMainBuildJobId": 99740571823,
-        "postMainRepositorySecurityRunId": 33471002029,
-        "postMainRepositorySecurityJobId": 99740571991,
-        "postMainHeadSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+        "postMainBuildRunId": 33706964792,
+        "postMainBuildJobId": 100498047734,
+        "postMainRepositorySecurityRunId": 33706964762,
+        "postMainRepositorySecurityJobId": 100498047732,
+        "postMainHeadSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
         "postMainEvent": "push",
         "postMainChecksPassed": true,
         "annotationsEmpty": true,
-        "commitBoundLiveAuditStatus": "blocked-registry-currentness-closeout-required"
+        "commitBoundLiveAuditStatus": "blocked-post-pr83-currentness-correction-required"
       },
       "pr79InitialChecks": {
         "headSha": "2ff4c84bbdd169121e9d2d77a8cac1f363f9dd1a",
@@ -1626,7 +1642,7 @@
         ]
       },
       "noPrReason": null,
-      "dirtyState": "clean-registry-only-post-pr82-topology-heartbeat-final",
+      "dirtyState": "clean-integrated-pr83-head-1cc64c17-preserved",
       "pr65InitialChecks": {
         "headSha": "31c6dad9eec2d7fa900e3c96b39b8a38947cd446",
         "baseSha": "3d28d141658f11369ffa7b23fddb7c13a739bf67",
@@ -2032,13 +2048,13 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "post-PR82 bootstrap c2cf4b0ab71ce89c220cfaa500d6598725b24c86 is clean; registry-only final heartbeat staged",
-        "ci": "exact bootstrap head c2cf4b0ab71ce89c220cfaa500d6598725b24c86 build/security checks passed with zero annotations",
-        "merged": "Draft PR #83 remains OPEN and unmerged",
+        "local": "old A01 governance worktree and branch are clean at exact merged PR83 head 1cc64c17",
+        "ci": "exact PR83 final head 1cc64c17 and post-main c1a7eb3e build/security checks passed with zero annotations",
+        "merged": "PR83 is MERGED and non-Draft at exact head 1cc64c17 as protected main c1a7eb3e; all Ready and merge authority is consumed",
         "deployed": "not in scope and not authorized",
-        "live": "protected main remains 0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6; no protected merge has occurred"
+        "live": "live protected main is c1a7eb3e and PR83 is MERGED at exact head 1cc64c17; old A01 is integrated and no cleanup, deletion, PR46, EvidenceFlow, deployment, provider, or history mutation is authorized"
       },
-      "disposition": "active",
+      "disposition": "integrated",
       "freezeException": "governance-preservation",
       "postPr82TopologyHeartbeatLifecycle": {
         "status": "registry-only-post-pr82-topology-heartbeat-final-candidate",
@@ -2148,38 +2164,542 @@
         }
       },
       "lastMergedPullRequest": {
-        "number": 80,
-        "headSha": "44a1c753a96490509a0951748b47412512787d8a",
-        "headTreeSha": "6c12c53974979565d118d62961bb1a6b248813ae",
-        "registryBlobSha": "07fafb5c98a8fc16bf8a5b47a7c28702975cb293",
-        "mergeCommitSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
-        "mergedAt": "2026-09-01T04:44:54Z",
+        "number": 83,
+        "headSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+        "headTreeSha": "df9aecbef2332451b050a0525752e6ebfe51c891",
+        "registryBlobSha": "bf3b09be4e64c50a337b8c7d4a185d7c9d90b6f1",
+        "mergeCommitSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+        "mergedAt": "2026-09-03T02:15:42Z",
         "orderedParentShas": [
-          "ca7d464e5e58e48996daaee01ac22f929b964b8f",
-          "44a1c753a96490509a0951748b47412512787d8a"
+          "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+          "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
         ],
-        "prBuildRunId": 33470802183,
-        "prBuildJobId": 99739997873,
+        "prBuildRunId": 33706655600,
+        "prBuildJobId": 100497110160,
         "prRepositorySecurityRunIds": [
-          33470802187,
-          33470799610
+          33706652552,
+          33706655635
         ],
         "prRepositorySecurityJobIds": [
-          99739998138,
-          99739990936
+          100497100484,
+          100497110231
         ],
-        "postMainBuildRunId": 33471002034,
-        "postMainBuildJobId": 99740571823,
-        "postMainRepositorySecurityRunId": 33471002029,
-        "postMainRepositorySecurityJobId": 99740571991,
-        "postMainHeadSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+        "postMainBuildRunId": 33706964792,
+        "postMainBuildJobId": 100498047734,
+        "postMainRepositorySecurityRunId": 33706964762,
+        "postMainRepositorySecurityJobId": 100498047732,
+        "postMainHeadSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
         "postMainEvent": "push",
         "postMainChecksPassed": true,
         "annotationsEmpty": true,
-        "commitBoundLiveAuditStatus": "blocked-registry-currentness-closeout-required"
+        "commitBoundLiveAuditStatus": "blocked-post-pr83-currentness-correction-required"
       },
+      "prState": "MERGED",
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
+    },
+    {
+      "taskId": "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903",
+      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/Volumes/Starship/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
+      "owner": "Codex post-PR83 currentness correction writer",
+      "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
+      "ownerLane": "SENA-A01/A10/A11 post-PR83 currentness correction",
+      "laneType": "feature",
+      "branch": "codex/sena-post-pr83-currentness-correction-20260903",
+      "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
+      "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+      "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 10,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "createdAt": "2026-09-03T06:15:00Z",
+      "lastHeartbeatAt": "2026-09-04T05:24:04Z",
+      "lastObservedAt": "2026-09-04T05:24:04Z",
+      "nextReviewAt": "2026-09-05T05:24:04Z",
+      "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
+      "prNumber": 84,
+      "noPrReason": null,
       "prState": "OPEN",
-      "prHeadSha": "c2cf4b0ab71ce89c220cfaa500d6598725b24c86"
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "dirtyState": "clean-registry-only-post-pr83-currentness-correction-final-candidate",
+      "sensitivePaths": [],
+      "evidenceState": {
+        "local": "exact initial correction 159bad37 is clean and fully verified; only the registry-only final heartbeat is staged",
+        "ci": "exact initial head 159bad37 build run 33839930586, push-security run 33839928118, and PR-security run 33839930584 passed with zero annotations",
+        "merged": "Draft PR #84 remains OPEN and unmerged at exact initial head 159bad37; Ready and protected merge remain false pending final-head checks",
+        "deployed": "not in scope and not authorized",
+        "live": "live and cached main remain exact c1a7eb3e; named remote and Draft PR #84 both bind exact initial head 159bad37"
+      },
+      "disposition": "active",
+      "freezeException": "governance-preservation",
+      "postPr83CurrentnessCorrectionLifecycle": {
+        "status": "registry-only-post-pr83-currentness-correction-final-candidate",
+        "oneShot": true,
+        "sourceBinding": {
+          "headSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+          "treeSha": "df9aecbef2332451b050a0525752e6ebfe51c891",
+          "orderedParentShas": [
+            "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+            "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
+          ],
+          "registryBlobSha": "bf3b09be4e64c50a337b8c7d4a185d7c9d90b6f1",
+          "verifierBlobSha": "c751ce564ff42c6f364e6ab711b986bdc061851b",
+          "governanceTestBlobSha": "07e28214f1c7d473ba1938eb03ef65122e5003f6",
+          "canonicalParsedRegistrySha256": "c101919888965669b9078cdee839d95547b04616cb2e8712063ca09f5c5824f7"
+        },
+        "compatibilitySourceBinding": {
+          "headSha": "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+          "treeSha": "6c84fa32bb5c0b376a62087621c4f493ea55302f",
+          "parentSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+          "registryBlobSha": "e63010aea2f787aef90e589a121dec3bb12bb30a",
+          "verifierBlobSha": "a597b406ad6dd64b90dd38ca142e2af5ad9c9c4d",
+          "governanceTestBlobSha": "95a7bb64483052a001cbe29639efebc96680a1b4",
+          "rawRegistrySha256": "33028441f4bc49d69f5efcf6de9a6e27b148a948490e05080d68d9e0201e4843",
+          "canonicalParsedRegistrySha256": "5cf38051a3c5ef223e87cd941a957c8438f89cae783d34dda90e705d9713ec71"
+        },
+        "reviewFixSourceBinding": {
+          "headSha": "a365244b11c4d6549d9b7050111da9d83fb85f79",
+          "treeSha": "781ab302704fd2289fe5c193cd42320ae57e1f18",
+          "parentSha": "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+          "registryBlobSha": "01a548f1bec891cd4ed16179461b34c390b64edf",
+          "verifierBlobSha": "0745f4de46a11e4eaea2033ef45d161771bce8ce",
+          "governanceTestBlobSha": "84789ac73d53400fac7b62d5c98340c065af65e4",
+          "rawRegistrySha256": "ff494d7119836aa5d234ca4cfabd8f7caca8a36108b10ce28aedc0b9f6f2148f",
+          "canonicalParsedRegistrySha256": "0164b45f85557b32db5df540f0377e48e5abf87595803f2dc2de134285e4669f"
+        },
+        "pushReadinessFixSourceBinding": {
+          "headSha": "073ef0a715b350ef82d869e897c69470d405c102",
+          "treeSha": "4829a198fe795180dc301927a65679b38b0b9791",
+          "parentSha": "a365244b11c4d6549d9b7050111da9d83fb85f79",
+          "registryBlobSha": "7898df356deaf1e2fc4bb274e600c0d52f86dac1",
+          "verifierBlobSha": "d3d7a042ac4448f1060966a02779d49131d361e9",
+          "governanceTestBlobSha": "851b49493da2cf20f7ee45c3a1b4884ee8550bfb",
+          "rawRegistrySha256": "6155283f4f648f1efedd7d6e61423652781b8618b66207b7f4e7270bb5788e82",
+          "canonicalParsedRegistrySha256": "69356f9ab07b9657b745c880459ddc9d7661bf45874b722607da2d346dcf8197"
+        },
+        "qualitySecurityFixSourceBinding": {
+          "headSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+          "treeSha": "c70c5302e7475eebf812162ba07fd4fb04a24b83",
+          "parentSha": "073ef0a715b350ef82d869e897c69470d405c102",
+          "registryBlobSha": "2d7bcbf790fbee8c2429d62ff3e936ade9453229",
+          "verifierBlobSha": "f9fa8ab0655fb761507c16e67e8fb1864b48b899",
+          "governanceTestBlobSha": "e11c9d7a7a263608fd0287d6fdb359d33731961d",
+          "rawRegistrySha256": "3a7172a62b685e674c9654e5fc714c0d8ad09d15ddeb6b8673ba29cbb6792c42",
+          "canonicalParsedRegistrySha256": "3e05eb48646e8c9b2ca2fa40808dfbccb35a94525e862ee07e97577919aa2a18"
+        },
+        "cleanContextFixSourceBinding": {
+          "headSha": "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+          "treeSha": "32f5e6ad215a0b55ea2cf7cbc765e3cda62ce515",
+          "parentSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+          "registryBlobSha": "a18014638990c7ae2be47c57610cb4832ef6f953",
+          "verifierBlobSha": "cdcf15a2c22acbba281679fbd2e08057789ac08c",
+          "governanceTestBlobSha": "aeef032c44993c12b11e44c773633f5640f28347",
+          "rawRegistrySha256": "9e016bf0a8e0296cdad4e7ed83d059a8443f65d2907809d4b57b682e92441c8f",
+          "canonicalParsedRegistrySha256": "b632ccc8ba2a580f1e1a623aad9d5cb2c997ee0cc92445b277fd4109cb20fd77"
+        },
+        "buildCiTypeFixSourceBinding": {
+          "headSha": "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+          "treeSha": "f5fced4d1128815869586da830f5c0f3c71abaf4",
+          "parentSha": "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+          "registryBlobSha": "381b8b525c1028ac4b9a9d5098e77c0f5a02365f",
+          "verifierBlobSha": "53e44c6ffb5635175d6221451963cb7805ede3c3",
+          "governanceTestBlobSha": "8f09914714cba349da018236a8a070505f0f2c3e",
+          "rawRegistrySha256": "c6b9d4b200c80eaed3a577c76098cc042145f0461070d24a2e57f50cc845047f",
+          "canonicalParsedRegistrySha256": "575565719bcd81dbf8e32d1679ac823026c6f72e20cee77db7680d02400519b1"
+        },
+        "finalHeartbeatAuditExceptionFixSourceBinding": {
+          "headSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+          "treeSha": "6d8626d0157e0adae00f1d6223eb16bc4ddc51d8",
+          "parentSha": "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+          "registryBlobSha": "b3f16ed7a9496bf416192aefb9d08c1ba14c77f1",
+          "verifierBlobSha": "bd1411cb74133272e1865353a2f54ec5cc114ef8",
+          "governanceTestBlobSha": "c68bcca9aa4e198c0571b4ab82f440b46fd2c134",
+          "rawRegistrySha256": "aff73d8c876f43520b6a76d25f1d70f373e503bb4bbfa12269d34c39d8a6fda4",
+          "canonicalParsedRegistrySha256": "27a1c70453a3d23dc1cdfeb4cf3d2c7e8e017cade4132a22871531338e27e299"
+        },
+        "observerOverdueTestFixSourceBinding": {
+          "headSha": "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+          "treeSha": "99da5f8673986cf95eb10bba34b3dfd1cc8e50ba",
+          "parentSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+          "registryBlobSha": "f733996200c92be2795460491246c132d19df0c7",
+          "verifierBlobSha": "8505587deb46daaaca44cc66a26e95254606fd82",
+          "governanceTestBlobSha": "bf1ed865b886332dcb5d0e28e508ea6f11a0681c",
+          "rawRegistrySha256": "5ddb897e0e40d21ea375d2727ae44d5a5a9a7782093b23c4e95df73ac3dae1ec",
+          "canonicalParsedRegistrySha256": "17857cf05e4927cc81b3cca10f4c616ee68ce2000a79cff42f10902b8429fffe"
+        },
+        "stdinHangTestFixSourceBinding": {
+          "headSha": "b5620311d00ed50e4dfc7ea05b43ae801847bcf4",
+          "treeSha": "856086f53838efcdfa50f144e289d41d23d66a17",
+          "parentSha": "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+          "registryBlobSha": "66c2d11f92ddc4ae086c4d37c42a6acccbb69238",
+          "verifierBlobSha": "46a898f943a0325de61b85bed07d8f96246c78f4",
+          "governanceTestBlobSha": "b24f388028e7afb622f9f47723a6593dc2ad91c8",
+          "rawRegistrySha256": "aef943f78533e2fc24eaa0d8dc8d7a1bcbc14e636eab827121fc7a599b073774",
+          "canonicalParsedRegistrySha256": "b07a20e41be79c482b0ddff7f586209aa10782058f6af575047e9565d3ffcc2a"
+        },
+        "approvedInitialChain": [
+          "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+          "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+          "a365244b11c4d6549d9b7050111da9d83fb85f79",
+          "073ef0a715b350ef82d869e897c69470d405c102",
+          "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+          "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+          "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+          "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+          "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+          "b5620311d00ed50e4dfc7ea05b43ae801847bcf4"
+        ],
+        "compatibilityTransition": {
+          "mode": "one-exact-direct-three-path-child-of-review-rejected-22d307e8",
+          "requiredParentSha": "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndIndependentReviews": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "reviewFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-review-rejected-a365244b",
+          "requiredParentSha": "a365244b11c4d6549d9b7050111da9d83fb85f79",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "pushReadinessFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-review-rejected-073ef0a7",
+          "requiredParentSha": "073ef0a715b350ef82d869e897c69470d405c102",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "qualitySecurityFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-quality-security-rejected-14243fd6",
+          "requiredParentSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "cleanContextFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-clean-context-rejected-3e8f32bb",
+          "requiredParentSha": "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "buildCiTypeFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-build-ci-failed-976fcf84",
+          "requiredParentSha": "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "finalHeartbeatAuditExceptionFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-final-heartbeat-audit-rejected-4f3562f5",
+          "requiredParentSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "observerOverdueTestFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-observer-overdue-test-failed-f93fd2d3",
+          "requiredParentSha": "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "stdinHangTestFixTransition": {
+          "mode": "one-exact-direct-three-path-child-of-stdin-hang-test-failed-b5620311",
+          "requiredParentSha": "b5620311d00ed50e4dfc7ea05b43ae801847bcf4",
+          "requiredCandidatePaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredCumulativePathsFromProtectedMain": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts": true,
+          "replayOrOtherDescendantAuthorized": false
+        },
+        "pushDraftReadinessPrerequisites": {
+          "exactCandidateHeadAndLocalBranchRequired": true,
+          "cleanWorktreeAndIndexRequired": true,
+          "registryValidationRequired": true,
+          "diffCheckRequired": true,
+          "securityTreeScanRequired": true,
+          "exactSpecificationReceiptRequired": true,
+          "exactQualitySecurityReceiptRequired": true,
+          "exactRootCustodyAttestationRequired": true,
+          "orderedReviewAndCustodyTimestampsRequired": true,
+          "cryptographicReviewerAuthenticationClaimed": false,
+          "pullRequestOrCiRequired": false
+        },
+        "authorization": {
+          "mode": "exact-owner-message-sha256",
+          "authorizationMessageSha256": "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
+          "requiredInitialPaths": [
+            "coordination/repo-governance/active-work.json",
+            "scripts/verify-sena-repo-governance.mjs",
+            "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+          ],
+          "requiredFinalPaths": [
+            "coordination/repo-governance/active-work.json"
+          ]
+        },
+        "protectedLaneContracts": [
+          {
+            "taskId": "SENA-A01-ROOT-CONTROL-PLANE-20260828",
+            "branch": "main",
+            "disposition": "integrated",
+            "headSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+            "ahead": 0,
+            "behind": 23
+          },
+          {
+            "taskId": "SENA-BRANCH-RETIREMENT-20260829",
+            "branch": "codex/sena-branch-retirement-20260829",
+            "disposition": "frozen-recovery",
+            "headSha": "e24c635d1f53fccb2264c6be002aec2775de127c",
+            "ahead": 8,
+            "behind": 28
+          },
+          {
+            "taskId": "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+            "branch": "codex/sena-pr82-clean-final-forward-fix-20260902",
+            "disposition": "frozen-recovery",
+            "headSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+            "ahead": 0,
+            "behind": 7
+          }
+        ],
+        "authorizationBoundary": {
+          "initialCandidateCommitAuthorizedAfterGates": false,
+          "initialCandidatePushAndDraftPrAuthorizedAfterGates": false,
+          "compatibilityFixCommitAuthorizedAfterGates": false,
+          "compatibilityFixPushOrDraftPrAuthorizedNow": false,
+          "cumulativeReviewFixCommitAuthorizedAfterGates": false,
+          "cumulativeReviewFixPushOrDraftPrAuthorizedNow": false,
+          "cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews": false,
+          "pushReadinessFixCommitAuthorizedAfterGates": false,
+          "pushReadinessFixPushOrDraftPrAuthorizedNow": false,
+          "qualitySecurityFixCommitAuthorizedAfterGates": false,
+          "qualitySecurityFixPushOrDraftPrAuthorizedNow": false,
+          "qualitySecurityFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+          "cleanContextFixCommitAuthorizedAfterGates": false,
+          "cleanContextFixPushOrDraftPrAuthorizedNow": false,
+          "cleanContextFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+          "buildCiTypeFixCommitAuthorizedAfterGates": false,
+          "buildCiTypeFixPushOrDraftPrAuthorizedNow": false,
+          "buildCiTypeFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+          "finalHeartbeatAuditExceptionFixCommitAuthorizedAfterGates": false,
+          "finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow": false,
+          "finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+          "observerOverdueTestFixCommitAuthorizedAfterGates": false,
+          "observerOverdueTestFixPushOrDraftPrAuthorizedNow": false,
+          "observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+          "stdinHangTestFixCommitAuthorizedAfterGates": true,
+          "stdinHangTestFixPushOrDraftPrAuthorizedNow": false,
+          "stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": true,
+          "finalRegistryOnlyTransitionAuthorizedAfterInitialChecks": true,
+          "prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
+          "protectedMergeMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
+          "prReadyAuthorizedNow": false,
+          "protectedMergeAuthorizedNow": false,
+          "pr46MutationAuthorized": false,
+          "evidenceFlowMutationAuthorized": false,
+          "casAuthorized": false,
+          "localRefRetirementAuthorized": false,
+          "retirementReceiptMintingAuthorized": false,
+          "branchDeletionAuthorized": false,
+          "worktreeRemovalAuthorized": false,
+          "orphanWorktreeMutationAuthorized": false,
+          "targetRefMutationAuthorized": false,
+          "targetTagMutationAuthorized": false,
+          "quarantineMutationAuthorized": false,
+          "deploymentAuthorized": false,
+          "providerMutationAuthorized": false,
+          "resetAuthorized": false,
+          "rebaseAuthorized": false,
+          "stashAuthorized": false,
+          "forceAuthorized": false,
+          "historyRewriteAuthorized": false
+        },
+        "initialCandidateCompletionEvidence": {
+          "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+          "treeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+          "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+          "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+          "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+          "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+          "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+          "buildRunId": 33839930586,
+          "repositorySecurityRunIds": [
+            33839928118,
+            33839930584
+          ],
+          "checkJobIds": [
+            100919973808,
+            100919966011,
+            100919973882
+          ],
+          "requiredChecksPassed": true,
+          "annotationsEmpty": true,
+          "specReview": {
+            "payload": {
+              "schema": "sena-post-pr83-independent-review/v1",
+              "reviewKind": "specification",
+              "reviewerTaskId": "/root/post_pr83_spec_review",
+              "actorId": "agent:post_pr83_spec_review",
+              "candidateHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+              "candidateTreeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+              "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+              "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+              "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+              "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+              "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+              "findings": {
+                "p0": 0,
+                "p1": 0,
+                "p2": 0,
+                "p3": 0
+              },
+              "verdict": "approved",
+              "reviewedAt": "2026-09-04T05:10:54.487Z"
+            },
+            "receiptSha256": "aaa9981b8f4fe0d93db93e54364fe3fbcd45f5e42950f6c2f7ff30b1ef7113d7"
+          },
+          "qualitySecurityReview": {
+            "payload": {
+              "schema": "sena-post-pr83-independent-review/v1",
+              "reviewKind": "quality-security",
+              "reviewerTaskId": "/root/post_pr83_quality_security_review",
+              "actorId": "agent:post_pr83_quality_security_review",
+              "candidateHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+              "candidateTreeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+              "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+              "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+              "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+              "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+              "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+              "findings": {
+                "p0": 0,
+                "p1": 0,
+                "p2": 0,
+                "p3": 0
+              },
+              "verdict": "approved",
+              "reviewedAt": "2026-09-04T05:13:54.386Z"
+            },
+            "receiptSha256": "9e3728eea574beda7c14349605eda16404fc15d25c6db930ccae6734c6342217"
+          },
+          "rootCustodyAttestation": {
+            "payload": {
+              "schema": "sena-post-pr83-root-review-custody/v1",
+              "attestorTaskId": "/root",
+              "actorId": "agent:root",
+              "candidateHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+              "candidateTreeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+              "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+              "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+              "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+              "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+              "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+              "specificationReceiptSha256": "aaa9981b8f4fe0d93db93e54364fe3fbcd45f5e42950f6c2f7ff30b1ef7113d7",
+              "qualitySecurityReceiptSha256": "9e3728eea574beda7c14349605eda16404fc15d25c6db930ccae6734c6342217",
+              "ownerAuthorizationMessageSha256": "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
+              "trustBoundary": "external-orchestrator-custody-not-cryptographic-signature",
+              "acknowledgedAt": "2026-09-04T05:14:57.167Z"
+            },
+            "receiptSha256": "01fb827fc95659bfb2466531a256a49c95b77dda4fe5e86194975b0ff81d5a7f"
+          }
+        }
+      }
     },
     {
       "taskId": "SENA-EVIDENCEFLOW-V1-20260828",
@@ -3860,8 +4380,10 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 8,
-        "behind": 21
+        "behind": 28
       },
+      "aheadBehindObservationMode": "protected-main-merge-chain",
+      "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
       "allowedPaths": [
         "coordination/repo-governance/**",
         "scripts/verify-sena-repo-governance.mjs",
@@ -3869,8 +4391,8 @@
       ],
       "createdAt": "2026-08-28T16:51:55Z",
       "lastHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
-      "nextReviewAt": "2026-09-03T15:51:17Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
@@ -4767,11 +5289,11 @@
         "docxOrCredentialContentsMayBeOpened": false
       },
       "evidenceState": {
-        "local": "PR46 local, named remote, and live Draft PR head are exact clean e24c635 with tree 56be367 and ordered parents 5101ee2/ca7d464; relative to protected main 0f74b592 it is ahead 8 and behind 21",
+        "local": "PR46 local, named remote, and live Draft PR head are exact clean e24c635 with tree 56be367 and ordered parents 5101ee2/ca7d464; relative to protected main c1a7eb3e it is ahead 8 and behind 28",
         "ci": "Exact PR46 e24c635 passed 97/97, immutable spec and quality review, build 33458602803, PR repository-security 33458602756, push repository-security 33458598644, and zero annotations. PR80 has since completed its exact final-head and post-main checks, but no PR46 mutation is authorized by this currentness refresh",
-        "merged": "PR82 final head e16ec80 is merged as protected main 0f74b592. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen pending a separate protected lifecycle",
+        "merged": "PR83 is merged as protected main c1a7eb3e. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen pending separate authorization",
         "deployed": "not in scope and not authorized",
-        "live": "live main is exact 0f74b592, root remains clean a8da142, and live PR46 remains e24c635 OPEN/Draft/CONFLICTING/DIRTY. No PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation is authorized"
+        "live": "live main is exact c1a7eb3e, root remains clean a8da142, and live PR46 remains e24c635 OPEN/Draft/CONFLICTING/DIRTY. Only accepted protected-main merge-chain advances may increase behind; no PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation is authorized"
       },
       "currentCustodyHeartbeat": {
         "recordedAt": "2026-09-01T02:50:50Z",
@@ -5729,16 +6251,18 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 7
       },
+      "aheadBehindObservationMode": "protected-main-merge-chain",
+      "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-02T15:18:52Z",
       "lastHeartbeatAt": "2026-09-02T15:51:17Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
-      "nextReviewAt": "2026-09-03T15:51:17Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:protected-heartbeat-then-forward-fix-pr",
       "prNumber": null,
       "plannedPullRequestNumber": null,
@@ -5751,9 +6275,9 @@
       "evidenceState": {
         "local": "the worktree preserves two staged allowed paths at exact staged tree 79d9f63c; independent review rejected commit or push with P0=2 P1=2 P2=2 P3=0",
         "ci": "no forward-fix CI exists; PR82 final and post-main build/security checks do not prove the clean-final full governance suite",
-        "merged": "not merged and not authorized; exact protected-main base is 0f74b592",
+        "merged": "not merged and not authorized; exact local frozen head is 0f74b592 and protected main is c1a7eb3e",
         "deployed": "not in scope and not authorized",
-        "live": "no named remote and no PR exist for the forward-fix branch; commit push PR creation Ready merge cleanup deletion deployment and PR46 mutation are frozen"
+        "live": "no named remote and no PR exist for the forward-fix branch; exact head 0f74b592 is ahead 0/behind 7 from c1a7eb3e, and only accepted protected-main merge-chain advances may increase behind; commit, push, PR creation, Ready, merge, cleanup, deletion, deployment, and PR46 mutation are frozen"
       },
       "disposition": "frozen-recovery",
       "freezeException": null
@@ -5878,38 +6402,38 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+      "remoteHeadSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-09-02T15:51:17Z",
+      "remoteObservedAt": "2026-09-03T06:15:00Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
       "lastOwnerHeartbeatAt": "2026-09-01T03:18:16Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
       "lastCommitAt": "2026-09-01T12:44:53+08:00",
-      "nextReviewAt": "2026-09-03T15:51:17Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "disposition": "integrated",
-      "closeout": "root local main remains clean read-only a8da142 while fetched and live protected main are exact 0f74b592 after PR82. The 16-commit behind observation is recorded exactly; this heartbeat authorizes no root mutation"
+      "closeout": "root local main remains clean read-only a8da142 while fetched and live protected main are exact c1a7eb3e after PR83. The 23-commit behind baseline is recorded; only the exact protected-main merge-chain mode may accept later growth, and this record authorizes no root mutation"
     },
     {
       "name": "codex/sena-a01-repo-governance-20260827",
       "owner": "Codex primary writer",
       "ownerKey": "Codex-primary-writer",
       "baseSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
-      "headSha": "c2cf4b0ab71ce89c220cfaa500d6598725b24c86",
+      "headSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
       "upstream": "origin/codex/sena-a01-repo-governance-20260827",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "c2cf4b0ab71ce89c220cfaa500d6598725b24c86",
-      "remoteObservedAt": "2026-09-03T02:04:49Z",
+      "remoteHeadSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+      "remoteObservedAt": "2026-09-03T06:15:00Z",
       "pr": 83,
       "plannedPullRequestNumber": 83,
-      "prState": "OPEN",
-      "prIsDraft": true,
+      "prState": "MERGED",
+      "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "c2cf4b0ab71ce89c220cfaa500d6598725b24c86",
+      "prHeadSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
       "prBase": "main",
       "noPrReason": null,
       "pr79InitialChecks": {
@@ -6542,44 +7066,75 @@
       },
       "prStateObservationMode": "monotonic",
       "lastMergedPullRequest": {
-        "number": 80,
-        "headSha": "44a1c753a96490509a0951748b47412512787d8a",
-        "headTreeSha": "6c12c53974979565d118d62961bb1a6b248813ae",
-        "registryBlobSha": "07fafb5c98a8fc16bf8a5b47a7c28702975cb293",
-        "mergeCommitSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
-        "mergedAt": "2026-09-01T04:44:54Z",
+        "number": 83,
+        "headSha": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+        "headTreeSha": "df9aecbef2332451b050a0525752e6ebfe51c891",
+        "registryBlobSha": "bf3b09be4e64c50a337b8c7d4a185d7c9d90b6f1",
+        "mergeCommitSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+        "mergedAt": "2026-09-03T02:15:42Z",
         "orderedParentShas": [
-          "ca7d464e5e58e48996daaee01ac22f929b964b8f",
-          "44a1c753a96490509a0951748b47412512787d8a"
+          "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+          "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
         ],
-        "prBuildRunId": 33470802183,
-        "prBuildJobId": 99739997873,
+        "prBuildRunId": 33706655600,
+        "prBuildJobId": 100497110160,
         "prRepositorySecurityRunIds": [
-          33470802187,
-          33470799610
+          33706652552,
+          33706655635
         ],
         "prRepositorySecurityJobIds": [
-          99739998138,
-          99739990936
+          100497100484,
+          100497110231
         ],
-        "postMainBuildRunId": 33471002034,
-        "postMainBuildJobId": 99740571823,
-        "postMainRepositorySecurityRunId": 33471002029,
+        "postMainBuildRunId": 33706964792,
+        "postMainBuildJobId": 100498047734,
+        "postMainRepositorySecurityRunId": 33706964762,
         "postMainRepositorySecurityRunIds": [
-          33471002029
+          33706964762
         ],
-        "postMainRepositorySecurityJobId": 99740571991,
+        "postMainRepositorySecurityJobId": 100498047732,
         "postMainChecksPassed": true,
         "annotationsEmpty": true,
-        "commitBoundLiveAuditStatus": "blocked-registry-currentness-closeout-required"
+        "commitBoundLiveAuditStatus": "blocked-post-pr83-currentness-correction-required"
       },
       "lastOwnerHeartbeatAt": "2026-09-03T02:04:49Z",
-      "lastObservedAt": "2026-09-03T02:04:49Z",
-      "lastCommitAt": "2026-09-03T10:01:53+08:00",
-      "nextReviewAt": "2026-09-04T02:04:49Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "lastCommitAt": "2026-09-03T10:11:06+08:00",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
+      "disposition": "integrated",
+      "closeout": "PR83 is MERGED/non-Draft at exact head 1cc64c17 as protected merge c1a7eb3e; final and post-main build/security checks passed with zero annotations, Ready/merge authority is consumed, and no cleanup or deletion is authorized",
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN"
+    },
+    {
+      "name": "codex/sena-post-pr83-currentness-correction-20260903",
+      "owner": "Codex post-PR83 currentness correction writer",
+      "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
+      "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+      "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "upstream": "origin/codex/sena-post-pr83-currentness-correction-20260903",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": true,
+      "remoteHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "remoteObservedAt": "2026-09-04T05:24:04Z",
+      "pr": 84,
+      "prState": "OPEN",
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "prHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "prBase": "main",
+      "prStateObservationMode": "monotonic",
+      "noPrReason": null,
+      "lastOwnerHeartbeatAt": "2026-09-04T05:24:04Z",
+      "lastObservedAt": "2026-09-04T05:24:04Z",
+      "lastCommitAt": "2026-09-04T12:54:27+08:00",
+      "nextReviewAt": "2026-09-05T05:24:04Z",
+      "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
       "disposition": "active",
-      "closeout": "registry-only final heartbeat awaiting exact-head checks; Ready and protected merge remain gated",
+      "closeout": "registry-only final heartbeat awaiting exact-final-head checks; Ready and protected merge remain false",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN"
     },
@@ -6623,7 +7178,7 @@
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "e24c635d1f53fccb2264c6be002aec2775de127c",
-      "remoteObservedAt": "2026-09-02T15:51:17Z",
+      "remoteObservedAt": "2026-09-03T06:15:00Z",
       "pr": 46,
       "prState": "OPEN",
       "prIsDraft": true,
@@ -6633,12 +7188,12 @@
       "prBase": "main",
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
       "lastCommitAt": "2026-09-01T09:23:34+08:00",
-      "nextReviewAt": "2026-09-03T15:51:17Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "frozen-recovery",
-      "closeout": "local, named remote, and live Draft PR46 head remain exact clean e24c635; against protected main 0f74b592 it is ahead 8/behind 21 and CONFLICTING/DIRTY. No PR46 merge, Ready, repair, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation is authorized",
+      "closeout": "local, named remote, and live Draft PR46 head remain exact clean e24c635; against protected main c1a7eb3e it is ahead 8/behind 28 and CONFLICTING/DIRTY. Only accepted protected-main merge-chain advances may increase behind; no PR46 merge, Ready, repair, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation is authorized",
       "mergeable": "CONFLICTING",
       "mergeStateStatus": "DIRTY",
       "prStateObservationMode": "monotonic"
@@ -6785,17 +7340,17 @@
       "upstreamCacheState": "absent",
       "remotePresent": false,
       "remoteHeadSha": null,
-      "remoteObservedAt": "2026-09-02T15:51:17Z",
+      "remoteObservedAt": "2026-09-03T06:15:00Z",
       "pr": null,
       "plannedPullRequestNumber": null,
       "noPrReason": "Frozen until the registry-only protected topology heartbeat is merged and its post-main audit passes.",
       "lastOwnerHeartbeatAt": "2026-09-02T15:51:17Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
+      "lastObservedAt": "2026-09-03T06:15:00Z",
       "lastCommitAt": "2026-09-02T23:11:16+08:00",
-      "nextReviewAt": "2026-09-03T15:51:17Z",
+      "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:protected-heartbeat-then-forward-fix-pr",
       "disposition": "frozen-recovery",
-      "closeout": "Exact protected-main base 0f74b592 with a preserved two-path staged candidate rejected by independent review. No commit push PR Ready merge PR46 cleanup deletion deployment or history mutation is authorized until the heartbeat is protected on main"
+      "closeout": "Exact frozen head 0f74b592 is ahead 0/behind 7 from protected main c1a7eb3e, with a preserved two-path staged candidate rejected by independent review. Only accepted protected-main merge-chain advances may increase behind; no commit, push, PR, Ready, merge, PR46, cleanup, deletion, deployment, or history mutation is authorized"
     }
   ],
   "orphanWorktrees": [
@@ -10628,6 +11183,186 @@
         "repairReadyAndProtectedMergeAuthorizedAfterFinalChecks": false,
         "consumedByProtectedMergeCommitSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
         "consumedAt": "2026-09-02T15:11:17Z"
+      }
+    },
+    {
+      "schemaVersion": "sena-registry-reconciliation-receipt/v1",
+      "receiptKind": "post-pr83-currentness-correction-initial-candidate",
+      "status": "three-path-stdin-hang-test-fix-candidate-awaiting-local-gates",
+      "recordedAt": "2026-09-04T04:36:30Z",
+      "taskId": "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903",
+      "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
+      "scope": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "sourceBinding": {
+        "headSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+        "treeSha": "df9aecbef2332451b050a0525752e6ebfe51c891",
+        "orderedParentShas": [
+          "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+          "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
+        ],
+        "registryBlobSha": "bf3b09be4e64c50a337b8c7d4a185d7c9d90b6f1",
+        "verifierBlobSha": "c751ce564ff42c6f364e6ab711b986bdc061851b",
+        "governanceTestBlobSha": "07e28214f1c7d473ba1938eb03ef65122e5003f6",
+        "canonicalParsedRegistrySha256": "c101919888965669b9078cdee839d95547b04616cb2e8712063ca09f5c5824f7"
+      },
+      "compatibilitySourceBinding": {
+        "headSha": "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+        "treeSha": "6c84fa32bb5c0b376a62087621c4f493ea55302f",
+        "parentSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+        "registryBlobSha": "e63010aea2f787aef90e589a121dec3bb12bb30a",
+        "verifierBlobSha": "a597b406ad6dd64b90dd38ca142e2af5ad9c9c4d",
+        "governanceTestBlobSha": "95a7bb64483052a001cbe29639efebc96680a1b4",
+        "rawRegistrySha256": "33028441f4bc49d69f5efcf6de9a6e27b148a948490e05080d68d9e0201e4843",
+        "canonicalParsedRegistrySha256": "5cf38051a3c5ef223e87cd941a957c8438f89cae783d34dda90e705d9713ec71"
+      },
+      "reviewFixSourceBinding": {
+        "headSha": "a365244b11c4d6549d9b7050111da9d83fb85f79",
+        "treeSha": "781ab302704fd2289fe5c193cd42320ae57e1f18",
+        "parentSha": "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+        "registryBlobSha": "01a548f1bec891cd4ed16179461b34c390b64edf",
+        "verifierBlobSha": "0745f4de46a11e4eaea2033ef45d161771bce8ce",
+        "governanceTestBlobSha": "84789ac73d53400fac7b62d5c98340c065af65e4",
+        "rawRegistrySha256": "ff494d7119836aa5d234ca4cfabd8f7caca8a36108b10ce28aedc0b9f6f2148f",
+        "canonicalParsedRegistrySha256": "0164b45f85557b32db5df540f0377e48e5abf87595803f2dc2de134285e4669f"
+      },
+      "pushReadinessFixSourceBinding": {
+        "headSha": "073ef0a715b350ef82d869e897c69470d405c102",
+        "treeSha": "4829a198fe795180dc301927a65679b38b0b9791",
+        "parentSha": "a365244b11c4d6549d9b7050111da9d83fb85f79",
+        "registryBlobSha": "7898df356deaf1e2fc4bb274e600c0d52f86dac1",
+        "verifierBlobSha": "d3d7a042ac4448f1060966a02779d49131d361e9",
+        "governanceTestBlobSha": "851b49493da2cf20f7ee45c3a1b4884ee8550bfb",
+        "rawRegistrySha256": "6155283f4f648f1efedd7d6e61423652781b8618b66207b7f4e7270bb5788e82",
+        "canonicalParsedRegistrySha256": "69356f9ab07b9657b745c880459ddc9d7661bf45874b722607da2d346dcf8197"
+      },
+      "qualitySecurityFixSourceBinding": {
+        "headSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+        "treeSha": "c70c5302e7475eebf812162ba07fd4fb04a24b83",
+        "parentSha": "073ef0a715b350ef82d869e897c69470d405c102",
+        "registryBlobSha": "2d7bcbf790fbee8c2429d62ff3e936ade9453229",
+        "verifierBlobSha": "f9fa8ab0655fb761507c16e67e8fb1864b48b899",
+        "governanceTestBlobSha": "e11c9d7a7a263608fd0287d6fdb359d33731961d",
+        "rawRegistrySha256": "3a7172a62b685e674c9654e5fc714c0d8ad09d15ddeb6b8673ba29cbb6792c42",
+        "canonicalParsedRegistrySha256": "3e05eb48646e8c9b2ca2fa40808dfbccb35a94525e862ee07e97577919aa2a18"
+      },
+      "cleanContextFixSourceBinding": {
+        "headSha": "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+        "treeSha": "32f5e6ad215a0b55ea2cf7cbc765e3cda62ce515",
+        "parentSha": "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+        "registryBlobSha": "a18014638990c7ae2be47c57610cb4832ef6f953",
+        "verifierBlobSha": "cdcf15a2c22acbba281679fbd2e08057789ac08c",
+        "governanceTestBlobSha": "aeef032c44993c12b11e44c773633f5640f28347",
+        "rawRegistrySha256": "9e016bf0a8e0296cdad4e7ed83d059a8443f65d2907809d4b57b682e92441c8f",
+        "canonicalParsedRegistrySha256": "b632ccc8ba2a580f1e1a623aad9d5cb2c997ee0cc92445b277fd4109cb20fd77"
+      },
+      "buildCiTypeFixSourceBinding": {
+        "headSha": "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+        "treeSha": "f5fced4d1128815869586da830f5c0f3c71abaf4",
+        "parentSha": "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+        "registryBlobSha": "381b8b525c1028ac4b9a9d5098e77c0f5a02365f",
+        "verifierBlobSha": "53e44c6ffb5635175d6221451963cb7805ede3c3",
+        "governanceTestBlobSha": "8f09914714cba349da018236a8a070505f0f2c3e",
+        "rawRegistrySha256": "c6b9d4b200c80eaed3a577c76098cc042145f0461070d24a2e57f50cc845047f",
+        "canonicalParsedRegistrySha256": "575565719bcd81dbf8e32d1679ac823026c6f72e20cee77db7680d02400519b1"
+      },
+      "finalHeartbeatAuditExceptionFixSourceBinding": {
+        "headSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+        "treeSha": "6d8626d0157e0adae00f1d6223eb16bc4ddc51d8",
+        "parentSha": "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+        "registryBlobSha": "b3f16ed7a9496bf416192aefb9d08c1ba14c77f1",
+        "verifierBlobSha": "bd1411cb74133272e1865353a2f54ec5cc114ef8",
+        "governanceTestBlobSha": "c68bcca9aa4e198c0571b4ab82f440b46fd2c134",
+        "rawRegistrySha256": "aff73d8c876f43520b6a76d25f1d70f373e503bb4bbfa12269d34c39d8a6fda4",
+        "canonicalParsedRegistrySha256": "27a1c70453a3d23dc1cdfeb4cf3d2c7e8e017cade4132a22871531338e27e299"
+      },
+      "observerOverdueTestFixSourceBinding": {
+        "headSha": "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+        "treeSha": "99da5f8673986cf95eb10bba34b3dfd1cc8e50ba",
+        "parentSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+        "registryBlobSha": "f733996200c92be2795460491246c132d19df0c7",
+        "verifierBlobSha": "8505587deb46daaaca44cc66a26e95254606fd82",
+        "governanceTestBlobSha": "bf1ed865b886332dcb5d0e28e508ea6f11a0681c",
+        "rawRegistrySha256": "5ddb897e0e40d21ea375d2727ae44d5a5a9a7782093b23c4e95df73ac3dae1ec",
+        "canonicalParsedRegistrySha256": "17857cf05e4927cc81b3cca10f4c616ee68ce2000a79cff42f10902b8429fffe"
+      },
+      "stdinHangTestFixSourceBinding": {
+        "headSha": "b5620311d00ed50e4dfc7ea05b43ae801847bcf4",
+        "treeSha": "856086f53838efcdfa50f144e289d41d23d66a17",
+        "parentSha": "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+        "registryBlobSha": "66c2d11f92ddc4ae086c4d37c42a6acccbb69238",
+        "verifierBlobSha": "46a898f943a0325de61b85bed07d8f96246c78f4",
+        "governanceTestBlobSha": "b24f388028e7afb622f9f47723a6593dc2ad91c8",
+        "rawRegistrySha256": "aef943f78533e2fc24eaa0d8dc8d7a1bcbc14e636eab827121fc7a599b073774",
+        "canonicalParsedRegistrySha256": "b07a20e41be79c482b0ddff7f586209aa10782058f6af575047e9565d3ffcc2a"
+      },
+      "approvedInitialChain": [
+        "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+        "22d307e8fa4106f2427f5d5ee178ed5231105a28",
+        "a365244b11c4d6549d9b7050111da9d83fb85f79",
+        "073ef0a715b350ef82d869e897c69470d405c102",
+        "14243fd6c38e39021ee9f1baae0ec17619a2c079",
+        "3e8f32bb6edb05ad1af8158443df670e8e84cab7",
+        "976fcf84ec78c22d41b0a34ff7328dd54207b6cc",
+        "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+        "f93fd2d3e2c0e326086fcc71838bca34e9d563ee",
+        "b5620311d00ed50e4dfc7ea05b43ae801847bcf4"
+      ],
+      "authorizationMessageSha256": "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
+      "authorizationBoundary": {
+        "initialCandidateCommitAuthorizedAfterGates": false,
+        "initialCandidatePushAndDraftPrAuthorizedAfterGates": false,
+        "compatibilityFixCommitAuthorizedAfterGates": false,
+        "compatibilityFixPushOrDraftPrAuthorizedNow": false,
+        "cumulativeReviewFixCommitAuthorizedAfterGates": false,
+        "cumulativeReviewFixPushOrDraftPrAuthorizedNow": false,
+        "cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews": false,
+        "pushReadinessFixCommitAuthorizedAfterGates": false,
+        "pushReadinessFixPushOrDraftPrAuthorizedNow": false,
+        "qualitySecurityFixCommitAuthorizedAfterGates": false,
+        "qualitySecurityFixPushOrDraftPrAuthorizedNow": false,
+        "qualitySecurityFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+        "cleanContextFixCommitAuthorizedAfterGates": false,
+        "cleanContextFixPushOrDraftPrAuthorizedNow": false,
+        "cleanContextFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+        "buildCiTypeFixCommitAuthorizedAfterGates": false,
+        "buildCiTypeFixPushOrDraftPrAuthorizedNow": false,
+        "buildCiTypeFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+        "finalHeartbeatAuditExceptionFixCommitAuthorizedAfterGates": false,
+        "finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow": false,
+        "finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+        "observerOverdueTestFixCommitAuthorizedAfterGates": false,
+        "observerOverdueTestFixPushOrDraftPrAuthorizedNow": false,
+        "observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": false,
+        "stdinHangTestFixCommitAuthorizedAfterGates": true,
+        "stdinHangTestFixPushOrDraftPrAuthorizedNow": false,
+        "stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts": true,
+        "finalRegistryOnlyTransitionAuthorizedAfterInitialChecks": true,
+        "prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
+        "protectedMergeMayBeAuthorizedOnlyAfterFinalHeadChecks": true,
+        "prReadyAuthorizedNow": false,
+        "protectedMergeAuthorizedNow": false,
+        "pr46MutationAuthorized": false,
+        "evidenceFlowMutationAuthorized": false,
+        "casAuthorized": false,
+        "localRefRetirementAuthorized": false,
+        "retirementReceiptMintingAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "orphanWorktreeMutationAuthorized": false,
+        "targetRefMutationAuthorized": false,
+        "targetTagMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "deploymentAuthorized": false,
+        "providerMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "forceAuthorized": false,
+        "historyRewriteAuthorized": false
       }
     }
   ]

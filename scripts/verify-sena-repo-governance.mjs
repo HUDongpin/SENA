@@ -1559,6 +1559,41 @@ function runSecurity(flags) {
   process.exitCode = exitCode;
 }
 
+function postPr83PushDraftReviewFromEnvironment(name) {
+  try {
+    return JSON.parse(process.env[name] ?? "null");
+  } catch {
+    return null;
+  }
+}
+
+function runPostPr83PushDraftReadiness() {
+  const headSha = gitText(["rev-parse", "HEAD"]).trim();
+  if (!isSha(headSha)) {
+    throw new Error("rule=post-pr83-push-draft-readiness-invalid");
+  }
+  const result = validatePostPr83PushDraftReadiness(
+    loadRegistryFromCommit(headSha).parsed,
+    {
+      specReview: postPr83PushDraftReviewFromEnvironment(
+        "SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON"
+      ),
+      qualitySecurityReview: postPr83PushDraftReviewFromEnvironment(
+        "SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON"
+      ),
+      rootCustodyAttestation: postPr83PushDraftReviewFromEnvironment(
+        "SENA_POST_PR83_PUSH_DRAFT_ROOT_CUSTODY_ATTESTATION_JSON"
+      )
+    }
+  );
+  if (result.authorized !== true) {
+    throw new Error("rule=post-pr83-push-draft-readiness-invalid");
+  }
+  process.stdout.write(
+    `SENA_POST_PR83_PUSH_DRAFT_READINESS pass head=${result.headSha} prOrCiRequired=${result.pullRequestOrCiRequired}\n`
+  );
+}
+
 function runPushPolicy(flags) {
   const findings = [];
   const input = readFileSync(0, "utf8");
@@ -1711,6 +1746,50 @@ export function postPr82FinalHeartbeatPreCommitCleanClaimAllowed({
   );
 }
 
+export function postPr83FinalHeartbeatPreCommitCleanClaimAllowed({
+  registry,
+  taskId,
+  branch,
+  actualHeadSha,
+  dirtyState,
+  lifecycleStatus,
+  preCommit,
+  registryFromIndex,
+  dirtyPaths,
+  stagedPaths,
+  unstagedPaths
+} = {}, options = {}) {
+  if (
+    taskId !== POST_PR83_CURRENTNESS_TASK_ID ||
+    branch !== POST_PR83_CURRENTNESS_BRANCH ||
+    !isSha(actualHeadSha) ||
+    !String(dirtyState ?? "").startsWith(
+      "clean-registry-only-post-pr83-currentness-correction-final-candidate"
+    ) ||
+    lifecycleStatus !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
+    preCommit !== true ||
+    registryFromIndex !== true ||
+    !sameJson(dirtyPaths, POST_PR83_CURRENTNESS_FINAL_PATHS) ||
+    !sameJson(stagedPaths, POST_PR83_CURRENTNESS_FINAL_PATHS) ||
+    !sameJson(unstagedPaths, [])
+  ) {
+    return false;
+  }
+  try {
+    const sourceRegistry = loadRegistryFromCommit(actualHeadSha).parsed;
+    validatePostPr83CurrentnessCorrectionFinalTransition(
+      sourceRegistry,
+      registry,
+      actualHeadSha,
+      postPr83CompletionContextFromEnvironment(),
+      { githubTransport: options.githubTransport ?? null }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function runWritePolicy(flags) {
   if (!flags.has("registry-from-index") || !flags.has("staged")) {
     throw new Error("write-policy requires --registry-from-index --staged");
@@ -1719,16 +1798,26 @@ function runWritePolicy(flags) {
   const validation = validateRegistry(registry);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) throw new Error("index registry snapshot is invalid");
-  validatePr80RepairIndexTransition(registry);
-  validateEvidenceFlowCurrentnessIndexTransition(registry);
-  validateProtectedCurrentnessRepairIndexTransition(registry);
+  const exactLifecycleIndexTransition = Boolean(
+    validatePr80RepairIndexTransition(registry) ||
+      validateEvidenceFlowCurrentnessIndexTransition(registry) ||
+      validateProtectedCurrentnessRepairIndexTransition(registry) ||
+      validatePostPr83CurrentnessIndexTransition(registry)
+  );
 
   const findings = [];
   const stagedPaths = stagedChangedPaths();
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
   const branchName = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
-  const currentItem = (registry.workItems ?? []).find(
+  const pathBoundCurrentItem = (registry.workItems ?? []).find(
     (item) => sameExistingPath(item.worktreePath, REPO_ROOT) && item.branch === branchName
+  );
+  const currentItem = pathBoundCurrentItem ?? (
+    exactLifecycleIndexTransition
+      ? (registry.workItems ?? []).find(
+          (item) => item.branch === branchName && ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)
+        )
+      : null
   );
   const branchRecord = (registry.branches ?? []).find((branch) => branch.name === branchName);
   const expectedRef = branchName ? `refs/heads/${branchName}` : "detached-head";
@@ -3350,7 +3439,7 @@ function validatePr80RepairIndexTransition(candidateRegistry) {
       currentHeadSha
     )
   ) {
-    return;
+    return true;
   }
   assertPr80RepairA01ProjectionAdvanced(currentHeadRegistry, candidateRegistry);
   const sourceHeadSha = lifecycle.status === PR80_REPAIR_INITIAL_STATUS
@@ -3380,6 +3469,7 @@ function validatePr80RepairIndexTransition(candidateRegistry) {
     lifecycle,
     pr80RepairIndexChangedPathsAgainst(sourceHeadSha)
   );
+  return true;
 }
 
 export const PROTECTED_CURRENTNESS_REPAIR_TASK_ID =
@@ -8200,6 +8290,3564 @@ function validateEvidenceFlowCurrentnessIndexTransition(candidateRegistry) {
   return true;
 }
 
+export const POST_PR83_CURRENTNESS_TASK_ID =
+  "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903";
+export const POST_PR83_CURRENTNESS_BRANCH =
+  "codex/sena-post-pr83-currentness-correction-20260903";
+export const POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA =
+  "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3";
+const POST_PR83_CURRENTNESS_SOURCE_TREE_SHA =
+  "df9aecbef2332451b050a0525752e6ebfe51c891";
+const POST_PR83_CURRENTNESS_SOURCE_PARENTS = [
+  "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+  "1cc64c17a6b1d562fee0bdb8b9737da50e25678a"
+];
+const POST_PR83_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA =
+  "bf3b09be4e64c50a337b8c7d4a185d7c9d90b6f1";
+const POST_PR83_CURRENTNESS_SOURCE_VERIFIER_BLOB_SHA =
+  "c751ce564ff42c6f364e6ab711b986bdc061851b";
+const POST_PR83_CURRENTNESS_SOURCE_TEST_BLOB_SHA =
+  "07e28214f1c7d473ba1938eb03ef65122e5003f6";
+const POST_PR83_CURRENTNESS_SOURCE_CANONICAL_REGISTRY_SHA256 =
+  "c101919888965669b9078cdee839d95547b04616cb2e8712063ca09f5c5824f7";
+const POST_PR83_CURRENTNESS_AUTHORIZATION_SHA256 =
+  "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279";
+const POST_PR83_CURRENTNESS_INITIAL_REGISTRY_FILE_SHA256 =
+  "33028441f4bc49d69f5efcf6de9a6e27b148a948490e05080d68d9e0201e4843";
+const POST_PR83_CURRENTNESS_INITIAL_REGISTRY_CANONICAL_SHA256 =
+  "5cf38051a3c5ef223e87cd941a957c8438f89cae783d34dda90e705d9713ec71";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA =
+  "22d307e8fa4106f2427f5d5ee178ed5231105a28";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_TREE_SHA =
+  "6c84fa32bb5c0b376a62087621c4f493ea55302f";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_REGISTRY_BLOB_SHA =
+  "e63010aea2f787aef90e589a121dec3bb12bb30a";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_VERIFIER_BLOB_SHA =
+  "a597b406ad6dd64b90dd38ca142e2af5ad9c9c4d";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_TEST_BLOB_SHA =
+  "95a7bb64483052a001cbe29639efebc96680a1b4";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_FILE_SHA256 =
+  "ff494d7119836aa5d234ca4cfabd8f7caca8a36108b10ce28aedc0b9f6f2148f";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_CANONICAL_SHA256 =
+  "0164b45f85557b32db5df540f0377e48e5abf87595803f2dc2de134285e4669f";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA =
+  "a365244b11c4d6549d9b7050111da9d83fb85f79";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_TREE_SHA =
+  "781ab302704fd2289fe5c193cd42320ae57e1f18";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_REGISTRY_BLOB_SHA =
+  "01a548f1bec891cd4ed16179461b34c390b64edf";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_VERIFIER_BLOB_SHA =
+  "0745f4de46a11e4eaea2033ef45d161771bce8ce";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_TEST_BLOB_SHA =
+  "84789ac73d53400fac7b62d5c98340c065af65e4";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256 =
+  "6155283f4f648f1efedd7d6e61423652781b8618b66207b7f4e7270bb5788e82";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256 =
+  "69356f9ab07b9657b745c880459ddc9d7661bf45874b722607da2d346dcf8197";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA =
+  "073ef0a715b350ef82d869e897c69470d405c102";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TREE_SHA =
+  "4829a198fe795180dc301927a65679b38b0b9791";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_REGISTRY_BLOB_SHA =
+  "7898df356deaf1e2fc4bb274e600c0d52f86dac1";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_VERIFIER_BLOB_SHA =
+  "d3d7a042ac4448f1060966a02779d49131d361e9";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TEST_BLOB_SHA =
+  "851b49493da2cf20f7ee45c3a1b4884ee8550bfb";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256 =
+  "3a7172a62b685e674c9654e5fc714c0d8ad09d15ddeb6b8673ba29cbb6792c42";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256 =
+  "3e05eb48646e8c9b2ca2fa40808dfbccb35a94525e862ee07e97577919aa2a18";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA =
+  "14243fd6c38e39021ee9f1baae0ec17619a2c079";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_TREE_SHA =
+  "c70c5302e7475eebf812162ba07fd4fb04a24b83";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_REGISTRY_BLOB_SHA =
+  "2d7bcbf790fbee8c2429d62ff3e936ade9453229";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_VERIFIER_BLOB_SHA =
+  "f9fa8ab0655fb761507c16e67e8fb1864b48b899";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_TEST_BLOB_SHA =
+  "e11c9d7a7a263608fd0287d6fdb359d33731961d";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_FILE_SHA256 =
+  "9e016bf0a8e0296cdad4e7ed83d059a8443f65d2907809d4b57b682e92441c8f";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_CANONICAL_SHA256 =
+  "b632ccc8ba2a580f1e1a623aad9d5cb2c997ee0cc92445b277fd4109cb20fd77";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA =
+  "3e8f32bb6edb05ad1af8158443df670e8e84cab7";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_TREE_SHA =
+  "32f5e6ad215a0b55ea2cf7cbc765e3cda62ce515";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_REGISTRY_BLOB_SHA =
+  "a18014638990c7ae2be47c57610cb4832ef6f953";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_VERIFIER_BLOB_SHA =
+  "cdcf15a2c22acbba281679fbd2e08057789ac08c";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_TEST_BLOB_SHA =
+  "aeef032c44993c12b11e44c773633f5640f28347";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_FILE_SHA256 =
+  "c6b9d4b200c80eaed3a577c76098cc042145f0461070d24a2e57f50cc845047f";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256 =
+  "575565719bcd81dbf8e32d1679ac823026c6f72e20cee77db7680d02400519b1";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA =
+  "976fcf84ec78c22d41b0a34ff7328dd54207b6cc";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_TREE_SHA =
+  "f5fced4d1128815869586da830f5c0f3c71abaf4";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_REGISTRY_BLOB_SHA =
+  "381b8b525c1028ac4b9a9d5098e77c0f5a02365f";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_VERIFIER_BLOB_SHA =
+  "53e44c6ffb5635175d6221451963cb7805ede3c3";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_TEST_BLOB_SHA =
+  "8f09914714cba349da018236a8a070505f0f2c3e";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256 =
+  "aff73d8c876f43520b6a76d25f1d70f373e503bb4bbfa12269d34c39d8a6fda4";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256 =
+  "27a1c70453a3d23dc1cdfeb4cf3d2c7e8e017cade4132a22871531338e27e299";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA =
+  "4f3562f5ca075679485b14c73c30a60c3d46c0a2";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TREE_SHA =
+  "6d8626d0157e0adae00f1d6223eb16bc4ddc51d8";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_REGISTRY_BLOB_SHA =
+  "b3f16ed7a9496bf416192aefb9d08c1ba14c77f1";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_VERIFIER_BLOB_SHA =
+  "bd1411cb74133272e1865353a2f54ec5cc114ef8";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TEST_BLOB_SHA =
+  "c68bcca9aa4e198c0571b4ab82f440b46fd2c134";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256 =
+  "5ddb897e0e40d21ea375d2727ae44d5a5a9a7782093b23c4e95df73ac3dae1ec";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256 =
+  "17857cf05e4927cc81b3cca10f4c616ee68ce2000a79cff42f10902b8429fffe";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA =
+  "f93fd2d3e2c0e326086fcc71838bca34e9d563ee";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_TREE_SHA =
+  "99da5f8673986cf95eb10bba34b3dfd1cc8e50ba";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_REGISTRY_BLOB_SHA =
+  "f733996200c92be2795460491246c132d19df0c7";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_VERIFIER_BLOB_SHA =
+  "8505587deb46daaaca44cc66a26e95254606fd82";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_TEST_BLOB_SHA =
+  "bf1ed865b886332dcb5d0e28e508ea6f11a0681c";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256 =
+  "aef943f78533e2fc24eaa0d8dc8d7a1bcbc14e636eab827121fc7a599b073774";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256 =
+  "b07a20e41be79c482b0ddff7f586209aa10782058f6af575047e9565d3ffcc2a";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA =
+  "b5620311d00ed50e4dfc7ea05b43ae801847bcf4";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TREE_SHA =
+  "856086f53838efcdfa50f144e289d41d23d66a17";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_REGISTRY_BLOB_SHA =
+  "66c2d11f92ddc4ae086c4d37c42a6acccbb69238";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_VERIFIER_BLOB_SHA =
+  "46a898f943a0325de61b85bed07d8f96246c78f4";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TEST_BLOB_SHA =
+  "b24f388028e7afb622f9f47723a6593dc2ad91c8";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256 =
+  "5b3cb4c5f1aa44f82e5450dab17f8d3f6d17129991abc18c870cbd762a283ab6";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256 =
+  "72ed5b8dbce9db07362f972f28d8e0e16fdc27aabbc3e6811f1a3ed1d386c162";
+const POST_PR83_CURRENTNESS_INITIAL_STATUS =
+  "three-path-post-pr83-currentness-correction-initial-candidate";
+const POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS =
+  "three-path-post-pr83-currentness-correction-compatibility-fix-candidate";
+const POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS =
+  "three-path-post-pr83-currentness-correction-cumulative-review-fix-candidate";
+const POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS =
+  "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate";
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS =
+  "three-path-post-pr83-currentness-correction-quality-security-fix-candidate";
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS =
+  "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate";
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS =
+  "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS =
+  "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate";
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS =
+  "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate";
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS =
+  "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate";
+const POST_PR83_CURRENTNESS_FINAL_STATUS =
+  "registry-only-post-pr83-currentness-correction-final-candidate";
+const POST_PR83_CURRENTNESS_LIFECYCLE_KEY =
+  "postPr83CurrentnessCorrectionLifecycle";
+const POST_PR83_CURRENTNESS_RECEIPT_KIND =
+  "post-pr83-currentness-correction-initial-candidate";
+const POST_PR83_CURRENTNESS_OBSERVATION_MODE =
+  "protected-main-merge-chain";
+const POST_PR83_CURRENTNESS_INITIAL_PATHS = [
+  REGISTRY_REPO_PATH,
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+const POST_PR83_CURRENTNESS_FINAL_PATHS = [REGISTRY_REPO_PATH];
+const POST_PR83_CURRENTNESS_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_SOURCE_TREE_SHA,
+  orderedParentShas: POST_PR83_CURRENTNESS_SOURCE_PARENTS,
+  registryBlobSha: POST_PR83_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha: POST_PR83_CURRENTNESS_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha: POST_PR83_CURRENTNESS_SOURCE_TEST_BLOB_SHA,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_SOURCE_CANONICAL_REGISTRY_SHA256
+};
+const POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_INITIAL_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_INITIAL_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
+  registryBlobSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+  registryBlobSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256
+};
+const POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN = [
+  POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+];
+const POST_PR83_CURRENTNESS_COMPATIBILITY_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-review-rejected-22d307e8",
+  requiredParentSha: POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndIndependentReviews: true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_REVIEW_FIX_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-review-rejected-a365244b",
+  requiredParentSha: POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_PUSH_READINESS_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-review-rejected-073ef0a7",
+  requiredParentSha: POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndDetachedIndependentReviewReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_QUALITY_SECURITY_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-quality-security-rejected-14243fd6",
+  requiredParentSha: POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-clean-context-rejected-3e8f32bb",
+  requiredParentSha: POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_TRANSITION = {
+  mode: "one-exact-direct-three-path-child-of-build-ci-failed-976fcf84",
+  requiredParentSha: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_TRANSITION = {
+  mode:
+    "one-exact-direct-three-path-child-of-final-heartbeat-audit-rejected-4f3562f5",
+  requiredParentSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_TRANSITION = {
+  mode:
+    "one-exact-direct-three-path-child-of-observer-overdue-test-failed-f93fd2d3",
+  requiredParentSha:
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_TRANSITION = {
+  mode:
+    "one-exact-direct-three-path-child-of-stdin-hang-test-failed-b5620311",
+  requiredParentSha: POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES = {
+  exactCandidateHeadAndLocalBranchRequired: true,
+  cleanWorktreeAndIndexRequired: true,
+  registryValidationRequired: true,
+  diffCheckRequired: true,
+  securityTreeScanRequired: true,
+  exactSpecificationReceiptRequired: true,
+  exactQualitySecurityReceiptRequired: true,
+  exactRootCustodyAttestationRequired: true,
+  orderedReviewAndCustodyTimestampsRequired: true,
+  cryptographicReviewerAuthenticationClaimed: false,
+  pullRequestOrCiRequired: false
+};
+const POST_PR83_CURRENTNESS_AUTHORIZATION = {
+  mode: "exact-owner-message-sha256",
+  authorizationMessageSha256: POST_PR83_CURRENTNESS_AUTHORIZATION_SHA256,
+  requiredInitialPaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredFinalPaths: POST_PR83_CURRENTNESS_FINAL_PATHS
+};
+const POST_PR83_CURRENTNESS_PROTECTED_LANES = [
+  {
+    taskId: "SENA-A01-ROOT-CONTROL-PLANE-20260828",
+    branch: "main",
+    disposition: "integrated",
+    headSha: "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+    ahead: 0,
+    behind: 23
+  },
+  {
+    taskId: "SENA-BRANCH-RETIREMENT-20260829",
+    branch: "codex/sena-branch-retirement-20260829",
+    disposition: "frozen-recovery",
+    headSha: "e24c635d1f53fccb2264c6be002aec2775de127c",
+    ahead: 8,
+    behind: 28
+  },
+  {
+    taskId: "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+    branch: "codex/sena-pr82-clean-final-forward-fix-20260902",
+    disposition: "frozen-recovery",
+    headSha: "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+    ahead: 0,
+    behind: 7
+  }
+];
+const POST_PR83_CURRENTNESS_AUTHORIZATION_BOUNDARY = {
+  initialCandidateCommitAuthorizedAfterGates: false,
+  initialCandidatePushAndDraftPrAuthorizedAfterGates: false,
+  compatibilityFixCommitAuthorizedAfterGates: false,
+  compatibilityFixPushOrDraftPrAuthorizedNow: false,
+  cumulativeReviewFixCommitAuthorizedAfterGates: false,
+  cumulativeReviewFixPushOrDraftPrAuthorizedNow: false,
+  cumulativeReviewFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndIndependentReviews:
+    false,
+  pushReadinessFixCommitAuthorizedAfterGates: false,
+  pushReadinessFixPushOrDraftPrAuthorizedNow: false,
+  qualitySecurityFixCommitAuthorizedAfterGates: false,
+  qualitySecurityFixPushOrDraftPrAuthorizedNow: false,
+  qualitySecurityFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  cleanContextFixCommitAuthorizedAfterGates: false,
+  cleanContextFixPushOrDraftPrAuthorizedNow: false,
+  cleanContextFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  buildCiTypeFixCommitAuthorizedAfterGates: false,
+  buildCiTypeFixPushOrDraftPrAuthorizedNow: false,
+  buildCiTypeFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  finalHeartbeatAuditExceptionFixCommitAuthorizedAfterGates: false,
+  finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow: false,
+  finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  observerOverdueTestFixCommitAuthorizedAfterGates: false,
+  observerOverdueTestFixPushOrDraftPrAuthorizedNow: false,
+  observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  stdinHangTestFixCommitAuthorizedAfterGates: true,
+  stdinHangTestFixPushOrDraftPrAuthorizedNow: false,
+  stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    true,
+  finalRegistryOnlyTransitionAuthorizedAfterInitialChecks: true,
+  prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks: true,
+  protectedMergeMayBeAuthorizedOnlyAfterFinalHeadChecks: true,
+  prReadyAuthorizedNow: false,
+  protectedMergeAuthorizedNow: false,
+  pr46MutationAuthorized: false,
+  evidenceFlowMutationAuthorized: false,
+  casAuthorized: false,
+  localRefRetirementAuthorized: false,
+  retirementReceiptMintingAuthorized: false,
+  branchDeletionAuthorized: false,
+  worktreeRemovalAuthorized: false,
+  orphanWorktreeMutationAuthorized: false,
+  targetRefMutationAuthorized: false,
+  targetTagMutationAuthorized: false,
+  quarantineMutationAuthorized: false,
+  deploymentAuthorized: false,
+  providerMutationAuthorized: false,
+  resetAuthorized: false,
+  rebaseAuthorized: false,
+  stashAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false
+};
+const POST_PR83_CURRENTNESS_EVIDENCE_KEYS = [
+  "headSha",
+  "treeSha",
+  "registryBlobSha",
+  "verifierBlobSha",
+  "governanceTestBlobSha",
+  "compatibilityDiffSha256",
+  "cumulativeDiffSha256",
+  "buildRunId",
+  "repositorySecurityRunIds",
+  "checkJobIds",
+  "requiredChecksPassed",
+  "annotationsEmpty",
+  "specReview",
+  "qualitySecurityReview",
+  "rootCustodyAttestation"
+];
+const POST_PR83_CURRENTNESS_REVIEW_WRAPPER_KEYS = [
+  "payload",
+  "receiptSha256"
+];
+const POST_PR83_CURRENTNESS_REVIEW_PAYLOAD_KEYS = [
+  "schema",
+  "reviewKind",
+  "reviewerTaskId",
+  "actorId",
+  "candidateHeadSha",
+  "candidateTreeSha",
+  "registryBlobSha",
+  "verifierBlobSha",
+  "governanceTestBlobSha",
+  "compatibilityDiffSha256",
+  "cumulativeDiffSha256",
+  "findings",
+  "verdict",
+  "reviewedAt"
+];
+const POST_PR83_CURRENTNESS_ROOT_CUSTODY_PAYLOAD_KEYS = [
+  "schema",
+  "attestorTaskId",
+  "actorId",
+  "candidateHeadSha",
+  "candidateTreeSha",
+  "registryBlobSha",
+  "verifierBlobSha",
+  "governanceTestBlobSha",
+  "compatibilityDiffSha256",
+  "cumulativeDiffSha256",
+  "specificationReceiptSha256",
+  "qualitySecurityReceiptSha256",
+  "ownerAuthorizationMessageSha256",
+  "trustBoundary",
+  "acknowledgedAt"
+];
+
+function postPr83CurrentnessItem(registry) {
+  return (registry?.workItems ?? []).find(
+    (entry) => entry?.taskId === POST_PR83_CURRENTNESS_TASK_ID
+  );
+}
+
+function postPr83CurrentnessBranch(registry) {
+  return (registry?.branches ?? []).find(
+    (entry) => entry?.name === POST_PR83_CURRENTNESS_BRANCH
+  );
+}
+
+function postPr83CurrentnessLifecycle(registry) {
+  return postPr83CurrentnessItem(registry)?.[
+    POST_PR83_CURRENTNESS_LIFECYCLE_KEY
+  ];
+}
+
+function postPr83CurrentnessReceipt(registry) {
+  return (registry?.releaseReceipts ?? []).find(
+    (entry) => entry?.receiptKind === POST_PR83_CURRENTNESS_RECEIPT_KIND
+  );
+}
+
+function postPr83RegistryBlobBuffer(commitSha) {
+  const entry = entryAtCommit(commitSha, REGISTRY_REPO_PATH);
+  if (!entry || entry.type !== "blob") return null;
+  return blobBuffer(entry.oid).buffer;
+}
+
+function validatePostPr83CurrentnessSourceRegistry(sourceRegistry) {
+  try {
+    if (
+      postPr83CurrentnessLifecycle(sourceRegistry) ||
+      postPr83CurrentnessReceipt(sourceRegistry) ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_SOURCE_CANONICAL_REGISTRY_SHA256 ||
+      !gitObjectExists(`${POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA}^{commit}`) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA),
+        POST_PR83_CURRENTNESS_SOURCE_PARENTS
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !== POST_PR83_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR83_CURRENTNESS_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA).parsed,
+        sourceRegistry
+      )
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("rule=post-pr83-currentness-source-invalid");
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionInitialRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !== POST_PR83_CURRENTNESS_INITIAL_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-initial-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83CurrentnessLifecycleShape(registry) {
+  const item = postPr83CurrentnessItem(registry);
+  const lifecycle = postPr83CurrentnessLifecycle(registry);
+  const receipt = postPr83CurrentnessReceipt(registry);
+  if (
+    !isPlainRecord(lifecycle) ||
+    item?.threadId !== "01a0414a-a4a5-7051-ba59-34b7b4d1aee3" ||
+    !exactPlainJsonOwnKeys(lifecycle, [
+      "status",
+      "oneShot",
+      "sourceBinding",
+      "compatibilitySourceBinding",
+      "reviewFixSourceBinding",
+      "pushReadinessFixSourceBinding",
+      "qualitySecurityFixSourceBinding",
+      "cleanContextFixSourceBinding",
+      "buildCiTypeFixSourceBinding",
+      "finalHeartbeatAuditExceptionFixSourceBinding",
+      "observerOverdueTestFixSourceBinding",
+      "stdinHangTestFixSourceBinding",
+      "approvedInitialChain",
+      "compatibilityTransition",
+      "reviewFixTransition",
+      "pushReadinessFixTransition",
+      "qualitySecurityFixTransition",
+      "cleanContextFixTransition",
+      "buildCiTypeFixTransition",
+      "finalHeartbeatAuditExceptionFixTransition",
+      "observerOverdueTestFixTransition",
+      "stdinHangTestFixTransition",
+      "pushDraftReadinessPrerequisites",
+      "authorization",
+      "protectedLaneContracts",
+      "authorizationBoundary",
+      "initialCandidateCompletionEvidence"
+    ]) ||
+    ![
+      POST_PR83_CURRENTNESS_INITIAL_STATUS,
+      POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS,
+      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS,
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS,
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_STATUS
+    ].includes(lifecycle.status) ||
+    lifecycle.oneShot !== true ||
+    !sameJson(lifecycle.sourceBinding, POST_PR83_CURRENTNESS_SOURCE_BINDING) ||
+    !sameJson(
+      lifecycle.compatibilitySourceBinding,
+      POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.reviewFixSourceBinding,
+      POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.pushReadinessFixSourceBinding,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.qualitySecurityFixSourceBinding,
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.cleanContextFixSourceBinding,
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.buildCiTypeFixSourceBinding,
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.finalHeartbeatAuditExceptionFixSourceBinding,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.observerOverdueTestFixSourceBinding,
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.stdinHangTestFixSourceBinding,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      lifecycle.approvedInitialChain,
+      POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
+    ) ||
+    !sameJson(
+      lifecycle.compatibilityTransition,
+      POST_PR83_CURRENTNESS_COMPATIBILITY_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.reviewFixTransition,
+      POST_PR83_CURRENTNESS_REVIEW_FIX_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.pushReadinessFixTransition,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.qualitySecurityFixTransition,
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.cleanContextFixTransition,
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.buildCiTypeFixTransition,
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.finalHeartbeatAuditExceptionFixTransition,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.observerOverdueTestFixTransition,
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.stdinHangTestFixTransition,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.pushDraftReadinessPrerequisites,
+      POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES
+    ) ||
+    !sameJson(lifecycle.authorization, POST_PR83_CURRENTNESS_AUTHORIZATION) ||
+    !sameJson(
+      lifecycle.protectedLaneContracts,
+      POST_PR83_CURRENTNESS_PROTECTED_LANES
+    ) ||
+    !sameJson(
+      lifecycle.authorizationBoundary,
+      POST_PR83_CURRENTNESS_AUTHORIZATION_BOUNDARY
+    ) ||
+    !isPlainRecord(receipt) ||
+    receipt.taskId !== POST_PR83_CURRENTNESS_TASK_ID ||
+    receipt.ownerKey !== "Codex-post-pr83-currentness-correction-20260903" ||
+    !sameJson(receipt.scope, POST_PR83_CURRENTNESS_INITIAL_PATHS) ||
+    !sameJson(receipt.sourceBinding, POST_PR83_CURRENTNESS_SOURCE_BINDING) ||
+    !sameJson(
+      receipt.compatibilitySourceBinding,
+      POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.reviewFixSourceBinding,
+      POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.pushReadinessFixSourceBinding,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.qualitySecurityFixSourceBinding,
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.cleanContextFixSourceBinding,
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.buildCiTypeFixSourceBinding,
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.finalHeartbeatAuditExceptionFixSourceBinding,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.observerOverdueTestFixSourceBinding,
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.stdinHangTestFixSourceBinding,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_BINDING
+    ) ||
+    !sameJson(
+      receipt.approvedInitialChain,
+      POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
+    ) ||
+    receipt.authorizationMessageSha256 !==
+      POST_PR83_CURRENTNESS_AUTHORIZATION_SHA256 ||
+    !sameJson(
+      receipt.authorizationBoundary,
+      POST_PR83_CURRENTNESS_AUTHORIZATION_BOUNDARY
+    ) ||
+    (registry.releaseReceipts ?? []).filter(
+      (entry) => entry?.receiptKind === POST_PR83_CURRENTNESS_RECEIPT_KIND
+    ).length !== 1 ||
+    ([
+      POST_PR83_CURRENTNESS_INITIAL_STATUS,
+      POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS,
+      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS,
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS,
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
+    ].includes(lifecycle.status) &&
+      lifecycle.initialCandidateCompletionEvidence !== null) ||
+    (lifecycle.status === POST_PR83_CURRENTNESS_FINAL_STATUS &&
+      !isPlainRecord(lifecycle.initialCandidateCompletionEvidence))
+  ) {
+    throw new Error("rule=post-pr83-currentness-lifecycle-invalid");
+  }
+  return lifecycle;
+}
+
+export function validatePostPr83CurrentnessCorrectionInitialTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  validatePostPr83CurrentnessSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_INITIAL_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error("rule=post-pr83-currentness-initial-transition-invalid");
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_INITIAL_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error("rule=post-pr83-currentness-initial-transition-invalid");
+  }
+  return true;
+}
+
+function validatePostPr83CompatibilitySourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_INITIAL_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_INITIAL_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_INITIAL_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("rule=post-pr83-currentness-compatibility-source-invalid");
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-compatibility-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionCompatibilityTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error("rule=post-pr83-currentness-compatibility-transition-replay");
+  }
+  validatePostPr83CompatibilitySourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-compatibility-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-compatibility-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83ReviewFixSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_COMPATIBILITY_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !== POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("rule=post-pr83-currentness-review-fix-source-invalid");
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !== POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-review-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionReviewFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error("rule=post-pr83-currentness-review-fix-transition-replay");
+  }
+  validatePostPr83ReviewFixSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error("rule=post-pr83-currentness-review-fix-transition-invalid");
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error("rule=post-pr83-currentness-review-fix-transition-invalid");
+  }
+  return true;
+}
+
+function validatePostPr83PushReadinessSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_REVIEW_FIX_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-replay"
+    );
+  }
+  validatePostPr83PushReadinessSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-push-readiness-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83QualitySecuritySourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-quality-security-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionQualitySecurityFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-quality-security-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-quality-security-fix-transition-replay"
+    );
+  }
+  validatePostPr83QualitySecuritySourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-quality-security-fix-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-quality-security-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83CleanContextSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-clean-context-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionCleanContextFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-clean-context-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-clean-context-fix-transition-replay"
+    );
+  }
+  validatePostPr83CleanContextSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-clean-context-fix-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-clean-context-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83BuildCiTypeSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-build-ci-type-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionBuildCiTypeFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-build-ci-type-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-build-ci-type-fix-transition-replay"
+    );
+  }
+  validatePostPr83BuildCiTypeSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83FinalHeartbeatAuditSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(
+          POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+        ),
+        [POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-replay"
+    );
+  }
+  validatePostPr83FinalHeartbeatAuditSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83ObserverOverdueTestSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-observer-overdue-test-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-observer-overdue-test-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-replay"
+    );
+  }
+  validatePostPr83ObserverOverdueTestSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
+    );
+  }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83StdinHangTestSourceRegistry(sourceRegistry) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+    );
+    if (
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA),
+        [POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-replay"
+    );
+  }
+  validatePostPr83StdinHangTestSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
+    );
+  }
+  try {
+    if (
+      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function postPr83CanonicalBinaryDiffSha256(fromSha, toSha) {
+  const result = git([
+    "diff",
+    "--binary",
+    "--full-index",
+    fromSha,
+    toSha,
+    "--",
+    ...POST_PR83_CURRENTNESS_INITIAL_PATHS
+  ], { binary: true, allowFailure: true });
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) return null;
+  return sha256Buffer(result.stdout);
+}
+
+function validatePostPr83ReviewEvidence(
+  review,
+  expectedKind,
+  evidence
+) {
+  const expectedReviewer = expectedKind === "specification"
+    ? {
+        reviewerTaskId: "/root/post_pr83_spec_review",
+        actorId: "agent:post_pr83_spec_review"
+      }
+    : expectedKind === "quality-security"
+      ? {
+          reviewerTaskId: "/root/post_pr83_quality_security_review",
+          actorId: "agent:post_pr83_quality_security_review"
+        }
+      : null;
+  const payload = review?.payload;
+  if (
+    !expectedReviewer ||
+    !isPlainRecord(review) ||
+    !sameJson(Object.keys(review), POST_PR83_CURRENTNESS_REVIEW_WRAPPER_KEYS) ||
+    !isPlainRecord(payload) ||
+    !sameJson(Object.keys(payload), POST_PR83_CURRENTNESS_REVIEW_PAYLOAD_KEYS) ||
+    payload.schema !== "sena-post-pr83-independent-review/v1" ||
+    payload.reviewKind !== expectedKind ||
+    payload.reviewerTaskId !== expectedReviewer.reviewerTaskId ||
+    payload.actorId !== expectedReviewer.actorId ||
+    payload.candidateHeadSha !== evidence.headSha ||
+    payload.candidateTreeSha !== evidence.treeSha ||
+    payload.registryBlobSha !== evidence.registryBlobSha ||
+    payload.verifierBlobSha !== evidence.verifierBlobSha ||
+    payload.governanceTestBlobSha !== evidence.governanceTestBlobSha ||
+    payload.compatibilityDiffSha256 !== evidence.compatibilityDiffSha256 ||
+    payload.cumulativeDiffSha256 !== evidence.cumulativeDiffSha256 ||
+    !isPlainRecord(payload.findings) ||
+    !sameJson(Object.keys(payload.findings), ["p0", "p1", "p2", "p3"]) ||
+    !sameJson(payload.findings, { p0: 0, p1: 0, p2: 0, p3: 0 }) ||
+    payload.verdict !== "approved" ||
+    !isIsoTimestamp(payload.reviewedAt) ||
+    !validSha256(review.receiptSha256)
+  ) {
+    return false;
+  }
+  return (
+    sha256Buffer(Buffer.from(JSON.stringify(payload), "utf8")) ===
+    review.receiptSha256
+  );
+}
+
+function validatePostPr83RootCustodyAttestation(
+  attestation,
+  evidence
+) {
+  const payload = attestation?.payload;
+  if (
+    !isPlainRecord(attestation) ||
+    !sameJson(
+      Object.keys(attestation),
+      POST_PR83_CURRENTNESS_REVIEW_WRAPPER_KEYS
+    ) ||
+    !isPlainRecord(payload) ||
+    !sameJson(
+      Object.keys(payload),
+      POST_PR83_CURRENTNESS_ROOT_CUSTODY_PAYLOAD_KEYS
+    ) ||
+    payload.schema !== "sena-post-pr83-root-review-custody/v1" ||
+    payload.attestorTaskId !== "/root" ||
+    payload.actorId !== "agent:root" ||
+    payload.candidateHeadSha !== evidence.headSha ||
+    payload.candidateTreeSha !== evidence.treeSha ||
+    payload.registryBlobSha !== evidence.registryBlobSha ||
+    payload.verifierBlobSha !== evidence.verifierBlobSha ||
+    payload.governanceTestBlobSha !== evidence.governanceTestBlobSha ||
+    payload.compatibilityDiffSha256 !== evidence.compatibilityDiffSha256 ||
+    payload.cumulativeDiffSha256 !== evidence.cumulativeDiffSha256 ||
+    payload.specificationReceiptSha256 !== evidence.specReview?.receiptSha256 ||
+    payload.qualitySecurityReceiptSha256 !==
+      evidence.qualitySecurityReview?.receiptSha256 ||
+    payload.ownerAuthorizationMessageSha256 !==
+      POST_PR83_CURRENTNESS_AUTHORIZATION_SHA256 ||
+    payload.trustBoundary !==
+      "external-orchestrator-custody-not-cryptographic-signature" ||
+    !isIsoTimestamp(payload.acknowledgedAt) ||
+    !validSha256(attestation.receiptSha256) ||
+    sha256Buffer(Buffer.from(JSON.stringify(payload), "utf8")) !==
+      attestation.receiptSha256
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function validatePostPr83ReviewTimestampOrder(evidence, now, requireRoot) {
+  try {
+    const candidateCommitAt = gitText([
+      "show",
+      "-s",
+      "--format=%cI",
+      evidence.headSha
+    ]).trim();
+    const specReviewedAt = evidence.specReview?.payload?.reviewedAt;
+    const qualityReviewedAt =
+      evidence.qualitySecurityReview?.payload?.reviewedAt;
+    const acknowledgedAt =
+      evidence.rootCustodyAttestation?.payload?.acknowledgedAt;
+    if (
+      !isIsoTimestamp(candidateCommitAt) ||
+      !isIsoTimestamp(specReviewedAt) ||
+      !isIsoTimestamp(qualityReviewedAt) ||
+      !isIsoTimestamp(now) ||
+      Date.parse(candidateCommitAt) > Date.parse(specReviewedAt) ||
+      Date.parse(specReviewedAt) > Date.parse(qualityReviewedAt) ||
+      Date.parse(qualityReviewedAt) > Date.parse(now) ||
+      (requireRoot &&
+        (!isIsoTimestamp(acknowledgedAt) ||
+          Date.parse(qualityReviewedAt) > Date.parse(acknowledgedAt) ||
+          Date.parse(acknowledgedAt) > Date.parse(now)))
+    ) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+export function validatePostPr83PushDraftReadiness(
+  registry,
+  receiptContext,
+  options = {}
+) {
+  try {
+    const lifecycle = validatePostPr83CurrentnessCorrectionSnapshot(registry);
+    const boundary = lifecycle.authorizationBoundary;
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    const branchName = gitText([
+      "symbolic-ref",
+      "--quiet",
+      "--short",
+      "HEAD"
+    ]).trim();
+    const rawRegistry = postPr83RegistryBlobBuffer(headSha);
+    const registryValidation = validateRegistry(registry);
+    const diffCheck = git([
+      "diff",
+      "--check",
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+      headSha,
+      "--",
+      ...POST_PR83_CURRENTNESS_INITIAL_PATHS
+    ], { allowFailure: true });
+    const identity = {
+      headSha,
+      treeSha: gitText(["rev-parse", `${headSha}^{tree}`]).trim(),
+      registryBlobSha: gitText([
+        "rev-parse",
+        `${headSha}:${REGISTRY_REPO_PATH}`
+      ]).trim(),
+      verifierBlobSha: gitText([
+        "rev-parse",
+        `${headSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim(),
+      governanceTestBlobSha: gitText([
+        "rev-parse",
+        `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim(),
+      compatibilityDiffSha256: postPr83CanonicalBinaryDiffSha256(
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+        headSha
+      ),
+      cumulativeDiffSha256: postPr83CanonicalBinaryDiffSha256(
+        POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+        headSha
+      )
+    };
+    const reviewEvidence = {
+      ...identity,
+      specReview: receiptContext?.specReview,
+      qualitySecurityReview: receiptContext?.qualitySecurityReview,
+      rootCustodyAttestation: receiptContext?.rootCustodyAttestation
+    };
+    const now = options.now ?? new Date().toISOString();
+    if (
+      lifecycle.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
+      !sameJson(
+        lifecycle.pushDraftReadinessPrerequisites,
+        POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES
+      ) ||
+      boundary
+        ?.stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts !==
+        true ||
+      boundary?.cumulativeReviewFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.pushReadinessFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.qualitySecurityFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.cleanContextFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.buildCiTypeFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow !==
+        false ||
+      boundary?.observerOverdueTestFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.stdinHangTestFixPushOrDraftPrAuthorizedNow !== false ||
+      branchName !== POST_PR83_CURRENTNESS_BRANCH ||
+      gitText([
+        "rev-parse",
+        `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}`
+      ]).trim() !== headSha ||
+      !sameJson(commitParents(headSha), [
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+      ]) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+          headSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+          headSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(registry))) !==
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256 ||
+      !sameJson(loadRegistryFromCommit(headSha).parsed, registry) ||
+      gitText([
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all"
+      ]).length !== 0 ||
+      diffCheck.status !== 0 ||
+      registryValidation.errors.length !== 0 ||
+      !validatePostPr83ReviewEvidence(
+        receiptContext?.specReview,
+        "specification",
+        identity
+      ) ||
+      !validatePostPr83ReviewEvidence(
+        receiptContext?.qualitySecurityReview,
+        "quality-security",
+        identity
+      ) ||
+      !validatePostPr83ReviewTimestampOrder(reviewEvidence, now, false)
+    ) {
+      throw new Error();
+    }
+    if (!receiptContext?.rootCustodyAttestation) {
+      return {
+        authorized: false,
+        structurallyValid: true,
+        localGatesComplete: false,
+        ...identity,
+        trustModel:
+          "external-custody-not-cryptographic-reviewer-authentication",
+        pullRequestOrCiRequired: false
+      };
+    }
+    if (
+      !validatePostPr83RootCustodyAttestation(
+        receiptContext.rootCustodyAttestation,
+        reviewEvidence
+      ) ||
+      !validatePostPr83ReviewTimestampOrder(reviewEvidence, now, true)
+    ) {
+      throw new Error();
+    }
+    const securityFindings = [];
+    scanTree(headSha, securityFindings, new Set());
+    if (securityFindings.length !== 0) throw new Error();
+    return {
+      authorized: true,
+      structurallyValid: true,
+      localGatesComplete: true,
+      ...identity,
+      trustModel: "external-custody-not-cryptographic-reviewer-authentication",
+      pullRequestOrCiRequired: false
+    };
+  } catch {
+    throw new Error("rule=post-pr83-push-draft-readiness-invalid");
+  }
+}
+
+function validatePostPr83CurrentnessCompletionEvidence(
+  evidence,
+  sourceHeadSha,
+  sourceRegistry,
+  options = {}
+) {
+  try {
+    const rawRegistry = postPr83RegistryBlobBuffer(sourceHeadSha);
+    if (
+      !isPlainRecord(evidence) ||
+      !exactPlainJsonOwnKeys(evidence, POST_PR83_CURRENTNESS_EVIDENCE_KEYS) ||
+      evidence.headSha !== sourceHeadSha ||
+      !isSha(evidence.treeSha) ||
+      !isSha(evidence.registryBlobSha) ||
+      !isSha(evidence.verifierBlobSha) ||
+      !isSha(evidence.governanceTestBlobSha) ||
+      !validSha256(evidence.compatibilityDiffSha256) ||
+      !validSha256(evidence.cumulativeDiffSha256) ||
+      !Number.isInteger(evidence.buildRunId) ||
+      evidence.buildRunId <= 0 ||
+      !exactDistinctPositiveIntegerArray(evidence.repositorySecurityRunIds, 2) ||
+      !exactDistinctPositiveIntegerArray(evidence.checkJobIds, 3) ||
+      evidence.requiredChecksPassed !== true ||
+      evidence.annotationsEmpty !== true ||
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_FILE_SHA256 ||
+      !sameJson(sourceRegistry, loadRegistryFromCommit(sourceHeadSha).parsed) ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_REGISTRY_CANONICAL_SHA256 ||
+      !sameJson(commitParents(sourceHeadSha), [
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+      ]) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+          sourceHeadSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA,
+          sourceHeadSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
+          sourceHeadSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+          sourceHeadSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      postPr83CanonicalBinaryDiffSha256(
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA,
+        sourceHeadSha
+      ) !== evidence.compatibilityDiffSha256 ||
+      postPr83CanonicalBinaryDiffSha256(
+        POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+        sourceHeadSha
+      ) !== evidence.cumulativeDiffSha256 ||
+      gitText(["rev-parse", `${sourceHeadSha}^{tree}`]).trim() !==
+        evidence.treeSha ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:${REGISTRY_REPO_PATH}`
+      ]).trim() !== evidence.registryBlobSha ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !== evidence.verifierBlobSha ||
+      gitText([
+        "rev-parse",
+        `${sourceHeadSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !== evidence.governanceTestBlobSha ||
+      !validatePostPr83ReviewEvidence(
+        evidence.specReview,
+        "specification",
+        evidence
+      ) ||
+      !validatePostPr83ReviewEvidence(
+        evidence.qualitySecurityReview,
+        "quality-security",
+        evidence
+      ) ||
+      !validatePostPr83RootCustodyAttestation(
+        evidence.rootCustodyAttestation,
+        evidence
+      ) ||
+      !validatePostPr83ReviewTimestampOrder(
+        evidence,
+        new Date().toISOString(),
+        true
+      ) ||
+      evidence.specReview.payload.reviewerTaskId ===
+        evidence.qualitySecurityReview.payload.reviewerTaskId ||
+      evidence.specReview.payload.actorId ===
+        evidence.qualitySecurityReview.payload.actorId ||
+      (options.requireCheckedOutSource === true &&
+        (gitText(["rev-parse", "HEAD"]).trim() !== sourceHeadSha ||
+          gitText([
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "HEAD"
+          ]).trim() !== POST_PR83_CURRENTNESS_BRANCH ||
+          gitText([
+            "rev-parse",
+            `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}`
+          ]).trim() !== sourceHeadSha))
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error("rule=post-pr83-currentness-final-evidence-invalid");
+  }
+  return true;
+}
+
+function normalizedPostPr83FinalRegistrySha256(registry) {
+  const copy = JSON.parse(JSON.stringify(registry));
+  copy.updatedAt = "<post-pr83-final-owned>";
+  const item = postPr83CurrentnessItem(copy);
+  const branch = postPr83CurrentnessBranch(copy);
+  for (const field of [
+    "headSha",
+    "aheadBehind",
+    "lastHeartbeatAt",
+    "lastObservedAt",
+    "nextReviewAt",
+    "prNumber",
+    "noPrReason",
+    "prState",
+    "prIsDraft",
+    "prReadyForReview",
+    "mergeAuthorized",
+    "prHeadSha",
+    "dirtyState",
+    "evidenceState"
+  ]) {
+    if (item) item[field] = `<post-pr83-final-item:${field}>`;
+  }
+  if (item?.[POST_PR83_CURRENTNESS_LIFECYCLE_KEY]) {
+    item[POST_PR83_CURRENTNESS_LIFECYCLE_KEY].status =
+      "<post-pr83-final-status>";
+    item[
+      POST_PR83_CURRENTNESS_LIFECYCLE_KEY
+    ].initialCandidateCompletionEvidence = "<post-pr83-final-evidence>";
+  }
+  for (const field of [
+    "headSha",
+    "upstream",
+    "upstreamState",
+    "upstreamCacheState",
+    "remotePresent",
+    "remoteHeadSha",
+    "remoteObservedAt",
+    "pr",
+    "prState",
+    "prIsDraft",
+    "prReadyForReview",
+    "mergeAuthorized",
+    "prHeadSha",
+    "prBase",
+    "prStateObservationMode",
+    "noPrReason",
+    "lastOwnerHeartbeatAt",
+    "lastObservedAt",
+    "lastCommitAt",
+    "nextReviewAt",
+    "closeout",
+    "mergeable",
+    "mergeStateStatus"
+  ]) {
+    if (branch) branch[field] = `<post-pr83-final-branch:${field}>`;
+  }
+  return sha256Buffer(Buffer.from(JSON.stringify(copy)));
+}
+
+function validatePostPr83CurrentnessFinalFields(
+  sourceRegistry,
+  candidateRegistry,
+  sourceHeadSha,
+  options = {}
+) {
+  const sourceLifecycle = validatePostPr83CurrentnessLifecycleShape(
+    sourceRegistry
+  );
+  const candidateLifecycle = validatePostPr83CurrentnessLifecycleShape(
+    candidateRegistry
+  );
+  const item = postPr83CurrentnessItem(candidateRegistry);
+  const branch = postPr83CurrentnessBranch(candidateRegistry);
+  const evidence = candidateLifecycle.initialCandidateCompletionEvidence;
+  const sourceCommitAt = gitText([
+    "show",
+    "-s",
+    "--format=%cI",
+    sourceHeadSha
+  ]).trim();
+  if (
+    sourceLifecycle.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
+    candidateLifecycle.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
+    normalizedPostPr83FinalRegistrySha256(sourceRegistry) !==
+      normalizedPostPr83FinalRegistrySha256(candidateRegistry) ||
+    item?.headSha !== sourceHeadSha ||
+    !sameJson(item?.aheadBehind, {
+      baseRef: "origin/main",
+      ahead: 10,
+      behind: 0
+    }) ||
+    !Number.isInteger(item.prNumber) ||
+    item.prNumber <= 0 ||
+    item.noPrReason !== null ||
+    item.prState !== "OPEN" ||
+    item.prIsDraft !== true ||
+    item.prReadyForReview !== false ||
+    item.mergeAuthorized !== false ||
+    item.prHeadSha !== sourceHeadSha ||
+    !String(item.dirtyState ?? "").startsWith(
+      "clean-registry-only-post-pr83-currentness-correction-final-candidate"
+    ) ||
+    branch?.headSha !== sourceHeadSha ||
+    branch.upstream !== `origin/${POST_PR83_CURRENTNESS_BRANCH}` ||
+    branch.upstreamState !== "live" ||
+    branch.upstreamCacheState !== "present" ||
+    branch.remotePresent !== true ||
+    branch.remoteHeadSha !== sourceHeadSha ||
+    branch.pr !== item.prNumber ||
+    branch.prState !== "OPEN" ||
+    branch.prIsDraft !== true ||
+    branch.prReadyForReview !== false ||
+    branch.mergeAuthorized !== false ||
+    branch.prHeadSha !== sourceHeadSha ||
+    branch.prBase !== "main" ||
+    branch.prStateObservationMode !== "monotonic" ||
+    branch.noPrReason !== null ||
+    branch.lastCommitAt !== sourceCommitAt ||
+    branch.mergeable !== "MERGEABLE" ||
+    branch.mergeStateStatus !== "CLEAN" ||
+    candidateRegistry.updatedAt !== item.lastObservedAt ||
+    item.lastHeartbeatAt !== item.lastObservedAt ||
+    branch.remoteObservedAt !== item.lastObservedAt ||
+    branch.lastOwnerHeartbeatAt !== item.lastObservedAt ||
+    branch.lastObservedAt !== item.lastObservedAt ||
+    branch.nextReviewAt !== item.nextReviewAt ||
+    Date.parse(item.nextReviewAt) <= Date.parse(item.lastObservedAt)
+  ) {
+    throw new Error("rule=post-pr83-currentness-final-transition-invalid");
+  }
+  validatePostPr83CurrentnessCompletionEvidence(
+    evidence,
+    sourceHeadSha,
+    sourceRegistry,
+    options
+  );
+  return evidence;
+}
+
+const POST_PR83_TRUSTED_GITHUB_CLI_LAUNCHERS = [
+  "/opt/homebrew/bin/gh",
+  "/usr/local/bin/gh",
+  "/usr/bin/gh",
+  "/home/linuxbrew/.linuxbrew/bin/gh",
+  "/opt/hostedtoolcache/gh/current/x64/bin/gh",
+  "/opt/hostedtoolcache/gh/current/arm64/bin/gh"
+];
+
+export function resolveTrustedPostPr83GitHubCli() {
+  for (const launcher of POST_PR83_TRUSTED_GITHUB_CLI_LAUNCHERS) {
+    if (!existsSync(launcher)) continue;
+    let resolved;
+    let metadata;
+    try {
+      resolved = realpathSync(launcher);
+      metadata = statSync(resolved);
+    } catch {
+      throw new Error("rule=post-pr83-trusted-github-cli-invalid");
+    }
+    if (
+      !metadata.isFile() ||
+      (metadata.mode & 0o111) === 0 ||
+      (metadata.mode & 0o022) !== 0 ||
+      [REPO_ROOT, SCRIPT_REPO_ROOT, CONTROL_ROOT].some((root) =>
+        pathIsWithin(root, resolved)
+      ) ||
+      ["/tmp", "/private/tmp", "/var/tmp"].some((root) =>
+        pathIsWithin(root, resolved)
+      )
+    ) {
+      throw new Error("rule=post-pr83-trusted-github-cli-invalid");
+    }
+    return resolved;
+  }
+  throw new Error("rule=post-pr83-trusted-github-cli-invalid");
+}
+
+function trustedPostPr83GithubTransport(path) {
+  const executable = resolveTrustedPostPr83GitHubCli();
+  const environment = {
+    ...process.env,
+    PATH: `${dirname(executable)}:/usr/bin:/bin`,
+    GH_PROMPT_DISABLED: "1"
+  };
+  for (const name of [
+    "GH_CONFIG_DIR",
+    "GH_ENTERPRISE_TOKEN",
+    "GH_HOST",
+    "GH_REPO",
+    "GITHUB_ENTERPRISE_TOKEN",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+    "LD_PRELOAD"
+  ]) {
+    delete environment[name];
+  }
+  const result = spawnSync(
+    executable,
+    ["api", "--hostname", "github.com", path],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      maxBuffer: 4 * 1024 * 1024,
+      env: environment
+    }
+  );
+  if (result.status !== 0) {
+    throw new Error("rule=post-pr83-currentness-live-github-readback-failed");
+  }
+  try {
+    return JSON.parse(result.stdout);
+  } catch {
+    throw new Error("rule=post-pr83-currentness-live-github-readback-failed");
+  }
+}
+
+function postPr83GithubApiJson(path, githubTransport = null) {
+  try {
+    if (typeof githubTransport === "function") {
+      return githubTransport(path);
+    }
+    return trustedPostPr83GithubTransport(path);
+  } catch {
+    throw new Error("rule=post-pr83-currentness-live-github-readback-failed");
+  }
+}
+
+const POST_PR83_RULE_SUITE_RECEIPT_WRAPPER_KEYS = [
+  "payload",
+  "receiptSha256"
+];
+const POST_PR83_RULE_SUITE_RECEIPT_PAYLOAD_KEYS = [
+  "schema",
+  "suiteId",
+  "mergeCommitSha",
+  "orderedParentShas",
+  "pullRequestNumber",
+  "finalHeadSha",
+  "rulesetId",
+  "rulesetName",
+  "evaluations",
+  "observedAt",
+  "custody"
+];
+const POST_PR83_RULE_SUITE_EVALUATION_TYPES = [
+  "deletion",
+  "non_fast_forward",
+  "pull_request",
+  "required_status_checks"
+];
+
+function postPr83RuleSuiteReceiptPayload(
+  suite,
+  descriptor,
+  pullRequestNumber,
+  observedAt
+) {
+  const evaluations = Array.isArray(suite?.rule_evaluations)
+    ? [...suite.rule_evaluations].sort((left, right) =>
+        String(left?.rule_type) < String(right?.rule_type)
+          ? -1
+          : String(left?.rule_type) > String(right?.rule_type)
+            ? 1
+            : 0
+      )
+    : [];
+  if (
+    !isPlainRecord(suite) ||
+    !Number.isInteger(suite.id) ||
+    suite.id <= 0 ||
+    suite.actor_name !== "HUDongpin" ||
+    suite.before_sha !== POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA ||
+    suite.after_sha !== descriptor.mergeCommitSha ||
+    suite.repository_name !== "SENA" ||
+    suite.result !== "pass" ||
+    evaluations.length !== 4 ||
+    !sameJson(
+      evaluations.map((entry) => entry?.rule_type),
+      POST_PR83_RULE_SUITE_EVALUATION_TYPES
+    ) ||
+    evaluations.some(
+      (entry) =>
+        !isPlainRecord(entry) ||
+        entry.enforcement !== "active" ||
+        entry.result !== "pass" ||
+        entry.rule_source?.id !== 21232887 ||
+        entry.rule_source?.name !== "main-minimum-safety" ||
+        entry.rule_source?.type !== "ruleset"
+    ) ||
+    !isIsoTimestamp(observedAt) ||
+    Date.parse(observedAt) > Date.now()
+  ) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  return {
+    schema: "sena-post-pr83-post-main-rule-suite/v1",
+    suiteId: suite.id,
+    mergeCommitSha: descriptor.mergeCommitSha,
+    orderedParentShas: [...descriptor.orderedParentShas],
+    pullRequestNumber,
+    finalHeadSha: descriptor.secondParentSha,
+    rulesetId: 21232887,
+    rulesetName: "main-minimum-safety",
+    evaluations: evaluations.map((entry) => ({
+      ruleType: entry.rule_type,
+      enforcement: entry.enforcement,
+      result: entry.result
+    })),
+    observedAt,
+    custody: "external-task-output-not-repo-persistence"
+  };
+}
+
+function validatePostPr83RuleSuiteReceiptShape(
+  receipt,
+  descriptor,
+  pullRequestNumber
+) {
+  const payload = receipt?.payload;
+  if (
+    !isPlainRecord(receipt) ||
+    !sameJson(
+      Object.keys(receipt),
+      POST_PR83_RULE_SUITE_RECEIPT_WRAPPER_KEYS
+    ) ||
+    !isPlainRecord(payload) ||
+    !sameJson(
+      Object.keys(payload),
+      POST_PR83_RULE_SUITE_RECEIPT_PAYLOAD_KEYS
+    ) ||
+    payload.schema !== "sena-post-pr83-post-main-rule-suite/v1" ||
+    !Number.isInteger(payload.suiteId) ||
+    payload.suiteId <= 0 ||
+    payload.mergeCommitSha !== descriptor.mergeCommitSha ||
+    !sameJson(payload.orderedParentShas, descriptor.orderedParentShas) ||
+    payload.pullRequestNumber !== pullRequestNumber ||
+    payload.finalHeadSha !== descriptor.secondParentSha ||
+    payload.rulesetId !== 21232887 ||
+    payload.rulesetName !== "main-minimum-safety" ||
+    !sameJson(
+      payload.evaluations,
+      POST_PR83_RULE_SUITE_EVALUATION_TYPES.map((ruleType) => ({
+        ruleType,
+        enforcement: "active",
+        result: "pass"
+      }))
+    ) ||
+    !isIsoTimestamp(payload.observedAt) ||
+    payload.custody !== "external-task-output-not-repo-persistence" ||
+    !validSha256(receipt.receiptSha256) ||
+    sha256Buffer(Buffer.from(JSON.stringify(payload), "utf8")) !==
+      receipt.receiptSha256
+  ) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  return payload;
+}
+
+function postPr83RuleSuiteReceiptFromEnvironment() {
+  const raw = process.env.SENA_POST_PR83_POST_MAIN_RULE_SUITE_RECEIPT_JSON;
+  if (raw === undefined) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+}
+
+function discoverPostPr83RuleSuiteId(descriptor, githubTransport) {
+  for (let page = 1; page <= 100; page += 1) {
+    const suites = postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=${page}`,
+      githubTransport
+    );
+    if (!Array.isArray(suites)) {
+      throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+    const match = suites.find(
+      (suite) =>
+        isPlainRecord(suite) &&
+        Number.isInteger(suite.id) &&
+        suite.id > 0 &&
+        suite.actor_name === "HUDongpin" &&
+        suite.before_sha === POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA &&
+        suite.after_sha === descriptor.mergeCommitSha &&
+        suite.repository_name === "SENA" &&
+        suite.result === "pass"
+    );
+    if (match) return match.id;
+    if (suites.length < 100) break;
+  }
+  throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+}
+
+function validatePostPr83CurrentnessLiveGitHubEvidence(
+  evidence,
+  pullRequestNumber,
+  sourceHeadSha,
+  githubTransport = null
+) {
+  const buildRun = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`,
+    githubTransport
+  );
+  const securityRuns = evidence.repositorySecurityRunIds.map((runId) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/runs/${runId}`,
+      githubTransport
+    )
+  );
+  const jobs = evidence.checkJobIds.map((jobId) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/jobs/${jobId}`,
+      githubTransport
+    )
+  );
+  const annotations = evidence.checkJobIds.map((jobId) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/check-runs/${jobId}/annotations`,
+      githubTransport
+    )
+  );
+  const pullRequest = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/pulls/${pullRequestNumber}`,
+    githubTransport
+  );
+  const remoteRef = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_CURRENTNESS_BRANCH}`,
+    githubTransport
+  );
+  const runExact = (run, name, event) =>
+    isPlainRecord(run) &&
+    run.name === name &&
+    run.event === event &&
+    run.head_sha === sourceHeadSha &&
+    run.head_branch === POST_PR83_CURRENTNESS_BRANCH &&
+    run.head_repository?.full_name === "HUDongpin/SENA" &&
+    run.status === "completed" &&
+    run.conclusion === "success";
+  const jobExact = (job, runId, name) =>
+    isPlainRecord(job) &&
+    job.run_id === runId &&
+    job.name === name &&
+    job.head_sha === sourceHeadSha &&
+    job.status === "completed" &&
+    job.conclusion === "success";
+  if (
+    !runExact(buildRun, "build-gate", "pull_request") ||
+    !runExact(securityRuns[0], "repo-security-gate", "push") ||
+    !runExact(securityRuns[1], "repo-security-gate", "pull_request") ||
+    !jobExact(jobs[0], evidence.buildRunId, "build") ||
+    !jobExact(
+      jobs[1],
+      evidence.repositorySecurityRunIds[0],
+      "repository-security"
+    ) ||
+    !jobExact(
+      jobs[2],
+      evidence.repositorySecurityRunIds[1],
+      "repository-security"
+    ) ||
+    annotations.some((entry) => !Array.isArray(entry) || entry.length !== 0) ||
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== pullRequestNumber ||
+    pullRequest.state !== "open" ||
+    pullRequest.draft !== true ||
+    pullRequest.head?.sha !== sourceHeadSha ||
+    pullRequest.head?.ref !== POST_PR83_CURRENTNESS_BRANCH ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !== `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}` ||
+    remoteRef.object?.sha !== sourceHeadSha
+  ) {
+    throw new Error("rule=post-pr83-currentness-live-github-readback-invalid");
+  }
+  return true;
+}
+
+export function validatePostPr83FinalHeadLiveGitHubEvidence(
+  descriptor,
+  pullRequestNumber,
+  options = {}
+) {
+  const finalHeadSha = descriptor?.secondParentSha;
+  const mergeCommitSha = descriptor?.mergeCommitSha;
+  const githubTransport = options.githubTransport ?? null;
+  if (
+    !isSha(finalHeadSha) ||
+    !isSha(mergeCommitSha) ||
+    !sameJson(descriptor?.orderedParentShas, [
+      POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+      finalHeadSha
+    ]) ||
+    !sameJson(
+      protectedMainAdvanceCommitParents(mergeCommitSha),
+      descriptor.orderedParentShas
+    ) ||
+    !Number.isInteger(pullRequestNumber) ||
+    pullRequestNumber <= 0
+  ) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  const runs = [];
+  for (let page = 1; page <= 100; page += 1) {
+    const runsResponse = postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/runs?head_sha=${finalHeadSha}&per_page=100&page=${page}`,
+      githubTransport
+    );
+    if (!Array.isArray(runsResponse?.workflow_runs)) {
+      throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+    runs.push(...runsResponse.workflow_runs);
+    if (runsResponse.workflow_runs.length < 100) break;
+  }
+  const selectLatestRun = (name, event) => {
+    const candidates = runs.filter(
+      (run) =>
+        isPlainRecord(run) &&
+        run.name === name &&
+        run.event === event &&
+        run.head_sha === finalHeadSha &&
+        run.head_branch === POST_PR83_CURRENTNESS_BRANCH &&
+        run.head_repository?.full_name === "HUDongpin/SENA"
+    );
+    if (
+      candidates.length === 0 ||
+      candidates.some(
+        (run) =>
+          !Number.isInteger(run.id) ||
+          run.id <= 0 ||
+          !isIsoTimestamp(run.created_at) ||
+          !Number.isInteger(run.run_number) ||
+          run.run_number <= 0 ||
+          !Number.isInteger(run.run_attempt) ||
+          run.run_attempt <= 0
+      )
+    ) {
+      throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+    return [...candidates].sort((left, right) =>
+      Date.parse(right.created_at) - Date.parse(left.created_at) ||
+      right.run_number - left.run_number ||
+      right.run_attempt - left.run_attempt ||
+      right.id - left.id
+    )[0];
+  };
+  const buildRun = selectLatestRun("build-gate", "pull_request");
+  const pushSecurityRun = selectLatestRun("repo-security-gate", "push");
+  const prSecurityRun = selectLatestRun("repo-security-gate", "pull_request");
+  const latestRuns = [buildRun, pushSecurityRun, prSecurityRun];
+  if (
+    latestRuns.some(
+      (run) => run.status !== "completed" || run.conclusion !== "success"
+    ) ||
+    new Set(latestRuns.map((run) => run.id)).size !== 3
+  ) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  const expectedRuns = [
+    [buildRun, "build"],
+    [pushSecurityRun, "repository-security"],
+    [prSecurityRun, "repository-security"]
+  ];
+  const observedJobIds = [];
+  for (const [run, expectedJobName] of expectedRuns) {
+    const jobsResponse = postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`,
+      githubTransport
+    );
+    const matchingJobs = (jobsResponse?.jobs ?? []).filter(
+      (job) =>
+        isPlainRecord(job) &&
+        job.run_id === run.id &&
+        job.run_attempt === run.run_attempt &&
+        job.name === expectedJobName &&
+        job.head_sha === finalHeadSha &&
+        job.status === "completed" &&
+        job.conclusion === "success" &&
+        Number.isInteger(job.id) &&
+        job.id > 0
+    );
+    if (matchingJobs.length !== 1) {
+      throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+    observedJobIds.push(matchingJobs[0].id);
+    const annotations = postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/check-runs/${matchingJobs[0].id}/annotations`,
+      githubTransport
+    );
+    if (!Array.isArray(annotations) || annotations.length !== 0) {
+      throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+  }
+  if (new Set(observedJobIds).size !== 3) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  const pullRequest = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/pulls/${pullRequestNumber}`,
+    githubTransport
+  );
+  const remoteRef = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_CURRENTNESS_BRANCH}`,
+    githubTransport
+  );
+  if (
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== pullRequestNumber ||
+    pullRequest.state !== "closed" ||
+    pullRequest.draft !== false ||
+    pullRequest.merged !== true ||
+    pullRequest.merge_commit_sha !== mergeCommitSha ||
+    pullRequest.head?.sha !== finalHeadSha ||
+    pullRequest.head?.ref !== POST_PR83_CURRENTNESS_BRANCH ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !== `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}` ||
+    remoteRef.object?.sha !== finalHeadSha
+  ) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  const suppliedReceipt = options.ruleSuiteReceipt ??
+    postPr83RuleSuiteReceiptFromEnvironment();
+  const suppliedPayload = suppliedReceipt
+    ? validatePostPr83RuleSuiteReceiptShape(
+        suppliedReceipt,
+        descriptor,
+        pullRequestNumber
+      )
+    : null;
+  const suiteId = suppliedPayload?.suiteId ??
+    discoverPostPr83RuleSuiteId(descriptor, githubTransport);
+  const suite = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/rulesets/rule-suites/${suiteId}`,
+    githubTransport
+  );
+  const observedAt = suppliedPayload?.observedAt ??
+    options.observedAt ?? new Date().toISOString();
+  const payload = postPr83RuleSuiteReceiptPayload(
+    suite,
+    descriptor,
+    pullRequestNumber,
+    observedAt
+  );
+  if (suppliedPayload && !sameJson(payload, suppliedPayload)) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  const ruleSuiteReceipt = suppliedReceipt ?? {
+    payload,
+    receiptSha256: sha256Buffer(Buffer.from(JSON.stringify(payload), "utf8"))
+  };
+  return {
+    validated: true,
+    ruleSuiteReceipt
+  };
+}
+
+export function validatePostPr83CurrentnessCorrectionFinalTransition(
+  sourceRegistry,
+  candidateRegistry,
+  sourceHeadSha,
+  observedCompletionEvidence = null,
+  options = {}
+) {
+  const evidence = validatePostPr83CurrentnessFinalFields(
+    sourceRegistry,
+    candidateRegistry,
+    sourceHeadSha,
+    { requireCheckedOutSource: true }
+  );
+  if (
+    observedCompletionEvidence &&
+    !sameJson(evidence, observedCompletionEvidence)
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-evidence-context-mismatch"
+    );
+  }
+  validatePostPr83CurrentnessLiveGitHubEvidence(
+    evidence,
+    postPr83CurrentnessItem(candidateRegistry).prNumber,
+    sourceHeadSha,
+    options.githubTransport ?? null
+  );
+  return true;
+}
+
+function postPr83CompletionContextFromEnvironment() {
+  const parseReview = (name) => {
+    try {
+      return JSON.parse(process.env[name] ?? "null");
+    } catch {
+      return null;
+    }
+  };
+  return {
+    headSha: process.env.SENA_POST_PR83_INITIAL_HEAD ?? "",
+    treeSha: process.env.SENA_POST_PR83_INITIAL_TREE ?? "",
+    registryBlobSha:
+      process.env.SENA_POST_PR83_INITIAL_REGISTRY_BLOB ?? "",
+    verifierBlobSha:
+      process.env.SENA_POST_PR83_INITIAL_VERIFIER_BLOB ?? "",
+    governanceTestBlobSha:
+      process.env.SENA_POST_PR83_INITIAL_GOVERNANCE_TEST_BLOB ?? "",
+    compatibilityDiffSha256:
+      process.env.SENA_POST_PR83_INITIAL_COMPATIBILITY_DIFF_SHA256 ?? "",
+    cumulativeDiffSha256:
+      process.env.SENA_POST_PR83_INITIAL_CUMULATIVE_DIFF_SHA256 ?? "",
+    buildRunId: Number(process.env.SENA_POST_PR83_INITIAL_BUILD_RUN_ID),
+    repositorySecurityRunIds: commaSeparatedPositiveIntegers(
+      process.env.SENA_POST_PR83_INITIAL_REPOSITORY_SECURITY_RUN_IDS
+    ),
+    checkJobIds: commaSeparatedPositiveIntegers(
+      process.env.SENA_POST_PR83_INITIAL_CHECK_JOB_IDS
+    ),
+    requiredChecksPassed:
+      process.env.SENA_POST_PR83_INITIAL_REQUIRED_CHECKS_PASSED === "true",
+    annotationsEmpty:
+      process.env.SENA_POST_PR83_INITIAL_ANNOTATIONS_EMPTY === "true",
+    specReview: parseReview("SENA_POST_PR83_INITIAL_SPEC_REVIEW_JSON"),
+    qualitySecurityReview: parseReview(
+      "SENA_POST_PR83_INITIAL_QUALITY_SECURITY_REVIEW_JSON"
+    ),
+    rootCustodyAttestation: parseReview(
+      "SENA_POST_PR83_INITIAL_ROOT_CUSTODY_ATTESTATION_JSON"
+    )
+  };
+}
+
+export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
+    POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
+  ) {
+    validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+    return postPr83CurrentnessLifecycle(registry);
+  }
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
+    POST_PR83_CURRENTNESS_QUALITY_SECURITY_REGISTRY_CANONICAL_SHA256
+  ) {
+    validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+    return postPr83CurrentnessLifecycle(registry);
+  }
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
+    POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256
+  ) {
+    validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+    return postPr83CurrentnessLifecycle(registry);
+  }
+  const lifecycle = validatePostPr83CurrentnessLifecycleShape(registry);
+  if (lifecycle.status === POST_PR83_CURRENTNESS_INITIAL_STATUS) {
+    validatePostPr83CurrentnessCorrectionInitialTransition(
+      loadRegistryFromCommit(POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionCompatibilityTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (lifecycle.status === POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS) {
+    validatePostPr83CurrentnessCorrectionReviewFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
+  } else {
+    const sourceHeadSha =
+      lifecycle.initialCandidateCompletionEvidence?.headSha;
+    if (!isSha(sourceHeadSha)) {
+      throw new Error("rule=post-pr83-currentness-final-evidence-invalid");
+    }
+    validatePostPr83CurrentnessFinalFields(
+      loadRegistryFromCommit(sourceHeadSha).parsed,
+      registry,
+      sourceHeadSha
+    );
+  }
+  return lifecycle;
+}
+
+function validatePostPr83CurrentnessIndexTransition(candidateRegistry) {
+  const branchResult = git([
+    "symbolic-ref",
+    "--quiet",
+    "--short",
+    "HEAD"
+  ], { allowFailure: true });
+  if (
+    branchResult.status !== 0 ||
+    String(branchResult.stdout).trim() !== POST_PR83_CURRENTNESS_BRANCH ||
+    stagedChangedPaths().length === 0
+  ) {
+    return false;
+  }
+  const currentHeadSha = gitText(["rev-parse", "HEAD"]).trim();
+  const sourceRegistry = loadRegistryFromCommit(currentHeadSha).parsed;
+  const candidateLifecycle = postPr83CurrentnessLifecycle(candidateRegistry);
+  if (currentHeadSha === POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_INITIAL_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error("rule=post-pr83-currentness-initial-index-invalid");
+    }
+    const indexedRegistry = loadRegistryFromIndex();
+    validatePostPr83CurrentnessCorrectionInitialRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    if (!sameJson(indexedRegistry.parsed, candidateRegistry)) {
+      throw new Error("rule=post-pr83-currentness-initial-index-invalid");
+    }
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error("rule=post-pr83-currentness-initial-index-invalid");
+      }
+    }
+    validatePostPr83CurrentnessCorrectionInitialTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    currentHeadSha ===
+    POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error("rule=post-pr83-currentness-compatibility-index-invalid");
+    }
+    validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-compatibility-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionCompatibilityTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (currentHeadSha === POST_PR83_CURRENTNESS_REVIEW_FIX_SOURCE_HEAD_SHA) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error("rule=post-pr83-currentness-review-fix-index-invalid");
+    }
+    validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error("rule=post-pr83-currentness-review-fix-index-invalid");
+      }
+    }
+    validatePostPr83CurrentnessCorrectionReviewFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (currentHeadSha === POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-push-readiness-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-push-readiness-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    currentHeadSha === POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-quality-security-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionQualitySecurityFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-quality-security-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (currentHeadSha === POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-clean-context-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionCleanContextFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-clean-context-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (currentHeadSha === POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-build-ci-type-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionBuildCiTypeFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-build-ci-type-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    currentHeadSha ===
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    currentHeadSha ===
+    POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-observer-overdue-test-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-observer-overdue-test-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    currentHeadSha === POST_PR83_CURRENTNESS_STDIN_HANG_TEST_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-stdin-hang-test-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-stdin-hang-test-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
+    postPr83CurrentnessLifecycle(sourceRegistry)?.status ===
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS
+  ) {
+    if (
+      candidateLifecycle?.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_FINAL_PATHS)
+    ) {
+      throw new Error("rule=post-pr83-currentness-final-index-invalid");
+    }
+    validatePostPr83CurrentnessCorrectionFinalTransition(
+      sourceRegistry,
+      candidateRegistry,
+      currentHeadSha,
+      postPr83CompletionContextFromEnvironment()
+    );
+    return true;
+  }
+  throw new Error("rule=post-pr83-currentness-transition-replay");
+}
+
+function evidenceFlowObserverHeartbeatWarningAllowed(item) {
+  return Boolean(
+    item?.taskId === EVIDENCE_FLOW_CURRENTNESS_TASK_ID &&
+      item.ownerKey === EVIDENCE_FLOW_CURRENTNESS_OWNER_KEY &&
+      item.branch === EVIDENCE_FLOW_CURRENTNESS_BRANCH &&
+      item.disposition === "active" &&
+      item[EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_KEY]?.status ===
+        EVIDENCE_FLOW_CURRENTNESS_LIFECYCLE_STATUS &&
+      item[TASK77_COMBINED_CURRENTNESS_LIFECYCLE_KEY]?.status ===
+        TASK77_COMBINED_CURRENTNESS_STATUS &&
+      isIsoTimestamp(item.lastHeartbeatAt) &&
+      isIsoTimestamp(item.lastObservedAt) &&
+      Date.parse(item.lastObservedAt) > Date.parse(item.lastHeartbeatAt) &&
+      String(item.dirtyState ?? "").includes("currentness-observed")
+  );
+}
+
+function postPr83ProtectedLaneContract(item, registry) {
+  const lifecycle = postPr83CurrentnessLifecycle(registry);
+  if (
+    ![
+      POST_PR83_CURRENTNESS_INITIAL_STATUS,
+      POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS,
+      POST_PR83_CURRENTNESS_REVIEW_FIX_STATUS,
+      POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS,
+      POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS,
+      POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
+      POST_PR83_CURRENTNESS_OBSERVER_OVERDUE_TEST_STATUS,
+      POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_STATUS
+    ].includes(lifecycle?.status) ||
+    !sameJson(
+      lifecycle?.protectedLaneContracts,
+      POST_PR83_CURRENTNESS_PROTECTED_LANES
+    )
+  ) {
+    return null;
+  }
+  return POST_PR83_CURRENTNESS_PROTECTED_LANES.find(
+    (entry) => entry.taskId === item?.taskId
+  ) ?? null;
+}
+
+export function postPr83ProtectedLaneShapeAllowed(item, registry) {
+  const contract = postPr83ProtectedLaneContract(item, registry);
+  return Boolean(
+    contract &&
+      item.branch === contract.branch &&
+      item.disposition === contract.disposition &&
+      item.headSha === contract.headSha &&
+      item.aheadBehindObservationMode ===
+        POST_PR83_CURRENTNESS_OBSERVATION_MODE &&
+      item.protectedMainBaselineSha ===
+        POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA &&
+      exactPlainJsonOwnKeys(item.aheadBehind, [
+        "baseRef",
+        "ahead",
+        "behind"
+      ]) &&
+      item.aheadBehind.baseRef === "origin/main" &&
+      item.aheadBehind.ahead === contract.ahead &&
+      item.aheadBehind.behind === contract.behind &&
+      !Object.hasOwn(item, "cleanupAuthorization")
+  );
+}
+
+export function protectedLaneMainAdvanceObservationAllowed(
+  item,
+  actualHeadSha,
+  observed,
+  currentObservationRegistry,
+  options = {}
+) {
+  if (
+    !postPr83ProtectedLaneShapeAllowed(item, currentObservationRegistry) ||
+    actualHeadSha !== item.headSha ||
+    !exactPlainJsonOwnKeys(observed, ["baseRef", "ahead", "behind"]) ||
+    observed.baseRef !== item.aheadBehind.baseRef ||
+    observed.ahead !== item.aheadBehind.ahead ||
+    observed.behind <= item.aheadBehind.behind ||
+    !gitObjectExists(`${actualHeadSha}^{commit}`) ||
+    !gitObjectExists("origin/main^{commit}")
+  ) {
+    return false;
+  }
+  const liveMainSha = gitText(["rev-parse", "origin/main"]).trim();
+  if (
+    !isSha(liveMainSha) ||
+    !sameJson(actualAheadBehind(actualHeadSha, "origin/main"), observed) ||
+    git([
+      "merge-base",
+      "--is-ancestor",
+      item.protectedMainBaselineSha,
+      liveMainSha
+    ], { allowFailure: true }).status !== 0
+  ) {
+    return false;
+  }
+  return protectedMainAdvanceChainResolution(
+    currentObservationRegistry,
+    item.protectedMainBaselineSha,
+    liveMainSha,
+    options
+  ).allowed;
+}
+
 function validateRegistry(registry) {
   const errors = [];
   const warnings = [];
@@ -8543,14 +12191,26 @@ function validateRegistry(registry) {
       branchOwners.set(item.branch, item.owner);
       const heartbeatAge = isIsoTimestamp(item.lastHeartbeatAt) ? ageHours(item.lastHeartbeatAt) : Number.POSITIVE_INFINITY;
       if (heartbeatAge > 72) {
-        errors.push(`active workItem ${item.taskId} has no heartbeat for more than 72 hours and must be frozen`);
+        if (evidenceFlowObserverHeartbeatWarningAllowed(item)) {
+          warnings.push(
+            `active EvidenceFlow workItem observer heartbeat is older than 72 hours; owner heartbeat remains intentionally untouched`
+          );
+        } else {
+          errors.push(`active workItem ${item.taskId} has no heartbeat for more than 72 hours and must be frozen`);
+        }
       } else if (heartbeatAge > 24) {
         warnings.push(`active workItem ${item.taskId} has no heartbeat for more than 24 hours`);
       }
     }
     if (Date.parse(item.nextReviewAt) < Date.now()) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) {
-        errors.push(`active workItem ${item.taskId} has an overdue nextReviewAt`);
+        if (evidenceFlowObserverHeartbeatWarningAllowed(item)) {
+          warnings.push(
+            "active EvidenceFlow workItem observer review is overdue; owner record remains intentionally untouched"
+          );
+        } else {
+          errors.push(`active workItem ${item.taskId} has an overdue nextReviewAt`);
+        }
       } else {
         warnings.push(`workItem ${item.taskId} requires scheduled preservation review`);
       }
@@ -8559,7 +12219,15 @@ function validateRegistry(registry) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} requires prNumber or noPrReason`);
     }
     if (item.aheadBehindObservationMode !== undefined) {
-      if (item.aheadBehindObservationMode !== "integrated-monotonic-behind") {
+      if (
+        item.aheadBehindObservationMode === POST_PR83_CURRENTNESS_OBSERVATION_MODE
+      ) {
+        if (!postPr83ProtectedLaneShapeAllowed(item, registry)) {
+          errors.push(
+            `workItem ${item.taskId ?? "<unknown>"} has invalid protected-main merge-chain observation contract`
+          );
+        }
+      } else if (item.aheadBehindObservationMode !== "integrated-monotonic-behind") {
         errors.push(
           `workItem ${item.taskId ?? "<unknown>"} aheadBehindObservationMode must be integrated-monotonic-behind when declared`
         );
@@ -8707,7 +12375,16 @@ function validateRegistry(registry) {
     }
     if (Date.parse(branch.nextReviewAt) < Date.now()) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(branch.disposition)) {
-        errors.push(`active branch ${branch.name ?? "<unknown>"} has an overdue nextReviewAt`);
+        const evidenceFlowItem = (registry.workItems ?? []).find(
+          (item) => item?.branch === branch.name
+        );
+        if (evidenceFlowObserverHeartbeatWarningAllowed(evidenceFlowItem)) {
+          warnings.push(
+            "active EvidenceFlow branch observer review is overdue; owner record remains intentionally untouched"
+          );
+        } else {
+          errors.push(`active branch ${branch.name ?? "<unknown>"} has an overdue nextReviewAt`);
+        }
       } else {
         warnings.push(`branch ${branch.name ?? "<unknown>"} requires scheduled preservation review`);
       }
@@ -8809,9 +12486,26 @@ function validateRegistry(registry) {
   const hasPostPr82TopologyHeartbeat = Boolean(
     postPr82TopologyHeartbeatLifecycle(registry)
   );
+  const hasPostPr83CurrentnessCorrection = Boolean(
+    postPr83CurrentnessLifecycle(registry) ||
+      postPr83CurrentnessReceipt(registry)
+  );
+  if (hasPostPr83CurrentnessCorrection) {
+    try {
+      validatePostPr83CurrentnessCorrectionSnapshot(registry);
+    } catch (error) {
+      errors.push(
+        error instanceof Error
+          ? error.message
+          : "rule=post-pr83-currentness-lifecycle-invalid"
+      );
+    }
+  }
   if (hasProtectedCurrentnessRepairLifecycle || hasProtectedCurrentnessRepairReceipt) {
     try {
-      if (hasPostPr82TopologyHeartbeat) {
+      if (hasPostPr83CurrentnessCorrection) {
+        // The post-PR83 lifecycle pins and validates the superseding exact snapshot.
+      } else if (hasPostPr82TopologyHeartbeat) {
         validatePostPr82IntegratedCurrentnessSnapshot(registry);
       } else {
         const repairLifecycle = protectedCurrentnessRepairWorkItem(registry)
@@ -10134,31 +13828,202 @@ function protectedMainPr46MergeTimeCandidate(descriptor) {
   };
 }
 
+function postPr83ProtectedCurrentObservationValid(
+  currentObservationRegistry,
+  descriptor,
+  options = {}
+) {
+  try {
+    const lifecycle = validatePostPr83CurrentnessCorrectionSnapshot(
+      currentObservationRegistry
+    );
+    if (lifecycle.status !== POST_PR83_CURRENTNESS_FINAL_STATUS) return false;
+    if (!gitObjectExists("origin/main^{commit}")) return false;
+    const liveMainSha = gitText(["rev-parse", "origin/main"]).trim();
+    if (
+      !isSha(liveMainSha) ||
+      git([
+        "merge-base",
+        "--is-ancestor",
+        descriptor.mergeCommitSha,
+        liveMainSha
+      ], { allowFailure: true }).status !== 0
+    ) {
+      return false;
+    }
+    const liveEvidence = validatePostPr83FinalHeadLiveGitHubEvidence(
+      descriptor,
+      postPr83CurrentnessItem(currentObservationRegistry)?.prNumber,
+      options
+    );
+    if (
+      Array.isArray(options.ruleSuiteReceiptCollector) &&
+      liveEvidence?.ruleSuiteReceipt
+    ) {
+      options.ruleSuiteReceiptCollector.push(liveEvidence.ruleSuiteReceipt);
+    }
+    return POST_PR83_CURRENTNESS_PROTECTED_LANES.every((contract) => {
+      const item = (currentObservationRegistry.workItems ?? []).find(
+        (entry) => entry?.taskId === contract.taskId
+      );
+      const observed = actualAheadBehind(item?.headSha, "origin/main");
+      return Boolean(
+        postPr83ProtectedLaneShapeAllowed(item, currentObservationRegistry) &&
+          observed &&
+          observed.ahead === item.aheadBehind.ahead &&
+          observed.behind > item.aheadBehind.behind
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function validatePostPr83ProtectedMainMergeDescriptor(
+  descriptor,
+  options = {}
+) {
+  try {
+    const {
+      mergeTimeRegistry,
+      currentObservationRegistry,
+      mergeCommitSha,
+      orderedParentShas,
+      secondParentSha,
+      mergeTreeSha,
+      registryBlobSha
+    } = descriptor ?? {};
+    const lifecycle = validatePostPr83CurrentnessCorrectionSnapshot(
+      mergeTimeRegistry
+    );
+    const evidence = lifecycle.initialCandidateCompletionEvidence;
+    if (
+      lifecycle.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
+      !isSha(mergeCommitSha) ||
+      !sameJson(orderedParentShas, [
+        POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+        secondParentSha
+      ]) ||
+      !isSha(secondParentSha) ||
+      !isSha(mergeTreeSha) ||
+      !isSha(registryBlobSha) ||
+      protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !==
+        mergeTreeSha ||
+      protectedMainAdvanceObjectSha(
+        `${secondParentSha}:${REGISTRY_REPO_PATH}`
+      ) !== registryBlobSha ||
+      protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !==
+        mergeTreeSha ||
+      !sameJson(
+        protectedMainAdvanceCommitParents(mergeCommitSha),
+        orderedParentShas
+      ) ||
+      !sameJson(commitParents(secondParentSha), [evidence.headSha]) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(evidence.headSha, secondParentSha) ??
+          [],
+        POST_PR83_CURRENTNESS_FINAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+          evidence.headSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+          secondParentSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameJson(
+        protectedMainAdvanceRegistryFromCommit(secondParentSha),
+        mergeTimeRegistry
+      )
+    ) {
+      return false;
+    }
+    validatePostPr83CurrentnessCompletionEvidence(
+      evidence,
+      evidence.headSha,
+      loadRegistryFromCommit(evidence.headSha).parsed
+    );
+    if (options.mergeTimeOnly === true) return true;
+    return postPr83ProtectedCurrentObservationValid(
+      currentObservationRegistry,
+      descriptor,
+      options
+    );
+  } catch {
+    return false;
+  }
+}
+
+function protectedMainPostPr83CurrentnessMergeTimeCandidate(
+  descriptor,
+  options = {}
+) {
+  if (
+    !validatePostPr83ProtectedMainMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    return null;
+  }
+  return {
+    kind: "post-pr83-currentness-correction",
+    expectedPaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePostPr83ProtectedMainMergeDescriptor({
+        ...descriptor,
+        currentObservationRegistry
+      }, options);
+    }
+  };
+}
+
 export function protectedMainUniqueMergeTimeCandidate(matches) {
   const candidates = matches.filter(Boolean);
   return candidates.length === 1 ? candidates[0] : null;
 }
 
-export function protectedMainMergeTimeCandidateResolution(descriptor) {
+export function protectedMainMergeTimeCandidateResolution(
+  descriptor,
+  options = {}
+) {
   return protectedMainUniqueMergeTimeCandidate([
     protectedMainPr81MergeTimeCandidate(descriptor),
     protectedMainRepairMergeTimeCandidate(descriptor),
-    protectedMainPr46MergeTimeCandidate(descriptor)
+    protectedMainPr46MergeTimeCandidate(descriptor),
+    protectedMainPostPr83CurrentnessMergeTimeCandidate(descriptor, options)
   ]);
 }
 
 export function protectedMainAdvanceChainResolution(
   currentObservationRegistry,
   fromSha,
-  toSha
+  toSha,
+  options = {}
 ) {
   const validated = [];
+  const postPr83RuleSuiteReceipts = [];
+  const resolutionOptions = {
+    ...options,
+    ruleSuiteReceiptCollector: postPr83RuleSuiteReceipts
+  };
+  const receiptResult = () =>
+    postPr83RuleSuiteReceipts.length > 0
+      ? { postPr83RuleSuiteReceipts: [...postPr83RuleSuiteReceipts] }
+      : {};
   let activeCommitSha = null;
   const rejected = (rule, failedCommitSha = activeCommitSha) => ({
     allowed: false,
     rule,
     mergeCommitShas: [...validated],
-    failedCommitSha: isSha(failedCommitSha) ? failedCommitSha : null
+    failedCommitSha: isSha(failedCommitSha) ? failedCommitSha : null,
+    ...receiptResult()
   });
   try {
     if (!isSha(fromSha) || !isSha(toSha)) {
@@ -10235,7 +14100,8 @@ export function protectedMainAdvanceChainResolution(
         registryBlobSha
       };
       const selectedCandidate = protectedMainMergeTimeCandidateResolution(
-        mergeDescriptor
+        mergeDescriptor,
+        resolutionOptions
       );
       const changedPaths = protectedMainAdvanceChangedPaths(previous, mergeCommitSha);
       if (!selectedCandidate) {
@@ -10260,7 +14126,8 @@ export function protectedMainAdvanceChainResolution(
       allowed: true,
       rule: null,
       mergeCommitShas: [...validated],
-      failedCommitSha: null
+      failedCommitSha: null,
+      ...receiptResult()
     };
   } catch {
     return rejected("protected-advance-git-read-failed");
@@ -10848,6 +14715,20 @@ function runAudit(flags) {
           dirtyPaths,
           stagedPaths: preCommitStagedPaths,
           unstagedPaths: preCommitUnstagedPaths
+        }) ||
+        postPr83FinalHeartbeatPreCommitCleanClaimAllowed({
+          registry,
+          taskId: item.taskId,
+          branch: item.branch,
+          actualHeadSha: actual.headSha,
+          dirtyState: item.dirtyState,
+          lifecycleStatus:
+            item.postPr83CurrentnessCorrectionLifecycle?.status,
+          preCommit: flags.has("pre-commit"),
+          registryFromIndex: flags.has("registry-from-index"),
+          dirtyPaths,
+          stagedPaths: preCommitStagedPaths,
+          unstagedPaths: preCommitUnstagedPaths
         });
       if (
         item.dirtyState.startsWith("clean") &&
@@ -10888,8 +14769,20 @@ function runAudit(flags) {
       errors.push(`ahead/behind base is unavailable: ${item.taskId} base=${item.aheadBehind.baseRef}`);
     } else if (observed.ahead !== item.aheadBehind.ahead || observed.behind !== item.aheadBehind.behind) {
       if (isActive) warnings.push(`active workItem ahead/behind advanced since heartbeat: ${item.taskId}`);
+      else if (
+        protectedLaneMainAdvanceObservationAllowed(
+          item,
+          actual.headSha,
+          observed,
+          registry
+        )
+      ) {
+        warnings.push(
+          `protected lane fell farther behind through an accepted protected-main merge chain: ${item.taskId}`
+        );
+      }
       else if (integratedRootRegistryAdvance) {
-        // The exact protected-main registry-only advance above is the sole permitted root currentness drift.
+        // The exact protected-main advance above is already validated.
       } else if (integratedRootRemoteRegistryAdvance) {
         warnings.push(
           `integrated read-only root observed a protected-main registry-only remote advance without advancing local main: ${item.taskId}`
@@ -10945,6 +14838,8 @@ function runAudit(flags) {
 
   const liveRemote = flags.has("live") ? remoteRefs() : { available: false, refs: [] };
   const livePrState = flags.has("live") ? remotePullRequests() : { available: false, pullRequests: [] };
+  let postPr83LiveMainResolution = null;
+  let postPr83RuleSuiteReceipts = [];
   if (flags.has("live") && !liveRemote.available) errors.push("live origin heads/tags query failed closed");
   if (flags.has("live") && !livePrState.available) errors.push("live GitHub PR query failed closed");
   if (liveRemote.available) {
@@ -10954,12 +14849,40 @@ function runAudit(flags) {
     if (!liveMainSha || liveMainSha !== cachedMainSha) {
       errors.push("live main does not match cached origin/main");
     }
+    if (
+      liveMainSha &&
+      postPr83CurrentnessLifecycle(registry)?.status ===
+        POST_PR83_CURRENTNESS_FINAL_STATUS
+    ) {
+      postPr83LiveMainResolution = protectedMainAdvanceChainResolution(
+        registry,
+        POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+        liveMainSha,
+        {
+          ruleSuiteReceipt: postPr83RuleSuiteReceiptFromEnvironment()
+        }
+      );
+      postPr83RuleSuiteReceipts =
+        postPr83LiveMainResolution.postPr83RuleSuiteReceipts ?? [];
+    }
     const recordedIncidentMainSha = registry.incident?.credentialExposure?.liveMainSha;
     if (liveMainSha !== recordedIncidentMainSha) {
+      const postPr83ProtectedChainRequired = Boolean(
+        postPr83CurrentnessLifecycle(registry)
+      );
       const isPermittedForwardMainObservation = Boolean(
         registry.incident?.credentialExposure?.liveMainObservationMode === "lower-bound" &&
         isSha(recordedIncidentMainSha) &&
-        git(["merge-base", "--is-ancestor", recordedIncidentMainSha, liveMainSha], { allowFailure: true }).status === 0
+        (postPr83ProtectedChainRequired
+          ? (postPr83LiveMainResolution ?? protectedMainAdvanceChainResolution(
+                registry,
+                POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+                liveMainSha,
+                {
+                  ruleSuiteReceipt: postPr83RuleSuiteReceiptFromEnvironment()
+                }
+              )).allowed
+          : git(["merge-base", "--is-ancestor", recordedIncidentMainSha, liveMainSha], { allowFailure: true }).status === 0)
       );
       if (isPermittedForwardMainObservation) {
         warnings.push("live main advanced beyond the incident observation lower bound");
@@ -10999,9 +14922,19 @@ function runAudit(flags) {
             activeItem &&
             permittedActiveAdvance(branchRecord.remoteHeadSha, liveHeadSha, activeItem)
           );
+          const protectedMainLowerBound = Boolean(
+            branchRecord.name === "main" &&
+              postPr83CurrentnessLifecycle(registry)
+          );
           const isPermittedLowerBoundObservation = Boolean(
             branchRecord.remoteObservationMode === "lower-bound" &&
-            git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0
+            (protectedMainLowerBound
+              ? protectedMainAdvanceChainResolution(
+                  registry,
+                  branchRecord.remoteHeadSha,
+                  liveHeadSha
+                ).allowed
+              : git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0)
           );
           if (isPermittedForwardAdvance) {
             warnings.push(`active remote branch advanced beyond its last observed SHA: ${branchRecord.name}`);
@@ -11092,6 +15025,13 @@ function runAudit(flags) {
     rescueRefCount: rescueRefs.length,
     unreachableCommitCount: unreachableCommits.length,
     activeWriterCount: validation.activeWriterCount,
+    postPr83RuleSuiteReceiptCustody: {
+      mode: "external-task-output-not-repo-persistence",
+      verifierPersisted: false,
+      suppliedReceiptDirectRevalidation:
+        postPr83RuleSuiteReceiptFromEnvironment() !== null
+    },
+    postPr83RuleSuiteReceipts,
     liveRemoteRefs: liveRemote,
     livePullRequests: livePrState,
     errors,
@@ -11370,6 +15310,7 @@ function printUsage() {
   process.stdout.write(`Usage:\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs security [--tree REF] [--range A..B] [--staged]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs security --pre-push --remote-name origin < updates\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs post-pr83-push-draft-readiness\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs write-policy --registry-from-index --staged\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
@@ -11382,6 +15323,9 @@ function main() {
   const { command, flags } = parseArguments(process.argv.slice(2));
   try {
     if (command === "security") return runSecurity(flags);
+    if (command === "post-pr83-push-draft-readiness") {
+      return runPostPr83PushDraftReadiness();
+    }
     if (command === "write-policy") return runWritePolicy(flags);
     if (command === "push-policy") return runPushPolicy(flags);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);

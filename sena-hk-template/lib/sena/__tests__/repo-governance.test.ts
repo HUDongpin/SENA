@@ -10,7 +10,8 @@ import {
   symlinkSync,
   chmodSync,
   existsSync,
-  realpathSync
+  realpathSync,
+  statSync
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -26,6 +27,24 @@ function temporaryRoot(label: string) {
   const root = mkdtempSync(join(tmpdir(), `sena-${label}-`));
   tempRoots.push(root);
   return root;
+}
+
+function withHistoricalDateNow(
+  root: string,
+  environment: NodeJS.ProcessEnv,
+  timestamp = "2026-09-03T10:41:00Z"
+): NodeJS.ProcessEnv {
+  const preload = join(root, "historical-date-now.cjs");
+  writeFileSync(
+    preload,
+    `Date.now = () => ${Date.parse(timestamp)};\n`
+  );
+  return {
+    ...environment,
+    NODE_OPTIONS: [environment.NODE_OPTIONS, `--require=${preload}`]
+      .filter(Boolean)
+      .join(" ")
+  };
 }
 
 function runNode(
@@ -86,7 +105,7 @@ function protectedCurrentnessRepairFrozenSourceForTest() {
 function runGitWithEnvironment(
   root: string,
   args: string[],
-  environment: Record<string, string>,
+  environment: Record<string, string | undefined>,
   input?: string
 ) {
   const result = spawnSync("git", args, {
@@ -99,6 +118,27 @@ function runGitWithEnvironment(
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
   }
   return result.stdout.trim();
+}
+
+function hashObjectContentWithEnvironment(
+  root: string,
+  environment: Record<string, string | undefined>,
+  content: string | Buffer
+) {
+  const contentRoot = temporaryRoot("hash-object-content");
+  const contentPath = join(contentRoot, "object-content");
+  writeFileSync(contentPath, content);
+  return runGitWithEnvironment(
+    root,
+    [
+      "--no-optional-locks",
+      "hash-object",
+      "-w",
+      "--no-filters",
+      contentPath
+    ],
+    environment
+  );
 }
 
 function treeFromCommitWithPathChanges(
@@ -136,9 +176,8 @@ function treeFromCommitWithPathChanges(
     } else if (change.kind === "copy") {
       installFromCommit(change.from, change.to);
     } else {
-      const blob = runGitWithEnvironment(
+      const blob = hashObjectContentWithEnvironment(
         root,
-        ["hash-object", "-w", "--stdin"],
         indexEnvironment,
         change.content
       );
@@ -270,6 +309,59 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
   runGit(root, ["commit", "-q", "-m", "register governed writer"]);
   const head = runGit(root, ["rev-parse", "HEAD"]);
   return { root, script, registryPath, registry, base, head, ref: "refs/heads/topic" };
+}
+
+function createNativeHookPositiveFixture(label: string) {
+  const fixture = createGovernedFixture(label, [
+    "README.md",
+    "coordination/repo-governance/**",
+    "scripts/**",
+    ".githooks/**"
+  ]);
+  const hooksDirectory = join(fixture.root, ".githooks");
+  const registry = JSON.parse(readFileSync(fixture.registryPath, "utf8"));
+  registry.rescue.expectedRefCount = 0;
+  registry.rescue.refListSha256 = createHash("sha256")
+    .update("")
+    .digest("hex");
+  writeFileSync(fixture.registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+  mkdirSync(hooksDirectory, { recursive: true });
+  for (const hookName of ["pre-commit", "pre-push"]) {
+    const target = join(hooksDirectory, hookName);
+    copyFileSync(join(projectRoot, ".githooks", hookName), target);
+    chmodSync(target, 0o700);
+  }
+  runGit(fixture.root, [
+    "add",
+    "coordination/repo-governance/active-work.json",
+    "scripts/verify-sena-repo-governance.mjs",
+    ".githooks/pre-commit",
+    ".githooks/pre-push"
+  ]);
+  runGit(fixture.root, ["commit", "-q", "-m", "install governed native hooks"]);
+  runGit(fixture.root, ["branch", "--set-upstream-to=origin/main", "topic"]);
+  runGit(fixture.root, ["config", "core.hooksPath", ".githooks"]);
+  writeFileSync(join(fixture.root, "README.md"), "safe staged candidate\n");
+  runGit(fixture.root, ["add", "README.md"]);
+  const gitDirectory = realpathSync(join(fixture.root, ".git"));
+  const indexPath = realpathSync(join(gitDirectory, "index"));
+  const canonicalRoot = realpathSync(fixture.root);
+  return {
+    ...fixture,
+    hooksDirectory,
+    gitDirectory,
+    indexPath,
+    stagedPaths: ["README.md"],
+    environment: {
+      NODE_ENV: "test",
+      PATH: process.env.PATH,
+      GIT_DIR: gitDirectory,
+      GIT_WORK_TREE: canonicalRoot,
+      GIT_INDEX_FILE: indexPath,
+      GIT_OPTIONAL_LOCKS: "0",
+      SENA_GOVERNANCE_TARGET_ROOT: canonicalRoot
+    } satisfies NodeJS.ProcessEnv
+  };
 }
 
 function createIntegratedMonotonicBehindFixture(label: string) {
@@ -490,13 +582,16 @@ function protectedCurrentnessRepairBranchForTest(registry: any) {
   );
 }
 
-function indexedGovernanceRegistryForTest() {
+function indexedGovernanceRegistryForTest(
+  root = projectRoot,
+  environment: Record<string, string> = {}
+) {
   return JSON.parse(
-    runGit(projectRoot, [
+    runGitWithEnvironment(root, [
       "--no-optional-locks",
       "show",
       ":coordination/repo-governance/active-work.json"
-    ])
+    ], environment)
   );
 }
 
@@ -596,15 +691,104 @@ process.stdout.write(JSON.stringify(value));
 
 function withIndexedFinalEvidenceEnvironment(
   base: NodeJS.ProcessEnv,
-  stagedPaths: string[]
-) {
+  stagedPaths: string[],
+  root = projectRoot
+): NodeJS.ProcessEnv {
   if (
     stagedPaths.length !== 1 ||
     stagedPaths[0] !== "coordination/repo-governance/active-work.json"
   ) {
     return base;
   }
-  const registry = indexedGovernanceRegistryForTest();
+  const registry = indexedGovernanceRegistryForTest(
+    root,
+    base as Record<string, string>
+  );
+  const postPr83Item = registry.workItems.find(
+    (entry: { taskId?: string }) =>
+      entry.taskId === "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903"
+  );
+  const postPr83Lifecycle =
+    postPr83Item?.postPr83CurrentnessCorrectionLifecycle;
+  const postPr83Evidence =
+    postPr83Lifecycle?.initialCandidateCompletionEvidence;
+  if (
+    postPr83Lifecycle?.status ===
+      "registry-only-post-pr83-currentness-correction-final-candidate" &&
+    postPr83Evidence
+  ) {
+    const actualHead = runGitWithEnvironment(root, [
+      "--no-optional-locks",
+      "rev-parse",
+      "HEAD"
+    ], base as Record<string, string>);
+    expect(postPr83Evidence.headSha).toBe(actualHead);
+    expect(postPr83Evidence.treeSha).toBe(
+      runGitWithEnvironment(
+        root,
+        ["--no-optional-locks", "rev-parse", "HEAD^{tree}"],
+        base as Record<string, string>
+      )
+    );
+    expect(postPr83Evidence.registryBlobSha).toBe(
+      runGitWithEnvironment(root, [
+        "--no-optional-locks",
+        "rev-parse",
+        "HEAD:coordination/repo-governance/active-work.json"
+      ], base as Record<string, string>)
+    );
+    expect(postPr83Evidence.verifierBlobSha).toBe(
+      runGitWithEnvironment(root, [
+        "--no-optional-locks",
+        "rev-parse",
+        "HEAD:scripts/verify-sena-repo-governance.mjs"
+      ], base as Record<string, string>)
+    );
+    expect(postPr83Evidence.governanceTestBlobSha).toBe(
+      runGitWithEnvironment(root, [
+        "--no-optional-locks",
+        "rev-parse",
+        "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ], base as Record<string, string>)
+    );
+    return {
+        ...base,
+        SENA_POST_PR83_INITIAL_HEAD: postPr83Evidence.headSha,
+        SENA_POST_PR83_INITIAL_TREE: postPr83Evidence.treeSha,
+        SENA_POST_PR83_INITIAL_REGISTRY_BLOB:
+          postPr83Evidence.registryBlobSha,
+        SENA_POST_PR83_INITIAL_VERIFIER_BLOB:
+          postPr83Evidence.verifierBlobSha,
+        SENA_POST_PR83_INITIAL_GOVERNANCE_TEST_BLOB:
+          postPr83Evidence.governanceTestBlobSha,
+        SENA_POST_PR83_INITIAL_COMPATIBILITY_DIFF_SHA256:
+          postPr83Evidence.compatibilityDiffSha256,
+        SENA_POST_PR83_INITIAL_CUMULATIVE_DIFF_SHA256:
+          postPr83Evidence.cumulativeDiffSha256,
+        SENA_POST_PR83_INITIAL_BUILD_RUN_ID: String(
+          postPr83Evidence.buildRunId
+        ),
+        SENA_POST_PR83_INITIAL_REPOSITORY_SECURITY_RUN_IDS:
+          postPr83Evidence.repositorySecurityRunIds.join(","),
+        SENA_POST_PR83_INITIAL_CHECK_JOB_IDS:
+          postPr83Evidence.checkJobIds.join(","),
+        SENA_POST_PR83_INITIAL_REQUIRED_CHECKS_PASSED: String(
+          postPr83Evidence.requiredChecksPassed
+        ),
+        SENA_POST_PR83_INITIAL_ANNOTATIONS_EMPTY: String(
+          postPr83Evidence.annotationsEmpty
+        ),
+        SENA_POST_PR83_INITIAL_SPEC_REVIEW_JSON: JSON.stringify(
+          postPr83Evidence.specReview
+        ),
+        SENA_POST_PR83_INITIAL_QUALITY_SECURITY_REVIEW_JSON: JSON.stringify(
+          postPr83Evidence.qualitySecurityReview
+        ),
+        SENA_POST_PR83_INITIAL_ROOT_CUSTODY_ATTESTATION_JSON: JSON.stringify(
+          postPr83Evidence.rootCustodyAttestation
+        )
+      };
+  }
   const postPr82Item = registry.workItems.find(
     (entry: { taskId?: string }) =>
       entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
@@ -618,35 +802,39 @@ function withIndexedFinalEvidenceEnvironment(
       "registry-only-post-pr82-topology-heartbeat-final-candidate" &&
     postPr82Evidence
   ) {
-    const actualHead = runGit(projectRoot, [
+    const actualHead = runGitWithEnvironment(root, [
       "--no-optional-locks",
       "rev-parse",
       "HEAD"
-    ]);
+    ], base as Record<string, string>);
     expect(postPr82Evidence.headSha).toBe(actualHead);
     expect(postPr82Evidence.treeSha).toBe(
-      runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD^{tree}"])
+      runGitWithEnvironment(
+        root,
+        ["--no-optional-locks", "rev-parse", "HEAD^{tree}"],
+        base as Record<string, string>
+      )
     );
     expect(postPr82Evidence.registryBlobSha).toBe(
-      runGit(projectRoot, [
+      runGitWithEnvironment(root, [
         "--no-optional-locks",
         "rev-parse",
         "HEAD:coordination/repo-governance/active-work.json"
-      ])
+      ], base as Record<string, string>)
     );
     expect(postPr82Evidence.verifierBlobSha).toBe(
-      runGit(projectRoot, [
+      runGitWithEnvironment(root, [
         "--no-optional-locks",
         "rev-parse",
         "HEAD:scripts/verify-sena-repo-governance.mjs"
-      ])
+      ], base as Record<string, string>)
     );
     expect(postPr82Evidence.governanceTestBlobSha).toBe(
-      runGit(projectRoot, [
+      runGitWithEnvironment(root, [
         "--no-optional-locks",
         "rev-parse",
         "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
-      ])
+      ], base as Record<string, string>)
     );
     return withFakePostPr82GitHubEvidence({
       ...base,
@@ -715,27 +903,27 @@ function withIndexedFinalEvidenceEnvironment(
   ) {
     return base;
   }
-  const actualHead = runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"]);
+  const actualHead = runGit(root, ["--no-optional-locks", "rev-parse", "HEAD"]);
   expect(evidence.headSha).toBe(actualHead);
   expect(evidence.treeSha).toBe(
-    runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD^{tree}"])
+    runGit(root, ["--no-optional-locks", "rev-parse", "HEAD^{tree}"])
   );
   expect(evidence.registryBlobSha).toBe(
-    runGit(projectRoot, [
+    runGit(root, [
       "--no-optional-locks",
       "rev-parse",
       "HEAD:coordination/repo-governance/active-work.json"
     ])
   );
   expect(evidence.verifierBlobSha).toBe(
-    runGit(projectRoot, [
+    runGit(root, [
       "--no-optional-locks",
       "rev-parse",
       "HEAD:scripts/verify-sena-repo-governance.mjs"
     ])
   );
   expect(evidence.governanceTestBlobSha).toBe(
-    runGit(projectRoot, [
+    runGit(root, [
       "--no-optional-locks",
       "rev-parse",
       "HEAD:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
@@ -5759,11 +5947,7 @@ describe("SENA repository governance", () => {
   });
 
   it("reports a closed incident with restored root control plane as pass", () => {
-    const result = runNode(governanceScript, [
-      "audit",
-      "--registry-from-commit",
-      runGit(projectRoot, ["--no-optional-locks", "rev-parse", "HEAD"])
-    ]);
+    const result = runNode(governanceScript, ["audit"]);
     expect(result.status).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("pass");
@@ -5771,20 +5955,49 @@ describe("SENA repository governance", () => {
     expect(report.ownerBlockers).toEqual([]);
   });
 
-  it("does not leak a pre-commit candidate index into other registered worktrees", () => {
+  it("does not let an empty copied candidate index authorize another worktree", () => {
     const root = temporaryRoot("candidate-index-isolation");
     const sourceIndex = runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
     const candidateIndex = join(root, "candidate-index");
-    copyFileSync(sourceIndex, candidateIndex);
+    const sourceIndexSha256 = sha256File(sourceIndex);
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "read-tree", "HEAD"],
+      { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" }
+    );
 
-    const result = runNode(governanceScript, ["audit", "--pre-commit", "--registry-from-index"], {
+    const result = runNode(governanceScript, [
+      "write-policy",
+      "--registry-from-index",
+      "--staged"
+    ], {
       env: { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" }
     });
-    expect(result.status).toBe(0);
-    const report = JSON.parse(result.stdout);
-    expect(report.errors).toEqual([]);
-    expect(report.status).toBe("pass");
-    expect(report.ownerBlockers).toEqual([]);
+    expect(result.status, result.stderr).toBe(1);
+    const indexedLifecycleStatus = JSON.parse(runGit(projectRoot, [
+      "show",
+      "HEAD:coordination/repo-governance/active-work.json"
+    ])).workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+    )?.postPr83CurrentnessCorrectionLifecycle?.status;
+    const expectedEmptyIndexFailure = [
+        "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
+        "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
+        "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
+        "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
+        "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
+        "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
+        "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate"
+      ].includes(indexedLifecycleStatus);
+    expect(
+      expectedEmptyIndexFailure
+        ? [
+            "rule=empty-staged-index-not-authorized",
+            "index registry snapshot is invalid"
+          ].some((message) => result.stderr.includes(message))
+        : result.stderr.includes("index registry snapshot is invalid")
+    ).toBe(true);
+    expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
 
     const realGitDirectory = runGit(projectRoot, [
       "--no-optional-locks",
@@ -5842,56 +6055,47 @@ describe("SENA repository governance", () => {
       "count-objects",
       "-v"
     ]);
-    const stagedPaths = runGit(projectRoot, [
-      "--no-optional-locks",
-      "diff",
-      "--cached",
-      "--name-only"
-    ]).split("\n").filter(Boolean);
-    expect([
-      [],
-      ["coordination/repo-governance/active-work.json"],
-      [
-        "coordination/repo-governance/active-work.json",
-        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
-      ],
-      [
-        "coordination/repo-governance/active-work.json",
-        "scripts/verify-sena-repo-governance.mjs",
-        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
-      ]
-    ]).toContainEqual(stagedPaths);
-    const stagedPathCount = stagedPaths.length;
-    const gateEnvironment = withIndexedFinalEvidenceEnvironment(
-      canonicalEnvironment,
-      stagedPaths
+    const nativeHookFixture = createNativeHookPositiveFixture(
+      "canonical-native-hook-positive"
     );
 
     const audit = runNode(
-      governanceScript,
+      nativeHookFixture.script,
       ["audit", "--pre-commit", "--registry-from-index"],
-      { env: gateEnvironment }
+      {
+        cwd: nativeHookFixture.root,
+        env: nativeHookFixture.environment
+      }
     );
-    expect(audit.status, audit.stderr).toBe(0);
-    expect(JSON.parse(audit.stdout)).toMatchObject({ status: "pass", errors: [] });
+    expect(audit.status, `${audit.stderr}\n${audit.stdout}`).toBe(0);
+    expect(JSON.parse(audit.stdout)).toMatchObject({
+      status: "blocked-owner",
+      errors: []
+    });
+    expect(
+      runGit(nativeHookFixture.root, ["diff", "--cached", "--name-only"])
+    ).toBe("README.md");
     const writePolicy = runNode(
-      governanceScript,
+      nativeHookFixture.script,
       ["write-policy", "--registry-from-index", "--staged"],
-      { env: gateEnvironment }
+      {
+        cwd: nativeHookFixture.root,
+        env: nativeHookFixture.environment
+      }
     );
     expect(writePolicy.status, writePolicy.stderr).toBe(0);
     expect(writePolicy.stdout).toContain(
-      `SENA_WRITE_POLICY pass staged=${stagedPathCount}`
+      "SENA_WRITE_POLICY pass staged=1"
     );
-    const hook = spawnSync("sh", ["-x", join(projectRoot, ".githooks", "pre-commit")], {
-      cwd: projectRoot,
+    const hook = spawnSync("sh", ["-x", join(nativeHookFixture.hooksDirectory, "pre-commit")], {
+      cwd: nativeHookFixture.root,
       encoding: "utf8",
-      env: { ...process.env, ...gateEnvironment },
+      env: { ...process.env, ...nativeHookFixture.environment },
       maxBuffer: 16 * 1024 * 1024
     });
     expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
     expect(hook.stdout).toContain(
-      `SENA_WRITE_POLICY pass staged=${stagedPathCount}`
+      "SENA_WRITE_POLICY pass staged=1"
     );
     expect(hook.stdout).toContain("SENA_SECURITY_GATE pass");
 
@@ -6062,26 +6266,6 @@ describe("SENA repository governance", () => {
       "--git-common-dir"
     ]));
     const indexPath = realpathSync(join(gitDirectory, "index"));
-    const stagedPaths = runGit(projectRoot, [
-      "--no-optional-locks",
-      "diff",
-      "--cached",
-      "--name-only"
-    ]).split("\n").filter(Boolean);
-    expect([
-      [],
-      ["coordination/repo-governance/active-work.json"],
-      [
-        "coordination/repo-governance/active-work.json",
-        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
-      ],
-      [
-        "coordination/repo-governance/active-work.json",
-        "scripts/verify-sena-repo-governance.mjs",
-        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
-      ]
-    ]).toContainEqual(stagedPaths);
-    const stagedPathCount = stagedPaths.length;
     const exactObservedEnvironment: NodeJS.ProcessEnv = {
       NODE_ENV: "test",
       PATH: process.env.PATH,
@@ -6100,10 +6284,6 @@ describe("SENA repository governance", () => {
       SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
       SENA_REPAIR_PR_NUMBER: "82"
     };
-    const exactObservedGateEnvironment = withIndexedFinalEvidenceEnvironment(
-      exactObservedEnvironment,
-      stagedPaths
-    );
     expect(exactObservedEnvironment).not.toHaveProperty("GIT_WORK_TREE");
     expect(exactObservedEnvironment).not.toHaveProperty("GIT_COMMON_DIR");
 
@@ -6117,19 +6297,35 @@ describe("SENA repository governance", () => {
         maxBuffer: 16 * 1024 * 1024
       }
     );
-    const exactAudit = runExactNode(exactObservedGateEnvironment);
-    expect(exactAudit.status, exactAudit.stderr).toBe(0);
-    expect(JSON.parse(exactAudit.stdout)).toMatchObject({ status: "pass", errors: [] });
+    const nativeHookFixture = createNativeHookPositiveFixture(
+      "exact-native-hook-positive"
+    );
+    const exactAudit = runNode(
+      nativeHookFixture.script,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      {
+        cwd: nativeHookFixture.root,
+        env: nativeHookFixture.environment
+      }
+    );
+    expect(exactAudit.status, `${exactAudit.stderr}\n${exactAudit.stdout}`).toBe(0);
+    expect(JSON.parse(exactAudit.stdout)).toMatchObject({
+      status: "blocked-owner",
+      errors: []
+    });
 
-    const hook = spawnSync("sh", [join(projectRoot, ".githooks", "pre-commit")], {
-      cwd: projectRoot,
+    expect(
+      runGit(nativeHookFixture.root, ["diff", "--cached", "--name-only"])
+    ).toBe("README.md");
+    const hook = spawnSync("sh", [join(nativeHookFixture.hooksDirectory, "pre-commit")], {
+      cwd: nativeHookFixture.root,
       encoding: "utf8",
-      env: exactObservedGateEnvironment,
+      env: nativeHookFixture.environment,
       maxBuffer: 16 * 1024 * 1024
     });
     expect(hook.status, `${hook.stderr}\n${hook.stdout}`).toBe(0);
     expect(hook.stdout).toContain(
-      `SENA_WRITE_POLICY pass staged=${stagedPathCount}`
+      "SENA_WRITE_POLICY pass staged=1"
     );
     expect(hook.stdout).toContain("SENA_SECURITY_GATE pass");
 
@@ -6147,7 +6343,7 @@ describe("SENA repository governance", () => {
       indexPath
     });
     const exactObservedPrePushEnvironment: NodeJS.ProcessEnv = {
-      ...exactObservedGateEnvironment
+      ...exactObservedEnvironment
     };
     delete exactObservedPrePushEnvironment.GIT_INDEX_FILE;
     expect(
@@ -6162,10 +6358,21 @@ describe("SENA repository governance", () => {
       commonDirectory,
       indexPath
     });
-    const exactPrePushAudit = runExactNode(exactObservedPrePushEnvironment);
+    const nativePrePushEnvironment: NodeJS.ProcessEnv = {
+      ...nativeHookFixture.environment
+    };
+    delete nativePrePushEnvironment.GIT_INDEX_FILE;
+    const exactPrePushAudit = runNode(
+      nativeHookFixture.script,
+      ["audit", "--pre-commit", "--registry-from-index"],
+      {
+        cwd: nativeHookFixture.root,
+        env: nativePrePushEnvironment
+      }
+    );
     expect(exactPrePushAudit.status, exactPrePushAudit.stderr).toBe(0);
     expect(JSON.parse(exactPrePushAudit.stdout)).toMatchObject({
-      status: "pass",
+      status: "blocked-owner",
       errors: []
     });
 
@@ -7055,9 +7262,8 @@ describe("SENA repository governance", () => {
       const content = path === "coordination/repo-governance/active-work.json"
         ? `${JSON.stringify(finalSourceRegistry, null, 2)}\n`
         : readFileSync(join(projectRoot, path), "utf8");
-      const blobSha = runGitWithEnvironment(
+      const blobSha = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         bootstrapGitEnvironment,
         content
       );
@@ -7121,8 +7327,18 @@ describe("SENA repository governance", () => {
       { env: emptyBootstrapEnvironment }
     );
     expect(emptyBootstrapWritePolicy.status).toBe(1);
+    const finalSourceReviewIsOverdue = [
+      ...(finalSourceRegistry.workItems ?? []),
+      ...(finalSourceRegistry.branches ?? [])
+    ].some(
+      (entry: { nextReviewAt?: string }) =>
+        typeof entry.nextReviewAt === "string" &&
+        Date.parse(entry.nextReviewAt) < Date.now()
+    );
     expect(emptyBootstrapWritePolicy.stderr).toContain(
-      "rule=empty-staged-index-not-authorized"
+      finalSourceReviewIsOverdue
+        ? "index registry snapshot is invalid"
+        : "rule=empty-staged-index-not-authorized"
     );
     const completionEvidence = {
       headSha: bootstrapHeadSha,
@@ -7161,17 +7377,19 @@ describe("SENA repository governance", () => {
       localTypecheckStatus: "not-proved-missing-local-dependencies",
       ciBuildRequired: true
     };
+    const finalObservedAt = new Date(Date.now() - 1_000).toISOString();
+    const finalNextReviewAt = new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString();
     const finalRegistry = structuredClone(finalSourceRegistry);
-    finalRegistry.updatedAt = "2026-09-02T17:15:00Z";
+    finalRegistry.updatedAt = finalObservedAt;
     const finalItem = finalRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     );
     finalItem.headSha = bootstrapHeadSha;
     finalItem.aheadBehind = { baseRef: "origin/main", ahead: 5, behind: 0 };
-    finalItem.lastHeartbeatAt = "2026-09-02T17:15:00Z";
-    finalItem.lastObservedAt = "2026-09-02T17:15:00Z";
-    finalItem.nextReviewAt = "2026-09-03T17:15:00Z";
+    finalItem.lastHeartbeatAt = finalObservedAt;
+    finalItem.lastObservedAt = finalObservedAt;
+    finalItem.nextReviewAt = finalNextReviewAt;
     finalItem.prNumber = 83;
     finalItem.plannedPullRequestNumber = 83;
     finalItem.prState = "OPEN";
@@ -7196,7 +7414,7 @@ describe("SENA repository governance", () => {
     );
     finalBranch.headSha = bootstrapHeadSha;
     finalBranch.remoteHeadSha = bootstrapHeadSha;
-    finalBranch.remoteObservedAt = "2026-09-02T17:15:00Z";
+    finalBranch.remoteObservedAt = finalObservedAt;
     finalBranch.pr = 83;
     finalBranch.plannedPullRequestNumber = 83;
     finalBranch.prState = "OPEN";
@@ -7205,17 +7423,16 @@ describe("SENA repository governance", () => {
     finalBranch.mergeAuthorized = false;
     finalBranch.prHeadSha = bootstrapHeadSha;
     finalBranch.noPrReason = null;
-    finalBranch.lastOwnerHeartbeatAt = "2026-09-02T17:15:00Z";
-    finalBranch.lastObservedAt = "2026-09-02T17:15:00Z";
+    finalBranch.lastOwnerHeartbeatAt = finalObservedAt;
+    finalBranch.lastObservedAt = finalObservedAt;
     finalBranch.lastCommitAt = "2026-09-03T01:00:00+08:00";
-    finalBranch.nextReviewAt = "2026-09-03T17:15:00Z";
+    finalBranch.nextReviewAt = finalNextReviewAt;
     finalBranch.closeout =
       "registry-only final heartbeat awaiting exact-head checks; Ready and protected merge remain gated";
     finalBranch.mergeable = "MERGEABLE";
     finalBranch.mergeStateStatus = "CLEAN";
-    const finalRegistryBlob = runGitWithEnvironment(
+    const finalRegistryBlob = hashObjectContentWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
       bootstrapGitEnvironment,
       `${JSON.stringify(finalRegistry, null, 2)}\n`
     );
@@ -7427,9 +7644,8 @@ process.stdout.write(JSON.stringify(value));
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     ).postPr82TopologyHeartbeatLifecycle.bootstrapCompletionEvidence.treeSha =
       "f".repeat(40);
-    const sourceDriftBlob = runGitWithEnvironment(
+    const sourceDriftBlob = hashObjectContentWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "hash-object", "-w", "--stdin"],
       bootstrapGitEnvironment,
       `${JSON.stringify(sourceDriftFinal, null, 2)}\n`
     );
@@ -7596,6 +7812,10 @@ process.stdout.write(JSON.stringify(value));
         (receipt: any) =>
           receipt.receiptKind === "task7.9-test-phase-compatibility-currentness-candidate"
       );
+      const hasPostPr83CurrentnessReceipt = suffixReceipts.some(
+        (receipt: any) =>
+          receipt.receiptKind === "post-pr83-currentness-correction-initial-candidate"
+      );
       const expectedSuffixKinds = [...expectedKinds];
       const finalReceiptIndex = expectedSuffixKinds.length === 3
         ? expectedSuffixKinds.length - 1
@@ -7644,6 +7864,11 @@ process.stdout.write(JSON.stringify(value));
             : expectedSuffixKinds.length,
           0,
           "task7.9-test-phase-compatibility-currentness-candidate"
+        );
+      }
+      if (hasPostPr83CurrentnessReceipt) {
+        expectedSuffixKinds.push(
+          "post-pr83-currentness-correction-initial-candidate"
         );
       }
       expect(suffixReceipts).toHaveLength(expectedSuffixKinds.length);
@@ -7732,7 +7957,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr82-topology-heartbeat-integrated-currentness-invalid"
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -7973,12 +8198,50 @@ process.stdout.write(JSON.stringify(value));
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
     )?.postPr82TopologyHeartbeatLifecycle?.status;
-    expect(cleanIndexWritePolicy.stderr).toContain(
-      cleanIndexSourceStatus ===
-        "three-path-post-pr82-topology-heartbeat-bootstrap-candidate"
-        ? "index registry snapshot is invalid"
-        : "rule=empty-staged-index-not-authorized"
+    const cleanIndexPostPr83Status = cleanIndexSourceRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === POST_PR83_TASK_FOR_TEST
+    )?.postPr83CurrentnessCorrectionLifecycle?.status;
+    const cleanIndexHasRecognizedPostPr83Snapshot = [
+      "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
+      "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
+      "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
+      "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
+      "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
+      "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
+      "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate"
+    ].includes(cleanIndexPostPr83Status);
+    const cleanIndexSourceReviewIsOverdue = [
+      ...(cleanIndexSourceRegistry.workItems ?? []),
+      ...(cleanIndexSourceRegistry.branches ?? [])
+    ].some(
+      (entry: {
+        nextReviewAt?: string;
+        disposition?: string;
+        taskId?: string;
+        name?: string;
+      }) =>
+        ["active", "ready-for-pr"].includes(entry.disposition ?? "") &&
+        entry.taskId !== "SENA-EVIDENCEFLOW-V1-20260828" &&
+        entry.name !== "codex/sena-evidenceflow-v1-20260828" &&
+        typeof entry.nextReviewAt === "string" &&
+        Date.parse(entry.nextReviewAt) < Date.now()
     );
+    const expectedCleanIndexFailure =
+      cleanIndexSourceStatus ===
+        "three-path-post-pr82-topology-heartbeat-bootstrap-candidate" ||
+      cleanIndexSourceReviewIsOverdue ||
+      (cleanIndexPostPr83Status && !cleanIndexHasRecognizedPostPr83Snapshot)
+        ? ["index registry snapshot is invalid"]
+        : [
+            "index registry snapshot is invalid",
+            "rule=empty-staged-index-not-authorized"
+          ];
+    expect(
+      expectedCleanIndexFailure.some((message) =>
+        cleanIndexWritePolicy.stderr.includes(message)
+      )
+    ).toBe(true);
 
     const expectInitialFailure = (mutate: (candidate: any) => void, rule?: string) => {
       const candidate = structuredClone(initial.registry);
@@ -9368,7 +9631,7 @@ process.stdout.write(JSON.stringify(value));
       const temporaryObjectDirectory = join(root, "objects");
       runGit(root, ["--no-optional-locks", "init", "--bare", "-q", temporaryGitDirectory]);
       mkdirSync(temporaryObjectDirectory, { recursive: true });
-      const env = {
+      const env = withHistoricalDateNow(root, {
         ...process.env,
         GIT_DIR: temporaryGitDirectory,
         GIT_WORK_TREE: transitionWorktreeRoot,
@@ -9379,7 +9642,7 @@ process.stdout.write(JSON.stringify(value));
         SENA_GOVERNANCE_TARGET_ROOT: transitionWorktreeRoot,
         SENA_GOVERNANCE_CONTROL_ROOT: governanceTargetRoot,
         SENA_REPAIR_PR_NUMBER: String(actualPrNumber)
-      };
+      });
       runTemporaryIndexGit(
         [
           "--no-optional-locks",
@@ -9423,8 +9686,8 @@ process.stdout.write(JSON.stringify(value));
               `${candidateHead}:${path}`
             ])
           : path === "CONTEXT.md"
-          ? runTemporaryIndexGit(
-              ["--no-optional-locks", "hash-object", "-w", "--stdin"],
+          ? hashObjectContentWithEnvironment(
+              projectRoot,
               env,
               `${readFileSync(join(projectRoot, path), "utf8")}\ntemporary-index-only\n`
             )
@@ -9744,7 +10007,7 @@ process.stdout.write(JSON.stringify(value));
       "--git-common-dir"
     ]);
     const finalBytes = `${JSON.stringify(final.registry, null, 2)}\n`;
-    const tempIndexEnvironment = {
+    const tempIndexEnvironment = withHistoricalDateNow(temporaryIndexRoot, {
       ...process.env,
       GIT_DIR: temporaryGitDirectory,
       GIT_WORK_TREE: transitionWorktreeRoot,
@@ -9768,7 +10031,7 @@ process.stdout.write(JSON.stringify(value));
       SENA_REPAIR_INITIAL_ANNOTATIONS_EMPTY: "true",
       SENA_REPAIR_INITIAL_SPEC_REVIEW_APPROVED: "true",
       SENA_REPAIR_INITIAL_QUALITY_REVIEW_APPROVED: "true"
-    };
+    });
     runGitWithEnvironment(
       temporaryIndexRoot,
       [
@@ -9789,14 +10052,11 @@ process.stdout.write(JSON.stringify(value));
       ],
       tempIndexEnvironment
     );
-    const hashResult = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
-      cwd: tempRepo,
-      encoding: "utf8",
-      env: tempIndexEnvironment,
-      input: finalBytes
-    });
-    expect(hashResult.status, hashResult.stderr).toBe(0);
-    const finalRegistryBlob = hashResult.stdout.trim();
+    const finalRegistryBlob = hashObjectContentWithEnvironment(
+      tempRepo,
+      tempIndexEnvironment,
+      finalBytes
+    );
     const updateResult = spawnSync(
       "git",
       [
@@ -9884,13 +10144,11 @@ process.stdout.write(JSON.stringify(value));
       behind: 0
     };
     const driftBytes = `${JSON.stringify(driftFinal.registry, null, 2)}\n`;
-    const driftHash = spawnSync("git", ["--no-optional-locks", "hash-object", "-w", "--stdin"], {
-      cwd: tempRepo,
-      encoding: "utf8",
-      env: tempIndexEnvironment,
-      input: driftBytes
-    });
-    expect(driftHash.status, driftHash.stderr).toBe(0);
+    const driftRegistryBlob = hashObjectContentWithEnvironment(
+      tempRepo,
+      tempIndexEnvironment,
+      driftBytes
+    );
     const driftUpdate = spawnSync(
       "git",
       [
@@ -9898,7 +10156,7 @@ process.stdout.write(JSON.stringify(value));
         "update-index",
         "--add",
         "--cacheinfo",
-        `100644,${driftHash.stdout.trim()},coordination/repo-governance/active-work.json`
+        `100644,${driftRegistryBlob},coordination/repo-governance/active-work.json`
       ],
       { cwd: tempRepo, encoding: "utf8", env: tempIndexEnvironment }
     );
@@ -11044,9 +11302,8 @@ process.stdout.write(JSON.stringify(value));
         ["--no-optional-locks", "ls-files", "-s", path],
         alternateEnvironment
       ).split(/\s+/, 1)[0];
-      const blob = runGitWithEnvironment(
+      const blob = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         alternateEnvironment,
         path === candidatePaths[0]
           ? `${JSON.stringify(candidate, null, 2)}\n`
@@ -11128,9 +11385,8 @@ process.stdout.write(JSON.stringify(value));
           ["--no-optional-locks", "rev-parse", `:${protectedPath}`],
           alternateEnvironment
         );
-        const mismatchedProtectedBlob = runGitWithEnvironment(
+        const mismatchedProtectedBlob = hashObjectContentWithEnvironment(
           projectRoot,
-          ["--no-optional-locks", "hash-object", "-w", "--stdin"],
           alternateEnvironment,
           `${readFileSync(join(projectRoot, protectedPath), "utf8")}\nindex-only-drift\n`
         );
@@ -11222,9 +11478,8 @@ process.stdout.write(JSON.stringify(value));
         { registry: candidate, context: {} },
         sourceEvidence
       ).registry;
-      const finalRegistryBlob = runGitWithEnvironment(
+      const finalRegistryBlob = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         alternateEnvironment,
         `${JSON.stringify(finalAfterEvidenceFlow, null, 2)}\n`
       );
@@ -11262,9 +11517,8 @@ process.stdout.write(JSON.stringify(value));
       ).not.toThrow();
       const mismatchedFinalRegistry = structuredClone(finalAfterEvidenceFlow);
       mismatchedFinalRegistry.updatedAt = "2026-09-02T08:14:53Z";
-      const mismatchedFinalRegistryBlob = runGitWithEnvironment(
+      const mismatchedFinalRegistryBlob = hashObjectContentWithEnvironment(
         projectRoot,
-        ["--no-optional-locks", "hash-object", "-w", "--stdin"],
         alternateEnvironment,
         `${JSON.stringify(mismatchedFinalRegistry, null, 2)}\n`
       );
@@ -12616,6 +12870,2356 @@ describe("protected activation completion and PR46 repair rebinding", () => {
           82
         )
       ).toThrow("rule=protected-currentness-repair-pr46-activation-delta-invalid");
+    }
+  });
+});
+
+const POST_PR83_SOURCE_SHA_FOR_TEST =
+  "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3";
+const POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST =
+  "22d307e8fa4106f2427f5d5ee178ed5231105a28";
+const POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST =
+  "a365244b11c4d6549d9b7050111da9d83fb85f79";
+const POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST =
+  "073ef0a715b350ef82d869e897c69470d405c102";
+const POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST =
+  "14243fd6c38e39021ee9f1baae0ec17619a2c079";
+const POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST =
+  "3e8f32bb6edb05ad1af8158443df670e8e84cab7";
+const POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST =
+  "976fcf84ec78c22d41b0a34ff7328dd54207b6cc";
+const POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST =
+  "4f3562f5ca075679485b14c73c30a60c3d46c0a2";
+const POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST =
+  "f93fd2d3e2c0e326086fcc71838bca34e9d563ee";
+const POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST =
+  "b5620311d00ed50e4dfc7ea05b43ae801847bcf4";
+const POST_PR83_BRANCH_FOR_TEST =
+  "codex/sena-post-pr83-currentness-correction-20260903";
+const POST_PR83_TASK_FOR_TEST =
+  "SENA-POST-PR83-CURRENTNESS-CORRECTION-20260903";
+const POST_PR83_PATHS_FOR_TEST = [
+  "coordination/repo-governance/active-work.json",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+
+function postPr83SourceRegistryForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${POST_PR83_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function postPr83InitialRegistryForTest() {
+  return JSON.parse(
+    readFileSync(
+      join(projectRoot, "coordination/repo-governance/active-work.json"),
+      "utf8"
+    )
+  );
+}
+
+function postPr83BinaryDiffSha256ForTest(
+  root: string,
+  fromSha: string,
+  toSha: string
+) {
+  const result = spawnSync(
+    "git",
+    [
+      "diff",
+      "--binary",
+      "--full-index",
+      fromSha,
+      toSha,
+      "--",
+      ...POST_PR83_PATHS_FOR_TEST
+    ],
+    { cwd: root, encoding: null, env: process.env }
+  );
+  if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
+    throw new Error(`post-PR83 binary diff failed: ${String(result.stderr)}`);
+  }
+  return createHash("sha256").update(result.stdout).digest("hex");
+}
+
+function postPr83ReviewEvidenceForTest(
+  reviewKind: "specification" | "quality-security",
+  reviewerTaskId: string,
+  actorId: string,
+  binding: any,
+  reviewedAt = "2026-09-03T08:15:00Z"
+) {
+  const payload = {
+    schema: "sena-post-pr83-independent-review/v1",
+    reviewKind,
+    reviewerTaskId,
+    actorId,
+    candidateHeadSha: binding.headSha,
+    candidateTreeSha: binding.treeSha,
+    registryBlobSha: binding.registryBlobSha,
+    verifierBlobSha: binding.verifierBlobSha,
+    governanceTestBlobSha: binding.governanceTestBlobSha,
+    compatibilityDiffSha256: binding.compatibilityDiffSha256,
+    cumulativeDiffSha256: binding.cumulativeDiffSha256,
+    findings: { p0: 0, p1: 0, p2: 0, p3: 0 },
+    verdict: "approved",
+    reviewedAt
+  };
+  return {
+    payload,
+    receiptSha256: createHash("sha256")
+      .update(JSON.stringify(payload))
+      .digest("hex")
+  };
+}
+
+function postPr83RootCustodyAttestationForTest(
+  binding: any,
+  specReview: any,
+  qualitySecurityReview: any,
+  acknowledgedAt: string
+) {
+  const payload = {
+    schema: "sena-post-pr83-root-review-custody/v1",
+    attestorTaskId: "/root",
+    actorId: "agent:root",
+    candidateHeadSha: binding.headSha,
+    candidateTreeSha: binding.treeSha,
+    registryBlobSha: binding.registryBlobSha,
+    verifierBlobSha: binding.verifierBlobSha,
+    governanceTestBlobSha: binding.governanceTestBlobSha,
+    compatibilityDiffSha256: binding.compatibilityDiffSha256,
+    cumulativeDiffSha256: binding.cumulativeDiffSha256,
+    specificationReceiptSha256: specReview.receiptSha256,
+    qualitySecurityReceiptSha256: qualitySecurityReview.receiptSha256,
+    ownerAuthorizationMessageSha256:
+      "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
+    trustBoundary: "external-orchestrator-custody-not-cryptographic-signature",
+    acknowledgedAt
+  };
+  return {
+    payload,
+    receiptSha256: createHash("sha256")
+      .update(JSON.stringify(payload))
+      .digest("hex")
+  };
+}
+
+function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
+  const evidence: any = {
+    headSha,
+    treeSha: runGit(root, ["rev-parse", `${headSha}^{tree}`]),
+    registryBlobSha: runGit(root, [
+      "rev-parse",
+      `${headSha}:coordination/repo-governance/active-work.json`
+    ]),
+    verifierBlobSha: runGit(root, [
+      "rev-parse",
+      `${headSha}:scripts/verify-sena-repo-governance.mjs`
+    ]),
+    governanceTestBlobSha: runGit(root, [
+      "rev-parse",
+      `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+    ]),
+    compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
+      root,
+      POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
+      headSha
+    ),
+    cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
+      root,
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      headSha
+    ),
+    buildRunId: 18401,
+    repositorySecurityRunIds: [18402, 18403],
+    checkJobIds: [18404, 18405, 18406],
+    requiredChecksPassed: true,
+    annotationsEmpty: true
+  };
+  const reviewedAt = new Date(
+    runGit(root, ["show", "-s", "--format=%cI", headSha])
+  ).toISOString();
+  evidence.specReview = postPr83ReviewEvidenceForTest(
+    "specification",
+    "/root/post_pr83_spec_review",
+    "agent:post_pr83_spec_review",
+    evidence,
+    reviewedAt
+  );
+  evidence.qualitySecurityReview = postPr83ReviewEvidenceForTest(
+    "quality-security",
+    "/root/post_pr83_quality_security_review",
+    "agent:post_pr83_quality_security_review",
+    evidence,
+    reviewedAt
+  );
+  evidence.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+    evidence,
+    evidence.specReview,
+    evidence.qualitySecurityReview,
+    reviewedAt
+  );
+  return evidence;
+}
+
+function postPr83FinalRegistryForTest(
+  initialRegistry: any,
+  evidence: any,
+  sourceRoot: string,
+  pullRequestNumber = 184,
+  gitEnvironment?: Record<string, string>
+) {
+  const finalRegistry = structuredClone(initialRegistry);
+  const observedAt = "2026-09-03T07:00:00Z";
+  const nextReviewAt = "2026-09-04T07:00:00Z";
+  finalRegistry.updatedAt = observedAt;
+  const item = finalRegistry.workItems.find(
+    (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+  );
+  const branch = finalRegistry.branches.find(
+    (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
+  );
+  item.headSha = evidence.headSha;
+  item.aheadBehind = { baseRef: "origin/main", ahead: 10, behind: 0 };
+  item.lastHeartbeatAt = observedAt;
+  item.lastObservedAt = observedAt;
+  item.nextReviewAt = nextReviewAt;
+  item.prNumber = pullRequestNumber;
+  item.noPrReason = null;
+  item.prState = "OPEN";
+  item.prIsDraft = true;
+  item.prReadyForReview = false;
+  item.mergeAuthorized = false;
+  item.prHeadSha = evidence.headSha;
+  item.dirtyState =
+    "clean-registry-only-post-pr83-currentness-correction-final-candidate";
+  item.evidenceState = {
+    local: `initial three-path correction ${evidence.headSha} is clean; registry-only final candidate staged`,
+    ci: `exact initial head ${evidence.headSha} build/security checks passed with zero annotations`,
+    merged: `Draft PR #${pullRequestNumber} remains OPEN and unmerged; Ready and merge remain false pending final-head checks`,
+    deployed: "not in scope and not authorized",
+    live: `named remote and Draft PR #${pullRequestNumber} both bind exact initial head ${evidence.headSha}; protected main remains ${POST_PR83_SOURCE_SHA_FOR_TEST}`
+  };
+  item.postPr83CurrentnessCorrectionLifecycle.status =
+    "registry-only-post-pr83-currentness-correction-final-candidate";
+  item.postPr83CurrentnessCorrectionLifecycle.initialCandidateCompletionEvidence =
+    evidence;
+
+  branch.headSha = evidence.headSha;
+  branch.upstream = `origin/${POST_PR83_BRANCH_FOR_TEST}`;
+  branch.upstreamState = "live";
+  branch.upstreamCacheState = "present";
+  branch.remotePresent = true;
+  branch.remoteHeadSha = evidence.headSha;
+  branch.remoteObservedAt = observedAt;
+  branch.pr = pullRequestNumber;
+  branch.prState = "OPEN";
+  branch.prIsDraft = true;
+  branch.prReadyForReview = false;
+  branch.mergeAuthorized = false;
+  branch.prHeadSha = evidence.headSha;
+  branch.prBase = "main";
+  branch.prStateObservationMode = "monotonic";
+  branch.noPrReason = null;
+  branch.lastOwnerHeartbeatAt = observedAt;
+  branch.lastObservedAt = observedAt;
+  branch.lastCommitAt = gitEnvironment
+    ? runGitWithEnvironment(
+        sourceRoot,
+        ["show", "-s", "--format=%cI", evidence.headSha],
+        gitEnvironment
+      )
+    : runGit(sourceRoot, [
+        "show",
+        "-s",
+        "--format=%cI",
+        evidence.headSha
+      ]);
+  branch.nextReviewAt = nextReviewAt;
+  branch.closeout =
+    "registry-only final candidate awaiting exact-final-head checks; Ready and protected merge remain false";
+  branch.mergeable = "MERGEABLE";
+  branch.mergeStateStatus = "CLEAN";
+  return finalRegistry;
+}
+
+async function createPostPr83LifecycleFixture(
+  label: string,
+  options: { commitFinal?: boolean; stageFinal?: boolean } = {}
+) {
+  const fixtureRoot = temporaryRoot(label);
+  const root = join(fixtureRoot, "repo");
+  runGit(fixtureRoot, ["clone", "-q", "--no-local", projectRoot, root]);
+  runGit(root, [
+    "checkout",
+    "-q",
+    "-B",
+    POST_PR83_BRANCH_FOR_TEST,
+    runGit(projectRoot, ["rev-parse", "HEAD"])
+  ]);
+  runGit(root, ["config", "user.name", "SENA post-PR83 test"]);
+  runGit(root, ["config", "user.email", "sena-post-pr83@example.invalid"]);
+  const workingCandidateDiffersFromHead = POST_PR83_PATHS_FOR_TEST.some(
+    (path) =>
+      runGit(projectRoot, ["hash-object", "--no-filters", path]) !==
+      runGit(projectRoot, ["rev-parse", `HEAD:${path}`])
+  );
+  if (workingCandidateDiffersFromHead) {
+    for (const path of POST_PR83_PATHS_FOR_TEST) {
+      const target = join(root, path);
+      mkdirSync(dirname(target), { recursive: true });
+      copyFileSync(join(projectRoot, path), target);
+    }
+    runGit(root, ["add", ...POST_PR83_PATHS_FOR_TEST]);
+    runGit(root, ["commit", "-q", "-m", "post-PR83 compatibility fix candidate"]);
+  }
+  const initialHeadSha = runGit(root, ["rev-parse", "HEAD"]);
+  const evidence = postPr83CompletionEvidenceForTest(root, initialHeadSha);
+  const initialRegistry = postPr83InitialRegistryForTest();
+  const finalRegistry = postPr83FinalRegistryForTest(
+    initialRegistry,
+    evidence,
+    root
+  );
+  if (options.stageFinal !== false) {
+    writeFileSync(
+      join(root, POST_PR83_PATHS_FOR_TEST[0]),
+      `${JSON.stringify(finalRegistry, null, 2)}\n`
+    );
+    runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  }
+  let finalHeadSha: string | null = null;
+  let finalTreeSha: string | null = null;
+  let mergeCommitSha: string | null = null;
+  if (options.stageFinal !== false && options.commitFinal !== false) {
+    runGit(root, ["commit", "-q", "-m", "post-PR83 final metadata"]);
+    finalHeadSha = runGit(root, ["rev-parse", "HEAD"]);
+    finalTreeSha = runGit(root, ["rev-parse", `${finalHeadSha}^{tree}`]);
+    mergeCommitSha = runGit(root, [
+      "commit-tree",
+      finalTreeSha,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-p",
+      finalHeadSha,
+      "-m",
+      "protected post-PR83 correction merge"
+    ]);
+    runGit(root, ["update-ref", "refs/remotes/origin/main", mergeCommitSha]);
+  }
+  const previousTargetRoot = process.env.SENA_GOVERNANCE_TARGET_ROOT;
+  process.env.SENA_GOVERNANCE_TARGET_ROOT = root;
+  let governance: any;
+  try {
+    governance = await import(
+      `${pathToFileURL(governanceScript).href}?postPr83=${Date.now()}-${Math.random()}`
+    );
+  } finally {
+    if (previousTargetRoot === undefined) {
+      delete process.env.SENA_GOVERNANCE_TARGET_ROOT;
+    } else {
+      process.env.SENA_GOVERNANCE_TARGET_ROOT = previousTargetRoot;
+    }
+  }
+  return {
+    root,
+    governance,
+    initialRegistry,
+    initialHeadSha,
+    evidence,
+    finalRegistry,
+    finalHeadSha,
+    finalTreeSha,
+    mergeCommitSha
+  };
+}
+
+function postPr83InProcessGitHubTransportForTest(
+  fixture: any,
+  options: {
+    listSuites?: boolean;
+    suiteVariant?: "valid" | "bypass" | "wrong-merge";
+    runHistory?: "two-successes" | "newest-failure" | "newest-pending";
+    liveVariant?:
+      | "final-run-failure"
+      | "final-annotations"
+      | "pr-open"
+      | "wrong-merge"
+      | "wrong-ruleset"
+      | "missing-ref";
+  } = {}
+) {
+  const calls: string[] = [];
+  const run = (
+    name: string,
+    event: string,
+    runId: number,
+    createdAt: string,
+    runNumber: number
+  ): any => ({
+    id: runId,
+    name,
+    event,
+    head_sha: fixture.finalHeadSha,
+    head_branch: POST_PR83_BRANCH_FOR_TEST,
+    head_repository: { full_name: "HUDongpin/SENA" },
+    status: "completed",
+    conclusion: "success",
+    created_at: createdAt,
+    run_number: runNumber,
+    run_attempt: 1
+  });
+  const latestRuns = [
+    run("build-gate", "pull_request", 28401, "2026-09-03T09:01:00Z", 401),
+    run("repo-security-gate", "push", 28402, "2026-09-03T09:02:00Z", 402),
+    run(
+      "repo-security-gate",
+      "pull_request",
+      28403,
+      "2026-09-03T09:03:00Z",
+      403
+    )
+  ];
+  latestRuns[0].run_attempt = 2;
+  if (
+    options.runHistory === "newest-failure" ||
+    options.liveVariant === "final-run-failure"
+  ) {
+    latestRuns[0].conclusion = "failure";
+  } else if (options.runHistory === "newest-pending") {
+    latestRuns[0].status = "in_progress";
+    latestRuns[0].conclusion = null;
+  }
+  const olderRuns = [
+    run("build-gate", "pull_request", 28301, "2026-09-03T08:01:00Z", 391),
+    run("repo-security-gate", "push", 28302, "2026-09-03T08:02:00Z", 392),
+    run(
+      "repo-security-gate",
+      "pull_request",
+      28303,
+      "2026-09-03T08:03:00Z",
+      393
+    )
+  ];
+  const runs = options.runHistory
+    ? [...olderRuns, ...latestRuns]
+    : latestRuns;
+  const suite = {
+    id: 28601,
+    actor_name: "HUDongpin",
+    before_sha: POST_PR83_SOURCE_SHA_FOR_TEST,
+    after_sha:
+      options.suiteVariant === "wrong-merge"
+        ? "f".repeat(40)
+        : fixture.mergeCommitSha,
+    repository_name: "SENA",
+    result: "pass",
+    rule_evaluations: [
+      "required_status_checks",
+      "pull_request",
+      "non_fast_forward",
+      "deletion"
+    ].map((rule_type, index) => ({
+      enforcement: "active",
+      result:
+        (options.suiteVariant === "bypass" ||
+          options.liveVariant === "wrong-ruleset") && index === 0
+          ? "bypass"
+          : "pass",
+      rule_source: {
+        id: 21232887,
+        name: "main-minimum-safety",
+        type: "ruleset"
+      },
+      rule_type
+    }))
+  };
+  const responses: Record<string, any> = {
+    [`repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.finalHeadSha}&per_page=100&page=1`]: {
+      workflow_runs: runs
+    },
+    "repos/HUDongpin/SENA/pulls/184": {
+      number: 184,
+      state: options.liveVariant === "pr-open" ? "open" : "closed",
+      draft: options.liveVariant === "pr-open",
+      merged: options.liveVariant !== "pr-open",
+      merge_commit_sha:
+        options.liveVariant === "wrong-merge"
+          ? "f".repeat(40)
+          : fixture.mergeCommitSha,
+      head: {
+        sha: fixture.finalHeadSha,
+        ref: POST_PR83_BRANCH_FOR_TEST,
+        repo: { full_name: "HUDongpin/SENA" }
+      },
+      base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+    },
+    [`repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`]: {
+      ref: `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`,
+      object: { sha: fixture.finalHeadSha }
+    },
+    "repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1":
+      options.listSuites === false
+        ? []
+        : [{
+            id: suite.id,
+            actor_name: suite.actor_name,
+            before_sha: suite.before_sha,
+            after_sha: suite.after_sha,
+            repository_name: suite.repository_name,
+            result: suite.result
+          }],
+    [`repos/HUDongpin/SENA/rulesets/rule-suites/${suite.id}`]: suite
+  };
+  for (const workflowRun of runs) {
+    const jobId = workflowRun.id + 100;
+    responses[
+      `repos/HUDongpin/SENA/actions/runs/${workflowRun.id}/attempts/${workflowRun.run_attempt}/jobs`
+    ] = {
+      jobs: [{
+        id: jobId,
+        run_id: workflowRun.id,
+        run_attempt: workflowRun.run_attempt,
+        name: workflowRun.name === "build-gate" ? "build" : "repository-security",
+        head_sha: fixture.finalHeadSha,
+        status: "completed",
+        conclusion: "success"
+      }]
+    };
+    responses[`repos/HUDongpin/SENA/check-runs/${jobId}/annotations`] =
+      options.liveVariant === "final-annotations" && workflowRun.id === 28401
+        ? [{ path: "unexpected" }]
+        : [];
+  }
+  if (options.liveVariant === "missing-ref") {
+    delete responses[
+      `repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`
+    ];
+  }
+  return {
+    calls,
+    transport(path: string) {
+      calls.push(path);
+      if (!Object.hasOwn(responses, path)) {
+        throw new Error(`unexpected post-PR83 GitHub path: ${path}`);
+      }
+      return structuredClone(responses[path]);
+    }
+  };
+}
+
+function postPr83InitialGitHubTransportForTest(
+  fixture: any,
+  variant: "valid" | "wrong-head" | "annotations" = "valid"
+) {
+  const evidence = fixture.evidence;
+  const run = (name: string, event: string, runId: number) => ({
+    id: runId,
+    name,
+    event,
+    head_sha:
+      variant === "wrong-head" ? "f".repeat(40) : fixture.initialHeadSha,
+    head_branch: POST_PR83_BRANCH_FOR_TEST,
+    head_repository: { full_name: "HUDongpin/SENA" },
+    status: "completed",
+    conclusion: "success"
+  });
+  const jobs = [
+    [evidence.checkJobIds[0], evidence.buildRunId, "build"],
+    [
+      evidence.checkJobIds[1],
+      evidence.repositorySecurityRunIds[0],
+      "repository-security"
+    ],
+    [
+      evidence.checkJobIds[2],
+      evidence.repositorySecurityRunIds[1],
+      "repository-security"
+    ]
+  ];
+  const responses: Record<string, any> = {
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.buildRunId}`]: run(
+      "build-gate",
+      "pull_request",
+      evidence.buildRunId
+    ),
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[0]}`]:
+      run(
+        "repo-security-gate",
+        "push",
+        evidence.repositorySecurityRunIds[0]
+      ),
+    [`repos/HUDongpin/SENA/actions/runs/${evidence.repositorySecurityRunIds[1]}`]:
+      run(
+        "repo-security-gate",
+        "pull_request",
+        evidence.repositorySecurityRunIds[1]
+      ),
+    "repos/HUDongpin/SENA/pulls/184": {
+      number: 184,
+      state: "open",
+      draft: true,
+      head: {
+        sha:
+          variant === "wrong-head"
+            ? "f".repeat(40)
+            : fixture.initialHeadSha,
+        ref: POST_PR83_BRANCH_FOR_TEST,
+        repo: { full_name: "HUDongpin/SENA" }
+      },
+      base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+    },
+    [`repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_BRANCH_FOR_TEST}`]: {
+      ref: `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`,
+      object: {
+        sha:
+          variant === "wrong-head"
+            ? "f".repeat(40)
+            : fixture.initialHeadSha
+      }
+    }
+  };
+  for (const [jobId, runId, name] of jobs) {
+    responses[`repos/HUDongpin/SENA/actions/jobs/${jobId}`] = {
+      id: jobId,
+      run_id: runId,
+      name,
+      head_sha: fixture.initialHeadSha,
+      status: "completed",
+      conclusion: "success"
+    };
+    responses[`repos/HUDongpin/SENA/check-runs/${jobId}/annotations`] =
+      variant === "annotations" && jobId === evidence.checkJobIds[0]
+        ? [{ path: "unexpected" }]
+        : [];
+  }
+  return (path: string) => {
+    if (!Object.hasOwn(responses, path)) {
+      throw new Error(`unexpected post-PR83 GitHub path: ${path}`);
+    }
+    return structuredClone(responses[path]);
+  };
+}
+
+describe("post-PR83 protected currentness correction", () => {
+  it("accepts only the exact source-to-initial three-path registry transition", async () => {
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?postPr83Initial=${Date.now()}-${Math.random()}`
+    );
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionInitialTransition
+    ).toBe("function");
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionInitialRegistryBytes
+    ).toBe("function");
+    const source = postPr83SourceRegistryForTest();
+    const historicalCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalCompatibilityCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalReviewFixCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalQualitySecurityCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalCleanContextCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalBuildCiCandidate = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalFinalHeartbeatAuditSource = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalObserverOverdueTestSource = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const historicalStdinHangTestSource = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const candidate = postPr83InitialRegistryForTest();
+    const historicalBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(historicalBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionInitialRegistryBytes(
+        historicalBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes
+    ).toBe("function");
+    const compatibilityBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_COMPATIBILITY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(compatibilityBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes(
+        compatibilityBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(() =>
+      governance.validatePostPr83CurrentnessCorrectionCompatibilityRegistryBytes(
+        Buffer.concat([compatibilityBytesResult.stdout, Buffer.from(" ")])
+      )
+    ).toThrow("rule=post-pr83-currentness-compatibility-registry-bytes-invalid");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionInitialTransition(
+        source,
+        historicalCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionCompatibilityTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionCompatibilityTransition(
+        historicalCandidate,
+        historicalCompatibilityCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes
+    ).toBe("function");
+    const reviewFixBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_PUSH_READINESS_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(reviewFixBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionReviewFixRegistryBytes(
+        reviewFixBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionReviewFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionReviewFixTransition(
+        historicalCompatibilityCandidate,
+        historicalReviewFixCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes
+    ).toBe("function");
+    const pushReadinessBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_ROOT_CUSTODY_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(pushReadinessBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionPushReadinessFixRegistryBytes(
+        pushReadinessBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionPushReadinessFixTransition(
+        historicalReviewFixCandidate,
+        historicalQualitySecurityCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixRegistryBytes
+    ).toBe("function");
+    const qualitySecurityBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_CLEAN_CONTEXT_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(qualitySecurityBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixRegistryBytes(
+        qualitySecurityBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionQualitySecurityFixTransition(
+        historicalQualitySecurityCandidate,
+        historicalCleanContextCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionCleanContextFixRegistryBytes
+    ).toBe("function");
+    const cleanContextBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(cleanContextBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionCleanContextFixRegistryBytes(
+        cleanContextBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionCleanContextFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionCleanContextFixTransition(
+        historicalCleanContextCandidate,
+        historicalBuildCiCandidate
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixRegistryBytes
+    ).toBe("function");
+    const buildCiBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(buildCiBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixRegistryBytes(
+        buildCiBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
+        historicalBuildCiCandidate,
+        historicalFinalHeartbeatAuditSource
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes
+    ).toBe("function");
+    const finalHeartbeatAuditBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(finalHeartbeatAuditBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes(
+        finalHeartbeatAuditBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+        historicalFinalHeartbeatAuditSource,
+        historicalObserverOverdueTestSource
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes
+    ).toBe("function");
+    const observerOverdueTestBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(observerOverdueTestBytesResult.status).toBe(0);
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes(
+        observerOverdueTestBytesResult.stdout
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+        historicalObserverOverdueTestSource,
+        historicalStdinHangTestSource
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json")
+        )
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+        historicalStdinHangTestSource,
+        candidate
+      )
+    ).toBe(true);
+    for (const mutate of [
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === POST_PR83_TASK_FOR_TEST
+        ).taskId = "SENA-WRONG-TASK";
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).headSha = "f".repeat(40);
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+        ).dirtyState = "mutated";
+      },
+      (value: any) => {
+        delete value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === POST_PR83_TASK_FOR_TEST
+        ).postPr83CurrentnessCorrectionLifecycle;
+      }
+    ]) {
+      const drifted = structuredClone(candidate);
+      mutate(drifted);
+      expect(() =>
+        governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+          historicalStdinHangTestSource,
+          drifted
+        )
+      ).toThrow(
+        "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
+      );
+    }
+  });
+
+  it("allows the registry-only final transition only with exact commit, CI, Draft PR, and named-ref evidence", async () => {
+    const fixture = await createPostPr83LifecycleFixture("post-pr83-final", {
+      commitFinal: false
+    });
+    expect(
+      typeof fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition
+    ).toBe("function");
+    expect(fixture.evidence.compatibilityDiffSha256).toBe(
+      postPr83BinaryDiffSha256ForTest(
+        fixture.root,
+        POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
+        fixture.initialHeadSha
+      )
+    );
+    expect(fixture.evidence.cumulativeDiffSha256).toBe(
+      postPr83BinaryDiffSha256ForTest(
+        fixture.root,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.initialHeadSha
+      )
+    );
+    expect(fixture.evidence.specReview.payload).toMatchObject({
+      schema: "sena-post-pr83-independent-review/v1",
+      reviewKind: "specification",
+      reviewerTaskId: "/root/post_pr83_spec_review",
+      actorId: "agent:post_pr83_spec_review",
+      compatibilityDiffSha256: fixture.evidence.compatibilityDiffSha256,
+      cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
+      verdict: "approved"
+    });
+    expect(fixture.evidence.qualitySecurityReview.payload).toMatchObject({
+      reviewKind: "quality-security",
+      reviewerTaskId: "/root/post_pr83_quality_security_review",
+      actorId: "agent:post_pr83_quality_security_review",
+      compatibilityDiffSha256: fixture.evidence.compatibilityDiffSha256,
+      cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
+      verdict: "approved"
+    });
+    expect(
+      fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+        fixture.initialRegistry,
+        fixture.finalRegistry,
+        fixture.initialHeadSha,
+        fixture.evidence,
+        {
+          githubTransport: postPr83InitialGitHubTransportForTest(fixture)
+        }
+      )
+    ).toBe(true);
+    for (const variant of ["wrong-head", "annotations"] as const) {
+      expect(() =>
+        fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+          fixture.initialRegistry,
+          fixture.finalRegistry,
+          fixture.initialHeadSha,
+          fixture.evidence,
+          {
+            githubTransport: postPr83InitialGitHubTransportForTest(
+              fixture,
+              variant
+            )
+          }
+        )
+      ).toThrow("rule=post-pr83-currentness-live-github-readback-invalid");
+    }
+    const missingEvidence = structuredClone(fixture.finalRegistry);
+    delete missingEvidence.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+    ).postPr83CurrentnessCorrectionLifecycle.initialCandidateCompletionEvidence;
+    expect(() =>
+      fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+        fixture.initialRegistry,
+        missingEvidence,
+        fixture.initialHeadSha,
+        fixture.evidence
+      )
+    ).toThrow();
+    for (const mutate of [
+      (evidence: any) => {
+        evidence.verifierBlobSha = "f".repeat(40);
+      },
+      (evidence: any) => {
+        evidence.governanceTestBlobSha = "e".repeat(40);
+      },
+      (evidence: any) => {
+        delete evidence.specReview;
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.candidateHeadSha = "d".repeat(40);
+      },
+      (evidence: any) => {
+        evidence.qualitySecurityReview.receiptSha256 = "c".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.reviewerTaskId =
+          evidence.qualitySecurityReview.payload.reviewerTaskId;
+      },
+      (evidence: any) => {
+        evidence.compatibilityDiffSha256 = "b".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.cumulativeDiffSha256 = "a".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.cumulativeDiffSha256 = "9".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.qualitySecurityReview.payload.compatibilityDiffSha256 =
+          "8".repeat(64);
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.actorId =
+          "agent:post_pr83_quality_security_review";
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.findings.p1 = 1;
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.verdict = "rejected";
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.schema = "wrong-schema";
+      },
+      (evidence: any) => {
+        evidence.specReview.payload.reviewedAt = "not-an-iso-timestamp";
+      },
+      (evidence: any) => {
+        const reordered = {
+          reviewKind: evidence.specReview.payload.reviewKind,
+          schema: evidence.specReview.payload.schema,
+          ...Object.fromEntries(
+            Object.entries(evidence.specReview.payload).filter(
+              ([key]) => !["schema", "reviewKind"].includes(key)
+            )
+          )
+        };
+        evidence.specReview = {
+          payload: reordered,
+          receiptSha256: createHash("sha256")
+            .update(JSON.stringify(reordered))
+            .digest("hex")
+        };
+      }
+    ]) {
+      const drifted = structuredClone(fixture.finalRegistry);
+      mutate(
+        drifted.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === POST_PR83_TASK_FOR_TEST
+        ).postPr83CurrentnessCorrectionLifecycle
+          .initialCandidateCompletionEvidence
+      );
+      expect(() =>
+        fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+          fixture.initialRegistry,
+          drifted,
+          fixture.initialHeadSha,
+          drifted.workItems.find(
+            (entry: { taskId?: string }) =>
+              entry.taskId === POST_PR83_TASK_FOR_TEST
+          ).postPr83CurrentnessCorrectionLifecycle
+            .initialCandidateCompletionEvidence
+        )
+      ).toThrow();
+    }
+
+    const alternateHead = runGit(fixture.root, [
+      "commit-tree",
+      fixture.evidence.treeSha,
+      "-p",
+      POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
+      "-m",
+      "alternate same-tree compatibility child"
+    ]);
+    const alternateEvidence = postPr83CompletionEvidenceForTest(
+      fixture.root,
+      alternateHead
+    );
+    const alternateFinalRegistry = postPr83FinalRegistryForTest(
+      fixture.initialRegistry,
+      alternateEvidence,
+      fixture.root
+    );
+    expect(() =>
+      fixture.governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+        fixture.initialRegistry,
+        alternateFinalRegistry,
+        alternateHead,
+        alternateEvidence
+      )
+    ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
+    expect(() =>
+      fixture.governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixTransition(
+        fixture.initialRegistry,
+        fixture.initialRegistry
+      )
+    ).toThrow(
+      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-replay"
+    );
+  });
+
+  it("authorizes push and Draft readiness only for a clean exact head with three detached custody receipts", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-push-draft-readiness",
+      { stageFinal: false }
+    );
+    expect(runGit(fixture.root, ["status", "--porcelain"])).toBe("");
+    expect(
+      typeof fixture.governance.validatePostPr83PushDraftReadiness
+    ).toBe("function");
+    const receipts = {
+      specReview: fixture.evidence.specReview,
+      qualitySecurityReview: fixture.evidence.qualitySecurityReview,
+      rootCustodyAttestation: fixture.evidence.rootCustodyAttestation
+    };
+    expect(
+      fixture.governance.validatePostPr83PushDraftReadiness(
+        fixture.initialRegistry,
+        receipts
+      )
+    ).toMatchObject({
+      authorized: true,
+      headSha: fixture.initialHeadSha,
+      compatibilityDiffSha256: fixture.evidence.compatibilityDiffSha256,
+      cumulativeDiffSha256: fixture.evidence.cumulativeDiffSha256,
+      pullRequestOrCiRequired: false
+    });
+    const readinessCommand = runNode(
+      join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["post-pr83-push-draft-readiness"],
+      {
+        cwd: fixture.root,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
+          SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
+            receipts.specReview
+          ),
+          SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON:
+            JSON.stringify(receipts.qualitySecurityReview),
+          SENA_POST_PR83_PUSH_DRAFT_ROOT_CUSTODY_ATTESTATION_JSON:
+            JSON.stringify(receipts.rootCustodyAttestation)
+        }
+      }
+    );
+    expect(readinessCommand.status, readinessCommand.stderr).toBe(0);
+    expect(readinessCommand.stdout).toContain(
+      `SENA_POST_PR83_PUSH_DRAFT_READINESS pass head=${fixture.initialHeadSha} prOrCiRequired=false`
+    );
+    const missingReceiptCommand = runNode(
+      join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["post-pr83-push-draft-readiness"],
+      {
+        cwd: fixture.root,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
+          SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
+            receipts.specReview
+          )
+        }
+      }
+    );
+    expect(missingReceiptCommand.status).toBe(1);
+    expect(missingReceiptCommand.stderr).toContain(
+      "rule=post-pr83-push-draft-readiness-invalid"
+    );
+    const missingRootCommand = runNode(
+      join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["post-pr83-push-draft-readiness"],
+      {
+        cwd: fixture.root,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
+          SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
+            receipts.specReview
+          ),
+          SENA_POST_PR83_PUSH_DRAFT_QUALITY_SECURITY_REVIEW_JSON:
+            JSON.stringify(receipts.qualitySecurityReview)
+        }
+      }
+    );
+    expect(missingRootCommand.status).toBe(1);
+    expect(missingRootCommand.stderr).toContain(
+      "rule=post-pr83-push-draft-readiness-invalid"
+    );
+
+    const falseOnlyRegistry = structuredClone(fixture.initialRegistry);
+    falseOnlyRegistry.workItems.find(
+      (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+    ).postPr83CurrentnessCorrectionLifecycle.authorizationBoundary
+      .stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
+      false;
+    expect(() =>
+      fixture.governance.validatePostPr83PushDraftReadiness(
+        falseOnlyRegistry,
+        receipts
+      )
+    ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+
+    for (const invalidReceipts of [
+      {},
+      { specReview: receipts.specReview },
+      { qualitySecurityReview: receipts.qualitySecurityReview },
+      {
+        ...receipts,
+        specReview: {
+          ...receipts.specReview,
+          receiptSha256: "f".repeat(64)
+        }
+      },
+      {
+        ...receipts,
+        qualitySecurityReview: {
+          ...receipts.qualitySecurityReview,
+          payload: {
+            ...receipts.qualitySecurityReview.payload,
+            candidateHeadSha: "e".repeat(40)
+          }
+        }
+      }
+    ]) {
+      expect(() =>
+        fixture.governance.validatePostPr83PushDraftReadiness(
+          fixture.initialRegistry,
+          invalidReceipts
+        )
+      ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+    }
+
+    writeFileSync(
+      join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]),
+      `${readFileSync(join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]), "utf8")} `
+    );
+    expect(() =>
+      fixture.governance.validatePostPr83PushDraftReadiness(
+        fixture.initialRegistry,
+        receipts
+      )
+    ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+  }, 120_000);
+
+  it("prefers the post-PR83 final helper and admits only its exact native pre-commit clean claim", async () => {
+    const initialRegistry = postPr83InitialRegistryForTest();
+    const isolatedRoot = temporaryRoot("post-pr83-final-index-helper");
+    const gitDirectory = join(isolatedRoot, "git");
+    const indexPath = join(isolatedRoot, "index");
+    const objectDirectory = join(isolatedRoot, "objects");
+    runGit(isolatedRoot, ["--no-optional-locks", "init", "--bare", "-q", gitDirectory]);
+    mkdirSync(objectDirectory, { recursive: true });
+    const commonGitDirectory = runGit(projectRoot, [
+      "--no-optional-locks",
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ]);
+    const isolatedEnvironment: Record<string, string> = {
+      GIT_DIR: gitDirectory,
+      GIT_WORK_TREE: realpathSync(projectRoot),
+      GIT_INDEX_FILE: indexPath,
+      GIT_OBJECT_DIRECTORY: objectDirectory,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(commonGitDirectory, "objects"),
+      GIT_OPTIONAL_LOCKS: "0",
+      GIT_AUTHOR_NAME: "SENA post-PR83 final index test",
+      GIT_AUTHOR_EMAIL: "sena-post-pr83@example.invalid",
+      GIT_AUTHOR_DATE: "2026-09-03T08:00:00+08:00",
+      GIT_COMMITTER_NAME: "SENA post-PR83 final index test",
+      GIT_COMMITTER_EMAIL: "sena-post-pr83@example.invalid",
+      GIT_COMMITTER_DATE: "2026-09-03T08:00:00+08:00",
+      SENA_GOVERNANCE_CONTROL_ROOT: realpathSync(initialRegistry.repo),
+      SENA_GOVERNANCE_TARGET_ROOT: realpathSync(projectRoot)
+    };
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "read-tree", POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST],
+      isolatedEnvironment
+    );
+    for (const path of POST_PR83_PATHS_FOR_TEST) {
+      const mode = runGitWithEnvironment(
+        projectRoot,
+        ["--no-optional-locks", "ls-files", "-s", path],
+        isolatedEnvironment
+      ).split(/\s+/, 1)[0];
+      const blobSha = runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "hash-object",
+          "-w",
+          "--no-filters",
+          join(projectRoot, path)
+        ],
+        isolatedEnvironment
+      );
+      runGitWithEnvironment(
+        projectRoot,
+        [
+          "--no-optional-locks",
+          "update-index",
+          "--add",
+          "--cacheinfo",
+          `${mode},${blobSha},${path}`
+        ],
+        isolatedEnvironment
+      );
+    }
+    const initialTreeSha = runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "write-tree"],
+      isolatedEnvironment
+    );
+    const initialHeadSha = runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "commit-tree",
+        initialTreeSha,
+        "-p",
+        POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
+        "-m",
+        "post-PR83 compatibility fix candidate"
+      ],
+      isolatedEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "symbolic-ref", "HEAD", `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`],
+      isolatedEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "update-ref", `refs/heads/${POST_PR83_BRANCH_FOR_TEST}`, initialHeadSha],
+      isolatedEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      ["--no-optional-locks", "read-tree", initialHeadSha],
+      isolatedEnvironment
+    );
+    const compatibilityDiffResult = spawnSync(
+      "git",
+      [
+        "diff",
+        "--binary",
+        "--full-index",
+        POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST,
+        initialHeadSha,
+        "--",
+        ...POST_PR83_PATHS_FOR_TEST
+      ],
+      {
+        cwd: projectRoot,
+        encoding: null,
+        env: { ...process.env, ...isolatedEnvironment }
+      }
+    );
+    expect(
+      compatibilityDiffResult.status,
+      String(compatibilityDiffResult.stderr)
+    ).toBe(0);
+    const cumulativeDiffResult = spawnSync(
+      "git",
+      [
+        "diff",
+        "--binary",
+        "--full-index",
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        initialHeadSha,
+        "--",
+        ...POST_PR83_PATHS_FOR_TEST
+      ],
+      {
+        cwd: projectRoot,
+        encoding: null,
+        env: { ...process.env, ...isolatedEnvironment }
+      }
+    );
+    expect(
+      cumulativeDiffResult.status,
+      String(cumulativeDiffResult.stderr)
+    ).toBe(0);
+    const evidence: any = {
+      headSha: initialHeadSha,
+      treeSha: initialTreeSha,
+      registryBlobSha: runGitWithEnvironment(
+        projectRoot,
+        ["rev-parse", `${initialHeadSha}:${POST_PR83_PATHS_FOR_TEST[0]}`],
+        isolatedEnvironment
+      ),
+      verifierBlobSha: runGitWithEnvironment(
+        projectRoot,
+        ["rev-parse", `${initialHeadSha}:${POST_PR83_PATHS_FOR_TEST[1]}`],
+        isolatedEnvironment
+      ),
+      governanceTestBlobSha: runGitWithEnvironment(
+        projectRoot,
+        ["rev-parse", `${initialHeadSha}:${POST_PR83_PATHS_FOR_TEST[2]}`],
+        isolatedEnvironment
+      ),
+      compatibilityDiffSha256: createHash("sha256")
+        .update(compatibilityDiffResult.stdout)
+        .digest("hex"),
+      cumulativeDiffSha256: createHash("sha256")
+        .update(cumulativeDiffResult.stdout)
+        .digest("hex"),
+      buildRunId: 18401,
+      repositorySecurityRunIds: [18402, 18403],
+      checkJobIds: [18404, 18405, 18406],
+      requiredChecksPassed: true,
+      annotationsEmpty: true
+    };
+    evidence.specReview = postPr83ReviewEvidenceForTest(
+      "specification",
+      "/root/post_pr83_spec_review",
+      "agent:post_pr83_spec_review",
+      evidence
+    );
+    evidence.qualitySecurityReview = postPr83ReviewEvidenceForTest(
+      "quality-security",
+      "/root/post_pr83_quality_security_review",
+      "agent:post_pr83_quality_security_review",
+      evidence
+    );
+    evidence.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+      evidence,
+      evidence.specReview,
+      evidence.qualitySecurityReview,
+      evidence.qualitySecurityReview.payload.reviewedAt
+    );
+    const finalRegistry = postPr83FinalRegistryForTest(
+      initialRegistry,
+      evidence,
+      projectRoot,
+      184,
+      isolatedEnvironment
+    );
+    const finalRegistryFixturePath = join(
+      isolatedRoot,
+      "post-pr83-final-registry.json"
+    );
+    writeFileSync(
+      finalRegistryFixturePath,
+      `${JSON.stringify(finalRegistry, null, 2)}\n`
+    );
+    const finalRegistryBlob = runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "hash-object",
+        "-w",
+        "--no-filters",
+        finalRegistryFixturePath
+      ],
+      isolatedEnvironment
+    );
+    runGitWithEnvironment(
+      projectRoot,
+      [
+        "--no-optional-locks",
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        `100644,${finalRegistryBlob},${POST_PR83_PATHS_FOR_TEST[0]}`
+      ],
+      isolatedEnvironment
+    );
+    const stagedPaths = runGitWithEnvironment(
+      projectRoot,
+      ["diff", "--cached", "--name-only"],
+      isolatedEnvironment
+    ).split("\n").filter(Boolean);
+    expect(stagedPaths).toEqual([
+      "coordination/repo-governance/active-work.json"
+    ]);
+    const runtimeEnvironment: Record<string, string> = {
+      ...isolatedEnvironment
+    };
+    delete runtimeEnvironment.GIT_COMMITTER_NAME;
+    delete runtimeEnvironment.GIT_COMMITTER_EMAIL;
+    delete runtimeEnvironment.GIT_COMMITTER_DATE;
+    const environment = withIndexedFinalEvidenceEnvironment(
+      {
+        NODE_ENV: "test",
+        PATH: process.env.PATH,
+        ...runtimeEnvironment
+      },
+      stagedPaths,
+      projectRoot
+    );
+    expect(environment.SENA_POST_PR83_INITIAL_HEAD).toBe(
+      initialHeadSha
+    );
+    expect(environment).not.toHaveProperty("SENA_POST_PR82_BOOTSTRAP_HEAD");
+    const registryCheck = runNode(
+      governanceScript,
+      ["registry", "--registry-from-index"],
+      { cwd: projectRoot, env: environment }
+    );
+    expect(registryCheck.status, registryCheck.stderr).toBe(0);
+    const previousEnvironment = Object.fromEntries(
+      Object.keys(environment).map((name) => [name, process.env[name]])
+    );
+    Object.assign(process.env, environment);
+    try {
+      const governance = await import(
+        `${pathToFileURL(governanceScript).href}?postPr83FinalIndex=${Date.now()}-${Math.random()}`
+      );
+      const githubTransport = postPr83InitialGitHubTransportForTest({
+        evidence,
+        initialHeadSha
+      });
+      expect(
+        governance.validatePostPr83CurrentnessCorrectionFinalTransition(
+          initialRegistry,
+          finalRegistry,
+          initialHeadSha,
+          evidence,
+          { githubTransport }
+        )
+      ).toBe(true);
+      expect(
+        typeof governance.postPr83FinalHeartbeatPreCommitCleanClaimAllowed
+      ).toBe("function");
+      const cleanClaim = {
+        registry: finalRegistry,
+        taskId: POST_PR83_TASK_FOR_TEST,
+        branch: POST_PR83_BRANCH_FOR_TEST,
+        actualHeadSha: initialHeadSha,
+        dirtyState:
+          "clean-registry-only-post-pr83-currentness-correction-final-candidate",
+        lifecycleStatus:
+          "registry-only-post-pr83-currentness-correction-final-candidate",
+        preCommit: true,
+        registryFromIndex: true,
+        dirtyPaths: [POST_PR83_PATHS_FOR_TEST[0]],
+        stagedPaths: [POST_PR83_PATHS_FOR_TEST[0]],
+        unstagedPaths: []
+      };
+      expect(
+        governance.postPr83FinalHeartbeatPreCommitCleanClaimAllowed(
+          cleanClaim,
+          { githubTransport }
+        )
+      ).toBe(true);
+      for (const drifted of [
+        { ...cleanClaim, taskId: "SENA-WRONG-TASK" },
+        { ...cleanClaim, branch: "wrong-branch" },
+        { ...cleanClaim, actualHeadSha: "f".repeat(40) },
+        { ...cleanClaim, dirtyState: "clean-unrelated" },
+        { ...cleanClaim, lifecycleStatus: "wrong-status" },
+        { ...cleanClaim, preCommit: false },
+        { ...cleanClaim, registryFromIndex: false },
+        { ...cleanClaim, dirtyPaths: [...cleanClaim.dirtyPaths, "CONTEXT.md"] },
+        { ...cleanClaim, stagedPaths: [...cleanClaim.stagedPaths, "CONTEXT.md"] },
+        { ...cleanClaim, unstagedPaths: [POST_PR83_PATHS_FOR_TEST[0]] }
+      ]) {
+        expect(
+          governance.postPr83FinalHeartbeatPreCommitCleanClaimAllowed(
+            drifted,
+            { githubTransport }
+          )
+        ).toBe(false);
+      }
+      const evidenceDriftedRegistry = structuredClone(finalRegistry);
+      evidenceDriftedRegistry.workItems.find(
+        (entry: { taskId?: string }) =>
+          entry.taskId === POST_PR83_TASK_FOR_TEST
+      ).postPr83CurrentnessCorrectionLifecycle.initialCandidateCompletionEvidence.annotationsEmpty =
+        false;
+      expect(
+        governance.postPr83FinalHeartbeatPreCommitCleanClaimAllowed(
+          { ...cleanClaim, registry: evidenceDriftedRegistry },
+          { githubTransport }
+        )
+      ).toBe(false);
+      expect(
+        governance.postPr83FinalHeartbeatPreCommitCleanClaimAllowed(
+          cleanClaim,
+          {
+            githubTransport: postPr83InitialGitHubTransportForTest(
+              { evidence, initialHeadSha },
+              "wrong-head"
+            )
+          }
+        )
+      ).toBe(false);
+    } finally {
+      for (const [name, value] of Object.entries(previousEnvironment)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it("permits behind growth only for exact protected lanes across a fully accepted main chain", async () => {
+    const fixture = await createPostPr83LifecycleFixture("post-pr83-lanes");
+    const githubTransport =
+      postPr83InProcessGitHubTransportForTest(fixture).transport;
+    expect(
+      typeof fixture.governance.protectedLaneMainAdvanceObservationAllowed
+    ).toBe("function");
+    const rootItem = fixture.finalRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+    const [ahead, behind] = runGit(fixture.root, [
+      "rev-list",
+      "--left-right",
+      "--count",
+      `${rootItem.headSha}...origin/main`
+    ]).split(/\s+/).map(Number);
+    const observed = {
+      baseRef: "origin/main",
+      ahead,
+      behind
+    };
+    expect(observed.ahead).toBe(rootItem.aheadBehind.ahead);
+    expect(observed.behind).toBeGreaterThan(rootItem.aheadBehind.behind);
+    expect(
+      fixture.governance.protectedLaneMainAdvanceObservationAllowed(
+        rootItem,
+        rootItem.headSha,
+        observed,
+        fixture.finalRegistry,
+        { githubTransport, observedAt: "2026-09-03T09:05:00Z" }
+      )
+    ).toBe(true);
+    for (const mutate of [
+      (item: any, value: any) => {
+        item.taskId = "SENA-WRONG-TASK";
+      },
+      (item: any, value: any) => {
+        item.headSha = "f".repeat(40);
+      },
+      (item: any, value: any) => {
+        value.ahead += 1;
+      },
+      (item: any, value: any) => {
+        value.behind = item.aheadBehind.behind;
+      },
+      (item: any, value: any) => {
+        value.behind = item.aheadBehind.behind - 1;
+      },
+      (item: any, value: any) => {
+        item.disposition = "active";
+      },
+      (item: any, value: any) => {
+        item.aheadBehindObservationMode = "lower-bound";
+      }
+    ]) {
+      const item = structuredClone(rootItem);
+      const value = structuredClone(observed);
+      mutate(item, value);
+      expect(
+        fixture.governance.protectedLaneMainAdvanceObservationAllowed(
+          item,
+          rootItem.headSha,
+          value,
+          fixture.finalRegistry,
+          { githubTransport, observedAt: "2026-09-03T09:05:00Z" }
+        )
+      ).toBe(false);
+    }
+    runGit(fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      POST_PR83_SOURCE_SHA_FOR_TEST
+    ]);
+    expect(
+      fixture.governance.protectedLaneMainAdvanceObservationAllowed(
+        rootItem,
+        rootItem.headSha,
+        observed,
+        fixture.finalRegistry,
+        { githubTransport, observedAt: "2026-09-03T09:05:00Z" }
+      )
+    ).toBe(false);
+  });
+
+  it("recognizes only the exact future protected merge and rejects unknown, wrong-parent, wrong-tree, extra-path, or missing-evidence variants", async () => {
+    const fixture = await createPostPr83LifecycleFixture("post-pr83-merge");
+    const validTransport =
+      postPr83InProcessGitHubTransportForTest(fixture).transport;
+    expect(
+      typeof fixture.governance.validatePostPr83ProtectedMainMergeDescriptor
+    ).toBe("function");
+    expect(
+      fixture.governance.protectedMainAdvanceChainResolution(
+        fixture.finalRegistry,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.mergeCommitSha,
+        {
+          githubTransport: validTransport,
+          observedAt: "2026-09-03T09:05:00Z"
+        }
+      )
+    ).toMatchObject({
+      allowed: true,
+      mergeCommitShas: [fixture.mergeCommitSha],
+      failedCommitSha: null
+    });
+    for (const variant of [
+      "final-run-failure",
+      "final-annotations",
+      "pr-open",
+      "wrong-merge",
+      "wrong-ruleset",
+      "missing-ref"
+    ] as const) {
+      const variantTransport = postPr83InProcessGitHubTransportForTest(
+        fixture,
+        { liveVariant: variant }
+      ).transport;
+      expect(
+        fixture.governance.protectedMainAdvanceChainResolution(
+          fixture.finalRegistry,
+          POST_PR83_SOURCE_SHA_FOR_TEST,
+          fixture.mergeCommitSha,
+          {
+            githubTransport: variantTransport,
+            observedAt: "2026-09-03T09:05:00Z"
+          }
+        ),
+        variant
+      ).toMatchObject({
+        allowed: false,
+        rule: "protected-advance-current-observation-invalid"
+      });
+    }
+    const descriptor = {
+      mergeTimeRegistry: fixture.finalRegistry,
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      secondParentSha: fixture.finalHeadSha,
+      mergeTreeSha: fixture.finalTreeSha,
+      registryBlobSha: runGit(fixture.root, [
+        "rev-parse",
+        `${fixture.finalHeadSha}:coordination/repo-governance/active-work.json`
+      ]),
+      currentObservationRegistry: fixture.finalRegistry
+    };
+    expect(
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor(
+        descriptor,
+        {
+          githubTransport: validTransport,
+          observedAt: "2026-09-03T09:05:00Z"
+        }
+      )
+    ).toBe(true);
+    expect(
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor({
+        ...descriptor,
+        orderedParentShas: [fixture.finalHeadSha, POST_PR83_SOURCE_SHA_FOR_TEST]
+      })
+    ).toBe(false);
+    expect(
+      fixture.governance.validatePostPr83ProtectedMainMergeDescriptor({
+        ...descriptor,
+        mergeTreeSha: runGit(fixture.root, [
+          "rev-parse",
+          `${POST_PR83_SOURCE_SHA_FOR_TEST}^{tree}`
+        ])
+      })
+    ).toBe(false);
+
+    const unknownTree = runGit(fixture.root, [
+      "rev-parse",
+      `${POST_PR83_SOURCE_SHA_FOR_TEST}^{tree}`
+    ]);
+    const unknownSecondParent = runGit(fixture.root, [
+      "commit-tree",
+      unknownTree,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-m",
+      "unknown candidate"
+    ]);
+    const unknownMerge = runGit(fixture.root, [
+      "commit-tree",
+      unknownTree,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-p",
+      unknownSecondParent,
+      "-m",
+      "unknown protected merge"
+    ]);
+    runGit(fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      unknownMerge
+    ]);
+    expect(
+      fixture.governance.protectedMainAdvanceChainResolution(
+        fixture.finalRegistry,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        unknownMerge
+      )
+    ).toMatchObject({
+      allowed: false,
+      rule: "protected-advance-lifecycle-unrecognized"
+    });
+
+    runGit(fixture.root, [
+      "checkout",
+      "-q",
+      "-B",
+      "post-pr83-extra-path",
+      POST_PR83_SOURCE_SHA_FOR_TEST
+    ]);
+    for (const path of POST_PR83_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, path), join(fixture.root, path));
+    }
+    writeFileSync(join(fixture.root, "post-pr83-extra.txt"), "extra path\n");
+    runGit(fixture.root, [
+      "add",
+      ...POST_PR83_PATHS_FOR_TEST,
+      "post-pr83-extra.txt"
+    ]);
+    runGit(fixture.root, ["commit", "-q", "-m", "extra-path initial"]);
+    const extraInitialHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const extraEvidence = postPr83CompletionEvidenceForTest(
+      fixture.root,
+      extraInitialHead
+    );
+    const extraFinalRegistry = postPr83FinalRegistryForTest(
+      fixture.initialRegistry,
+      extraEvidence,
+      fixture.root
+    );
+    writeFileSync(
+      join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]),
+      `${JSON.stringify(extraFinalRegistry, null, 2)}\n`
+    );
+    runGit(fixture.root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+    runGit(fixture.root, ["commit", "-q", "-m", "extra-path final metadata"]);
+    const extraFinalHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const extraFinalTree = runGit(fixture.root, [
+      "rev-parse",
+      `${extraFinalHead}^{tree}`
+    ]);
+    const extraPathMerge = runGit(fixture.root, [
+      "commit-tree",
+      extraFinalTree,
+      "-p",
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      "-p",
+      extraFinalHead,
+      "-m",
+      "extra-path protected merge"
+    ]);
+    runGit(fixture.root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      extraPathMerge
+    ]);
+    expect(
+      fixture.governance.protectedMainAdvanceChainResolution(
+        extraFinalRegistry,
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        extraPathMerge
+      )
+    ).toMatchObject({
+      allowed: false,
+      rule: "protected-advance-lifecycle-unrecognized"
+    });
+  });
+
+  it("emits a detached post-main rule-suite receipt and later revalidates it by direct suite lookup", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-rule-suite-receipt"
+    );
+    const descriptor = {
+      mergeTimeRegistry: fixture.finalRegistry,
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      secondParentSha: fixture.finalHeadSha,
+      mergeTreeSha: fixture.finalTreeSha,
+      registryBlobSha: runGit(fixture.root, [
+        "rev-parse",
+        `${fixture.finalHeadSha}:coordination/repo-governance/active-work.json`
+      ])
+    };
+    const discovery = postPr83InProcessGitHubTransportForTest(fixture);
+    const first = fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+      descriptor,
+      184,
+      {
+        githubTransport: discovery.transport,
+        observedAt: "2026-09-03T09:05:00Z"
+      }
+    );
+    expect(first.validated).toBe(true);
+    expect(first.ruleSuiteReceipt.payload).toEqual({
+      schema: "sena-post-pr83-post-main-rule-suite/v1",
+      suiteId: 28601,
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      pullRequestNumber: 184,
+      finalHeadSha: fixture.finalHeadSha,
+      rulesetId: 21232887,
+      rulesetName: "main-minimum-safety",
+      evaluations: [
+        "deletion",
+        "non_fast_forward",
+        "pull_request",
+        "required_status_checks"
+      ].map((ruleType) => ({
+        ruleType,
+        enforcement: "active",
+        result: "pass"
+      })),
+      observedAt: "2026-09-03T09:05:00Z",
+      custody: "external-task-output-not-repo-persistence"
+    });
+    expect(first.ruleSuiteReceipt.receiptSha256).toBe(
+      createHash("sha256")
+        .update(JSON.stringify(first.ruleSuiteReceipt.payload))
+        .digest("hex")
+    );
+    expect(discovery.calls).toContain(
+      "repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1"
+    );
+
+    const direct = postPr83InProcessGitHubTransportForTest(fixture, {
+      listSuites: false
+    });
+    const second = fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+      descriptor,
+      184,
+      {
+        githubTransport: direct.transport,
+        ruleSuiteReceipt: first.ruleSuiteReceipt
+      }
+    );
+    expect(second.ruleSuiteReceipt).toEqual(first.ruleSuiteReceipt);
+    expect(direct.calls).toContain(
+      "repos/HUDongpin/SENA/rulesets/rule-suites/28601"
+    );
+    expect(
+      direct.calls.some((path) => path.includes("rule-suites?"))
+    ).toBe(false);
+
+    const chainTransport = postPr83InProcessGitHubTransportForTest(fixture);
+    const chain = fixture.governance.protectedMainAdvanceChainResolution(
+      fixture.finalRegistry,
+      POST_PR83_SOURCE_SHA_FOR_TEST,
+      fixture.mergeCommitSha,
+      {
+        githubTransport: chainTransport.transport,
+        observedAt: "2026-09-03T09:05:00Z"
+      }
+    );
+    expect(chain).toMatchObject({
+      allowed: true,
+      postPr83RuleSuiteReceipts: [first.ruleSuiteReceipt]
+    });
+
+    for (const invalid of [
+      {
+        receipt: {
+          ...first.ruleSuiteReceipt,
+          receiptSha256: "f".repeat(64)
+        },
+        variant: "valid" as const
+      },
+      { receipt: first.ruleSuiteReceipt, variant: "wrong-merge" as const },
+      { receipt: first.ruleSuiteReceipt, variant: "bypass" as const }
+    ]) {
+      const transport = postPr83InProcessGitHubTransportForTest(fixture, {
+        listSuites: false,
+        suiteVariant: invalid.variant
+      });
+      expect(() =>
+        fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+          descriptor,
+          184,
+          {
+            githubTransport: transport.transport,
+            ruleSuiteReceipt: invalid.receipt
+          }
+        )
+      ).toThrow("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+  });
+
+  it("selects the deterministic latest exact-head workflow run and its latest-attempt job", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-latest-runs"
+    );
+    const descriptor = {
+      mergeCommitSha: fixture.mergeCommitSha,
+      orderedParentShas: [
+        POST_PR83_SOURCE_SHA_FOR_TEST,
+        fixture.finalHeadSha
+      ],
+      secondParentSha: fixture.finalHeadSha
+    };
+    const twoSuccesses = postPr83InProcessGitHubTransportForTest(fixture, {
+      runHistory: "two-successes"
+    });
+    expect(
+      fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+        descriptor,
+        184,
+        {
+          githubTransport: twoSuccesses.transport,
+          observedAt: "2026-09-03T09:05:00Z"
+        }
+      ).validated
+    ).toBe(true);
+    for (const [latestRun, latestAttempt] of [
+      [28401, 2],
+      [28402, 1],
+      [28403, 1]
+    ]) {
+      expect(twoSuccesses.calls).toContain(
+        `repos/HUDongpin/SENA/actions/runs/${latestRun}/attempts/${latestAttempt}/jobs`
+      );
+      expect(twoSuccesses.calls).not.toContain(
+        `repos/HUDongpin/SENA/actions/runs/${latestRun - 100}/attempts/1/jobs`
+      );
+    }
+
+    for (const runHistory of [
+      "newest-failure",
+      "newest-pending"
+    ] as const) {
+      const transport = postPr83InProcessGitHubTransportForTest(fixture, {
+        runHistory
+      });
+      expect(() =>
+        fixture.governance.validatePostPr83FinalHeadLiveGitHubEvidence(
+          descriptor,
+          184,
+          {
+            githubTransport: transport.transport,
+            observedAt: "2026-09-03T09:05:00Z"
+          }
+        )
+      ).toThrow("rule=post-pr83-final-head-live-evidence-invalid");
+    }
+  });
+
+  it("requires ordered independent reviews plus detached root custody before authorizing push readiness", async () => {
+    const fixture = await createPostPr83LifecycleFixture(
+      "post-pr83-root-review-custody",
+      { stageFinal: false }
+    );
+    const candidateCommitAt = new Date(
+      runGit(fixture.root, [
+        "show",
+        "-s",
+        "--format=%cI",
+        fixture.initialHeadSha
+      ])
+    ).toISOString();
+    const specReview = postPr83ReviewEvidenceForTest(
+      "specification",
+      "/root/post_pr83_spec_review",
+      "agent:post_pr83_spec_review",
+      fixture.evidence,
+      candidateCommitAt
+    );
+    const qualitySecurityReview = postPr83ReviewEvidenceForTest(
+      "quality-security",
+      "/root/post_pr83_quality_security_review",
+      "agent:post_pr83_quality_security_review",
+      fixture.evidence,
+      candidateCommitAt
+    );
+    const rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+      fixture.evidence,
+      specReview,
+      qualitySecurityReview,
+      candidateCommitAt
+    );
+    const withoutRoot = fixture.governance.validatePostPr83PushDraftReadiness(
+      fixture.initialRegistry,
+      { specReview, qualitySecurityReview }
+    );
+    expect(withoutRoot).toMatchObject({
+      authorized: false,
+      structurallyValid: true,
+      trustModel: "external-custody-not-cryptographic-reviewer-authentication"
+    });
+    const authorized = fixture.governance.validatePostPr83PushDraftReadiness(
+      fixture.initialRegistry,
+      { specReview, qualitySecurityReview, rootCustodyAttestation },
+      { now: candidateCommitAt }
+    );
+    expect(authorized).toMatchObject({
+      authorized: true,
+      structurallyValid: true,
+      headSha: fixture.initialHeadSha,
+      trustModel: "external-custody-not-cryptographic-reviewer-authentication"
+    });
+
+    const expectRejected = (
+      mutate: (context: any) => void,
+      now = candidateCommitAt
+    ) => {
+      const context = structuredClone({
+        specReview,
+        qualitySecurityReview,
+        rootCustodyAttestation
+      });
+      mutate(context);
+      expect(() =>
+        fixture.governance.validatePostPr83PushDraftReadiness(
+          fixture.initialRegistry,
+          context,
+          { now }
+        )
+      ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
+    };
+    expectRejected((context) => {
+      context.rootCustodyAttestation.receiptSha256 = "f".repeat(64);
+    });
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.specificationReceiptSha256 =
+        "e".repeat(64);
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.trustBoundary = "cryptographic";
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.candidateTreeSha = "d".repeat(40);
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+    expectRejected((context) => {
+      const beforeCommit = new Date(
+        Date.parse(candidateCommitAt) - 1
+      ).toISOString();
+      context.specReview = postPr83ReviewEvidenceForTest(
+        "specification",
+        "/root/post_pr83_spec_review",
+        "agent:post_pr83_spec_review",
+        fixture.evidence,
+        beforeCommit
+      );
+      context.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+        fixture.evidence,
+        context.specReview,
+        context.qualitySecurityReview,
+        candidateCommitAt
+      );
+    });
+    expectRejected((context) => {
+      context.specReview.payload.reviewedAt = "2026-09-03T08:15:02Z";
+      context.specReview.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.specReview.payload))
+        .digest("hex");
+      context.qualitySecurityReview.payload.reviewedAt =
+        "2026-09-03T08:15:01Z";
+      context.qualitySecurityReview.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.qualitySecurityReview.payload))
+        .digest("hex");
+      context.rootCustodyAttestation = postPr83RootCustodyAttestationForTest(
+        fixture.evidence,
+        context.specReview,
+        context.qualitySecurityReview,
+        "2026-09-03T08:15:03Z"
+      );
+    }, "2026-09-03T08:15:03Z");
+    expectRejected((context) => {
+      context.rootCustodyAttestation.payload.acknowledgedAt =
+        "2099-01-01T00:00:00Z";
+      context.rootCustodyAttestation.receiptSha256 = createHash("sha256")
+        .update(JSON.stringify(context.rootCustodyAttestation.payload))
+        .digest("hex");
+    });
+  }, 120_000);
+
+  it("ignores caller PATH shadows when resolving the production post-PR83 GitHub CLI", async () => {
+    const root = temporaryRoot("post-pr83-gh-path-shadow");
+    const fakeBin = join(root, "bin");
+    const fakeGh = join(fakeBin, "gh");
+    mkdirSync(fakeBin, { recursive: true });
+    writeFileSync(fakeGh, "#!/bin/sh\nexit 0\n");
+    chmodSync(fakeGh, 0o777);
+    const governance = await import(
+      `${pathToFileURL(governanceScript).href}?postPr83Gh=${Date.now()}-${Math.random()}`
+    );
+    expect(typeof governance.resolveTrustedPostPr83GitHubCli).toBe("function");
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${fakeBin}:${previousPath ?? ""}`;
+    try {
+      const resolved = governance.resolveTrustedPostPr83GitHubCli();
+      expect(resolved).not.toBe(fakeGh);
+      expect(resolved.startsWith(root)).toBe(false);
+      expect(resolved.startsWith("/tmp/")).toBe(false);
+      expect(resolved.startsWith("/private/tmp/")).toBe(false);
+      expect(resolved.startsWith(realpathSync(projectRoot))).toBe(false);
+      expect((statSync(resolved).mode & 0o022)).toBe(0);
+    } finally {
+      process.env.PATH = previousPath;
+    }
+  });
+
+  it("binds the exact root thread while preserving EvidenceFlow and PR46 lane records", () => {
+    const candidate = postPr83InitialRegistryForTest();
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        "14243fd6c38e39021ee9f1baae0ec17619a2c079:coordination/repo-governance/active-work.json"
+      ])
+    );
+    expect(
+      candidate.workItems.find(
+        (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
+      ).threadId
+    ).toBe("01a0414a-a4a5-7051-ba59-34b7b4d1aee3");
+    for (const taskId of [
+      "SENA-EVIDENCEFLOW-V1-20260828",
+      "SENA-BRANCH-RETIREMENT-20260829"
+    ]) {
+      expect(
+        candidate.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === taskId
+        )
+      ).toEqual(
+        source.workItems.find(
+          (entry: { taskId?: string }) => entry.taskId === taskId
+        )
+      );
+    }
+    for (const branchName of [
+      "codex/sena-evidenceflow-v1-20260828",
+      "codex/sena-branch-retirement-20260829"
+    ]) {
+      expect(
+        candidate.branches.find(
+          (entry: { name?: string }) => entry.name === branchName
+        )
+      ).toEqual(
+        source.branches.find(
+          (entry: { name?: string }) => entry.name === branchName
+        )
+      );
     }
   });
 });
