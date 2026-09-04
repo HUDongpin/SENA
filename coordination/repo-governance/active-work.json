@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-04T04:36:30Z",
+  "updatedAt": "2026-09-04T05:24:04Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -2212,10 +2212,10 @@
       "branch": "codex/sena-post-pr83-currentness-correction-20260903",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
       "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
-      "headSha": "b5620311d00ed50e4dfc7ea05b43ae801847bcf4",
+      "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 9,
+        "ahead": 10,
         "behind": 0
       },
       "allowedPaths": [
@@ -2224,9 +2224,9 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-03T06:15:00Z",
-      "lastHeartbeatAt": "2026-09-04T04:36:30Z",
-      "lastObservedAt": "2026-09-04T04:36:30Z",
-      "nextReviewAt": "2026-09-05T04:36:30Z",
+      "lastHeartbeatAt": "2026-09-04T05:24:04Z",
+      "lastObservedAt": "2026-09-04T05:24:04Z",
+      "nextReviewAt": "2026-09-05T05:24:04Z",
       "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
       "prNumber": 84,
       "noPrReason": null,
@@ -2234,20 +2234,20 @@
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
-      "dirtyState": "three-path-post-pr83-stdin-hang-test-fix-candidate",
+      "prHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "dirtyState": "clean-registry-only-post-pr83-currentness-correction-final-candidate",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "exact unpushed commit b5620311 is clean and preserved; its clean-commit 109-test run reproducibly hung at 100/109 on a test-owned git hash-object stdin pipe and was terminated without PASS, so this worktree stages one exact three-path path-hashing fixture fix as its sole direct child",
-        "ci": "remote exact-head build run 33748484177, security push run 33748475777, and security PR run 33748483787 remain successful for 4f3562f5 only; b5620311 and its replacement candidate have no remote CI",
-        "merged": "Draft PR #84 remains OPEN at remote head 4f3562f5; local hung candidate b5620311 and its exact path-hashing-fix child are unpushed, while Ready and merge remain false",
+        "local": "exact initial correction 159bad37 is clean and fully verified; only the registry-only final heartbeat is staged",
+        "ci": "exact initial head 159bad37 build run 33839930586, push-security run 33839928118, and PR-security run 33839930584 passed with zero annotations",
+        "merged": "Draft PR #84 remains OPEN and unmerged at exact initial head 159bad37; Ready and protected merge remain false pending final-head checks",
         "deployed": "not in scope and not authorized",
-        "live": "live and cached main are exact c1a7eb3e; named remote and Draft PR #84 remain at 4f3562f5, while local HEAD is hung candidate b5620311 and all replacement push, Ready, merge, and post-main evidence remain absent"
+        "live": "live and cached main remain exact c1a7eb3e; named remote and Draft PR #84 both bind exact initial head 159bad37"
       },
       "disposition": "active",
       "freezeException": "governance-preservation",
       "postPr83CurrentnessCorrectionLifecycle": {
-        "status": "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate",
+        "status": "registry-only-post-pr83-currentness-correction-final-candidate",
         "oneShot": true,
         "sourceBinding": {
           "headSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
@@ -2610,7 +2610,95 @@
           "forceAuthorized": false,
           "historyRewriteAuthorized": false
         },
-        "initialCandidateCompletionEvidence": null
+        "initialCandidateCompletionEvidence": {
+          "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+          "treeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+          "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+          "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+          "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+          "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+          "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+          "buildRunId": 33839930586,
+          "repositorySecurityRunIds": [
+            33839928118,
+            33839930584
+          ],
+          "checkJobIds": [
+            100919973808,
+            100919966011,
+            100919973882
+          ],
+          "requiredChecksPassed": true,
+          "annotationsEmpty": true,
+          "specReview": {
+            "payload": {
+              "schema": "sena-post-pr83-independent-review/v1",
+              "reviewKind": "specification",
+              "reviewerTaskId": "/root/post_pr83_spec_review",
+              "actorId": "agent:post_pr83_spec_review",
+              "candidateHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+              "candidateTreeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+              "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+              "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+              "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+              "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+              "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+              "findings": {
+                "p0": 0,
+                "p1": 0,
+                "p2": 0,
+                "p3": 0
+              },
+              "verdict": "approved",
+              "reviewedAt": "2026-09-04T05:10:54.487Z"
+            },
+            "receiptSha256": "aaa9981b8f4fe0d93db93e54364fe3fbcd45f5e42950f6c2f7ff30b1ef7113d7"
+          },
+          "qualitySecurityReview": {
+            "payload": {
+              "schema": "sena-post-pr83-independent-review/v1",
+              "reviewKind": "quality-security",
+              "reviewerTaskId": "/root/post_pr83_quality_security_review",
+              "actorId": "agent:post_pr83_quality_security_review",
+              "candidateHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+              "candidateTreeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+              "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+              "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+              "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+              "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+              "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+              "findings": {
+                "p0": 0,
+                "p1": 0,
+                "p2": 0,
+                "p3": 0
+              },
+              "verdict": "approved",
+              "reviewedAt": "2026-09-04T05:13:54.386Z"
+            },
+            "receiptSha256": "9e3728eea574beda7c14349605eda16404fc15d25c6db930ccae6734c6342217"
+          },
+          "rootCustodyAttestation": {
+            "payload": {
+              "schema": "sena-post-pr83-root-review-custody/v1",
+              "attestorTaskId": "/root",
+              "actorId": "agent:root",
+              "candidateHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+              "candidateTreeSha": "09b0bfa0ab2226983c6147bcb626ba128cdeba2a",
+              "registryBlobSha": "7711d142fe115d6f4b0bf4ed60a05817e9043d84",
+              "verifierBlobSha": "5ae18cce1a383406c1f7d35e0ceb186ba035a6af",
+              "governanceTestBlobSha": "74bc89d52f221ecc6d7e9f40dd797271c29c9022",
+              "compatibilityDiffSha256": "b39d8e9c8070724a689a5fa81f7af0773bfb0bf667c6b388b3fd97b0d3442ebe",
+              "cumulativeDiffSha256": "2f7681dd37030e4230ed5ecaa7bb024ed3f3c29f23974d9044df2b29235d0b3b",
+              "specificationReceiptSha256": "aaa9981b8f4fe0d93db93e54364fe3fbcd45f5e42950f6c2f7ff30b1ef7113d7",
+              "qualitySecurityReceiptSha256": "9e3728eea574beda7c14349605eda16404fc15d25c6db930ccae6734c6342217",
+              "ownerAuthorizationMessageSha256": "6f52439b8b0947c1c7ad81e05f2182ecf9460265b3b2c9c77d75aed823f88279",
+              "trustBoundary": "external-orchestrator-custody-not-cryptographic-signature",
+              "acknowledgedAt": "2026-09-04T05:14:57.167Z"
+            },
+            "receiptSha256": "01fb827fc95659bfb2466531a256a49c95b77dda4fe5e86194975b0ff81d5a7f"
+          }
+        }
       }
     },
     {
@@ -7024,29 +7112,29 @@
       "owner": "Codex post-PR83 currentness correction writer",
       "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
       "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
-      "headSha": "b5620311d00ed50e4dfc7ea05b43ae801847bcf4",
+      "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
       "upstream": "origin/codex/sena-post-pr83-currentness-correction-20260903",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
-      "remoteObservedAt": "2026-09-03T11:16:55Z",
+      "remoteHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "remoteObservedAt": "2026-09-04T05:24:04Z",
       "pr": 84,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "4f3562f5ca075679485b14c73c30a60c3d46c0a2",
+      "prHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
       "prBase": "main",
       "prStateObservationMode": "monotonic",
       "noPrReason": null,
-      "lastOwnerHeartbeatAt": "2026-09-04T04:36:30Z",
-      "lastObservedAt": "2026-09-04T04:36:30Z",
-      "lastCommitAt": "2026-09-04T12:22:07+08:00",
-      "nextReviewAt": "2026-09-05T04:36:30Z",
+      "lastOwnerHeartbeatAt": "2026-09-04T05:24:04Z",
+      "lastObservedAt": "2026-09-04T05:24:04Z",
+      "lastCommitAt": "2026-09-04T12:54:27+08:00",
+      "nextReviewAt": "2026-09-05T05:24:04Z",
       "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
       "disposition": "active",
-      "closeout": "remote source 4f3562f5 remains on OPEN/Draft PR #84; local hung candidate b5620311 is preserved unpushed, and only one exact three-path stdin-hang path-hashing child may be committed after gates while push, Ready, merge, and every unrelated mutation remain false",
+      "closeout": "registry-only final heartbeat awaiting exact-final-head checks; Ready and protected merge remain false",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN"
     },
