@@ -5965,7 +5965,8 @@ describe("SENA repository governance", () => {
         "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
         "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
         "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
-        "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate"
+        "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
+        "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate"
       ].includes(indexedLifecycleStatus);
     expect(
       expectedEmptyIndexFailure
@@ -7938,7 +7939,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-invalid"
+      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -8188,26 +8189,40 @@ process.stdout.write(JSON.stringify(value));
       "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
       "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
       "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
-      "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate"
+      "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
+      "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate"
     ].includes(cleanIndexPostPr83Status);
     const cleanIndexSourceReviewIsOverdue = [
       ...(cleanIndexSourceRegistry.workItems ?? []),
       ...(cleanIndexSourceRegistry.branches ?? [])
     ].some(
-      (entry: { nextReviewAt?: string; disposition?: string }) =>
+      (entry: {
+        nextReviewAt?: string;
+        disposition?: string;
+        taskId?: string;
+        name?: string;
+      }) =>
         ["active", "ready-for-pr"].includes(entry.disposition ?? "") &&
+        entry.taskId !== "SENA-EVIDENCEFLOW-V1-20260828" &&
+        entry.name !== "codex/sena-evidenceflow-v1-20260828" &&
         typeof entry.nextReviewAt === "string" &&
         Date.parse(entry.nextReviewAt) < Date.now()
     );
-    expect(cleanIndexWritePolicy.stderr).toContain(
+    const expectedCleanIndexFailure =
       cleanIndexSourceStatus ===
         "three-path-post-pr82-topology-heartbeat-bootstrap-candidate" ||
-        cleanIndexSourceReviewIsOverdue ||
-        (cleanIndexPostPr83Status &&
-          !cleanIndexHasRecognizedPostPr83Snapshot)
-        ? "index registry snapshot is invalid"
-        : "rule=empty-staged-index-not-authorized"
-    );
+      cleanIndexSourceReviewIsOverdue ||
+      (cleanIndexPostPr83Status && !cleanIndexHasRecognizedPostPr83Snapshot)
+        ? ["index registry snapshot is invalid"]
+        : [
+            "index registry snapshot is invalid",
+            "rule=empty-staged-index-not-authorized"
+          ];
+    expect(
+      expectedCleanIndexFailure.some((message) =>
+        cleanIndexWritePolicy.stderr.includes(message)
+      )
+    ).toBe(true);
 
     const expectInitialFailure = (mutate: (candidate: any) => void, rule?: string) => {
       const candidate = structuredClone(initial.registry);
@@ -12865,6 +12880,8 @@ const POST_PR83_REJECTED_BUILD_CI_SHA_FOR_TEST =
   "976fcf84ec78c22d41b0a34ff7328dd54207b6cc";
 const POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST =
   "4f3562f5ca075679485b14c73c30a60c3d46c0a2";
+const POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST =
+  "f93fd2d3e2c0e326086fcc71838bca34e9d563ee";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -12998,7 +13015,7 @@ function postPr83CompletionEvidenceForTest(root: string, headSha: string) {
     ]),
     compatibilityDiffSha256: postPr83BinaryDiffSha256ForTest(
       root,
-      POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST,
+      POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
       headSha
     ),
     cumulativeDiffSha256: postPr83BinaryDiffSha256ForTest(
@@ -13056,7 +13073,7 @@ function postPr83FinalRegistryForTest(
     (entry: { name?: string }) => entry.name === POST_PR83_BRANCH_FOR_TEST
   );
   item.headSha = evidence.headSha;
-  item.aheadBehind = { baseRef: "origin/main", ahead: 8, behind: 0 };
+  item.aheadBehind = { baseRef: "origin/main", ahead: 9, behind: 0 };
   item.lastHeartbeatAt = observedAt;
   item.lastObservedAt = observedAt;
   item.nextReviewAt = nextReviewAt;
@@ -13531,6 +13548,12 @@ describe("post-PR83 protected currentness correction", () => {
         `${POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
       ])
     );
+    const historicalObserverOverdueTestSource = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
     const candidate = postPr83InitialRegistryForTest();
     const historicalBytesResult = spawnSync(
       "git",
@@ -13716,11 +13739,18 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes
     ).toBe("function");
+    const finalHeartbeatAuditBytesResult = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(finalHeartbeatAuditBytesResult.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json")
-        )
+        finalHeartbeatAuditBytesResult.stdout
       )
     ).toBe(true);
     expect(
@@ -13729,6 +13759,25 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
         historicalFinalHeartbeatAuditSource,
+        historicalObserverOverdueTestSource
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixRegistryBytes(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json")
+        )
+      )
+    ).toBe(true);
+    expect(
+      typeof governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+        historicalObserverOverdueTestSource,
         candidate
       )
     ).toBe(true);
@@ -13761,12 +13810,12 @@ describe("post-PR83 protected currentness correction", () => {
       const drifted = structuredClone(candidate);
       mutate(drifted);
       expect(() =>
-        governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
-          historicalFinalHeartbeatAuditSource,
+        governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
+          historicalObserverOverdueTestSource,
           drifted
         )
       ).toThrow(
-        "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-invalid"
+        "rule=post-pr83-currentness-observer-overdue-test-fix-transition-invalid"
       );
     }
   });
@@ -13781,7 +13830,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(fixture.evidence.compatibilityDiffSha256).toBe(
       postPr83BinaryDiffSha256ForTest(
         fixture.root,
-        POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST,
+        POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
         fixture.initialHeadSha
       )
     );
@@ -13941,7 +13990,7 @@ describe("post-PR83 protected currentness correction", () => {
       "commit-tree",
       fixture.evidence.treeSha,
       "-p",
-      POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST,
+      POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
       "-m",
       "alternate same-tree compatibility child"
     ]);
@@ -13963,12 +14012,12 @@ describe("post-PR83 protected currentness correction", () => {
       )
     ).toThrow("rule=post-pr83-currentness-final-evidence-invalid");
     expect(() =>
-      fixture.governance.validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+      fixture.governance.validatePostPr83CurrentnessCorrectionObserverOverdueTestFixTransition(
         fixture.initialRegistry,
         fixture.initialRegistry
       )
     ).toThrow(
-      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-replay"
+      "rule=post-pr83-currentness-observer-overdue-test-fix-transition-replay"
     );
   });
 
@@ -14060,7 +14109,7 @@ describe("post-PR83 protected currentness correction", () => {
     falseOnlyRegistry.workItems.find(
       (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
     ).postPr83CurrentnessCorrectionLifecycle.authorizationBoundary
-      .finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
+      .observerOverdueTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
       false;
     expect(() =>
       fixture.governance.validatePostPr83PushDraftReadiness(
@@ -14143,7 +14192,7 @@ describe("post-PR83 protected currentness correction", () => {
     };
     runGitWithEnvironment(
       projectRoot,
-      ["--no-optional-locks", "read-tree", POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST],
+      ["--no-optional-locks", "read-tree", POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST],
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
@@ -14182,7 +14231,7 @@ describe("post-PR83 protected currentness correction", () => {
         "commit-tree",
         initialTreeSha,
         "-p",
-        POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST,
+        POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
         "-m",
         "post-PR83 compatibility fix candidate"
       ],
@@ -14209,7 +14258,7 @@ describe("post-PR83 protected currentness correction", () => {
         "diff",
         "--binary",
         "--full-index",
-        POST_PR83_FINAL_HEARTBEAT_AUDIT_SOURCE_SHA_FOR_TEST,
+        POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST,
         initialHeadSha,
         "--",
         ...POST_PR83_PATHS_FOR_TEST
