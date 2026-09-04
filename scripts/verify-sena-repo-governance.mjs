@@ -1746,6 +1746,50 @@ export function postPr82FinalHeartbeatPreCommitCleanClaimAllowed({
   );
 }
 
+export function postPr83FinalHeartbeatPreCommitCleanClaimAllowed({
+  registry,
+  taskId,
+  branch,
+  actualHeadSha,
+  dirtyState,
+  lifecycleStatus,
+  preCommit,
+  registryFromIndex,
+  dirtyPaths,
+  stagedPaths,
+  unstagedPaths
+} = {}, options = {}) {
+  if (
+    taskId !== POST_PR83_CURRENTNESS_TASK_ID ||
+    branch !== POST_PR83_CURRENTNESS_BRANCH ||
+    !isSha(actualHeadSha) ||
+    !String(dirtyState ?? "").startsWith(
+      "clean-registry-only-post-pr83-currentness-correction-final-candidate"
+    ) ||
+    lifecycleStatus !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
+    preCommit !== true ||
+    registryFromIndex !== true ||
+    !sameJson(dirtyPaths, POST_PR83_CURRENTNESS_FINAL_PATHS) ||
+    !sameJson(stagedPaths, POST_PR83_CURRENTNESS_FINAL_PATHS) ||
+    !sameJson(unstagedPaths, [])
+  ) {
+    return false;
+  }
+  try {
+    const sourceRegistry = loadRegistryFromCommit(actualHeadSha).parsed;
+    validatePostPr83CurrentnessCorrectionFinalTransition(
+      sourceRegistry,
+      registry,
+      actualHeadSha,
+      postPr83CompletionContextFromEnvironment(),
+      { githubTransport: options.githubTransport ?? null }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function runWritePolicy(flags) {
   if (!flags.has("registry-from-index") || !flags.has("staged")) {
     throw new Error("write-policy requires --registry-from-index --staged");
@@ -8356,6 +8400,20 @@ const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256 =
   "aff73d8c876f43520b6a76d25f1d70f373e503bb4bbfa12269d34c39d8a6fda4";
 const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256 =
   "27a1c70453a3d23dc1cdfeb4cf3d2c7e8e017cade4132a22871531338e27e299";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA =
+  "4f3562f5ca075679485b14c73c30a60c3d46c0a2";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TREE_SHA =
+  "6d8626d0157e0adae00f1d6223eb16bc4ddc51d8";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_REGISTRY_BLOB_SHA =
+  "b3f16ed7a9496bf416192aefb9d08c1ba14c77f1";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_VERIFIER_BLOB_SHA =
+  "bd1411cb74133272e1865353a2f54ec5cc114ef8";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TEST_BLOB_SHA =
+  "c68bcca9aa4e198c0571b4ab82f440b46fd2c134";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256 =
+  "5ddb897e0e40d21ea375d2727ae44d5a5a9a7782093b23c4e95df73ac3dae1ec";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256 =
+  "17857cf05e4927cc81b3cca10f4c616ee68ce2000a79cff42f10902b8429fffe";
 const POST_PR83_CURRENTNESS_INITIAL_STATUS =
   "three-path-post-pr83-currentness-correction-initial-candidate";
 const POST_PR83_CURRENTNESS_COMPATIBILITY_STATUS =
@@ -8370,6 +8428,8 @@ const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS =
   "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate";
 const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS =
   "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate";
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS =
+  "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate";
 const POST_PR83_CURRENTNESS_FINAL_STATUS =
   "registry-only-post-pr83-currentness-correction-final-candidate";
 const POST_PR83_CURRENTNESS_LIFECYCLE_KEY =
@@ -8475,6 +8535,20 @@ const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_BINDING = {
   canonicalParsedRegistrySha256:
     POST_PR83_CURRENTNESS_CLEAN_CONTEXT_REGISTRY_CANONICAL_SHA256
 };
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_BINDING = {
+  headSha: POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
+  treeSha: POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TREE_SHA,
+  parentSha: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  registryBlobSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_REGISTRY_BLOB_SHA,
+  verifierBlobSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_VERIFIER_BLOB_SHA,
+  governanceTestBlobSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TEST_BLOB_SHA,
+  rawRegistrySha256: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256,
+  canonicalParsedRegistrySha256:
+    POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256
+};
 const POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN = [
   POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_COMPATIBILITY_SOURCE_HEAD_SHA,
@@ -8482,7 +8556,8 @@ const POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN = [
   POST_PR83_CURRENTNESS_PUSH_READINESS_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_QUALITY_SECURITY_SOURCE_HEAD_SHA,
   POST_PR83_CURRENTNESS_CLEAN_CONTEXT_SOURCE_HEAD_SHA,
-  POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA
+  POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
 ];
 const POST_PR83_CURRENTNESS_COMPATIBILITY_TRANSITION = {
   mode: "one-exact-direct-three-path-child-of-review-rejected-22d307e8",
@@ -8536,6 +8611,18 @@ const POST_PR83_CURRENTNESS_CLEAN_CONTEXT_TRANSITION = {
 const POST_PR83_CURRENTNESS_BUILD_CI_TYPE_TRANSITION = {
   mode: "one-exact-direct-three-path-child-of-build-ci-failed-976fcf84",
   requiredParentSha: POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+  requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  requiredCumulativePathsFromProtectedMain:
+    POST_PR83_CURRENTNESS_INITIAL_PATHS,
+  candidateIdentityMustBeBoundByFinalEvidenceAndThreeDetachedCustodyReceipts:
+    true,
+  replayOrOtherDescendantAuthorized: false
+};
+const POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_TRANSITION = {
+  mode:
+    "one-exact-direct-three-path-child-of-final-heartbeat-audit-rejected-4f3562f5",
+  requiredParentSha:
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
   requiredCandidatePaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
   requiredCumulativePathsFromProtectedMain:
     POST_PR83_CURRENTNESS_INITIAL_PATHS,
@@ -8607,9 +8694,13 @@ const POST_PR83_CURRENTNESS_AUTHORIZATION_BOUNDARY = {
   cleanContextFixPushOrDraftPrAuthorizedNow: false,
   cleanContextFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
     false,
-  buildCiTypeFixCommitAuthorizedAfterGates: true,
+  buildCiTypeFixCommitAuthorizedAfterGates: false,
   buildCiTypeFixPushOrDraftPrAuthorizedNow: false,
   buildCiTypeFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
+    false,
+  finalHeartbeatAuditExceptionFixCommitAuthorizedAfterGates: true,
+  finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow: false,
+  finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts:
     true,
   finalRegistryOnlyTransitionAuthorizedAfterInitialChecks: true,
   prReadyMayBeAuthorizedOnlyAfterFinalHeadChecks: true,
@@ -8792,6 +8883,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       "qualitySecurityFixSourceBinding",
       "cleanContextFixSourceBinding",
       "buildCiTypeFixSourceBinding",
+      "finalHeartbeatAuditExceptionFixSourceBinding",
       "approvedInitialChain",
       "compatibilityTransition",
       "reviewFixTransition",
@@ -8799,6 +8891,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       "qualitySecurityFixTransition",
       "cleanContextFixTransition",
       "buildCiTypeFixTransition",
+      "finalHeartbeatAuditExceptionFixTransition",
       "pushDraftReadinessPrerequisites",
       "authorization",
       "protectedLaneContracts",
@@ -8813,6 +8906,7 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS,
       POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
       POST_PR83_CURRENTNESS_FINAL_STATUS
     ].includes(lifecycle.status) ||
     lifecycle.oneShot !== true ||
@@ -8842,6 +8936,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_BINDING
     ) ||
     !sameJson(
+      lifecycle.finalHeartbeatAuditExceptionFixSourceBinding,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_BINDING
+    ) ||
+    !sameJson(
       lifecycle.approvedInitialChain,
       POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
     ) ||
@@ -8868,6 +8966,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
     !sameJson(
       lifecycle.buildCiTypeFixTransition,
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_TRANSITION
+    ) ||
+    !sameJson(
+      lifecycle.finalHeartbeatAuditExceptionFixTransition,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_TRANSITION
     ) ||
     !sameJson(
       lifecycle.pushDraftReadinessPrerequisites,
@@ -8912,6 +9014,10 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_BINDING
     ) ||
     !sameJson(
+      receipt.finalHeartbeatAuditExceptionFixSourceBinding,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_BINDING
+    ) ||
+    !sameJson(
       receipt.approvedInitialChain,
       POST_PR83_CURRENTNESS_APPROVED_INITIAL_CHAIN
     ) ||
@@ -8931,7 +9037,8 @@ function validatePostPr83CurrentnessLifecycleShape(registry) {
       POST_PR83_CURRENTNESS_PUSH_READINESS_STATUS,
       POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS,
       POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
-      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS
     ].includes(lifecycle.status) &&
       lifecycle.initialCandidateCompletionEvidence !== null) ||
     (lifecycle.status === POST_PR83_CURRENTNESS_FINAL_STATUS &&
@@ -9542,16 +9649,121 @@ export function validatePostPr83CurrentnessCorrectionBuildCiTypeFixTransition(
       "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
     );
   }
+  if (
+    postPr83CurrentnessLifecycle(candidateRegistry)?.status !==
+      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS ||
+    postPr83CurrentnessReceipt(candidateRegistry)?.receiptKind !==
+      POST_PR83_CURRENTNESS_RECEIPT_KIND
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
+    );
+  }
+  return true;
+}
+
+function validatePostPr83FinalHeartbeatAuditSourceRegistry(sourceRegistry) {
   try {
+    const rawRegistry = postPr83RegistryBlobBuffer(
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+    );
     if (
-      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
-      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS
+      !rawRegistry ||
+      sha256Buffer(rawRegistry) !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256 ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}^{tree}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TREE_SHA ||
+      !sameJson(
+        commitParents(
+          POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+        ),
+        [POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA]
+      ) ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}:${REGISTRY_REPO_PATH}`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_REGISTRY_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}:scripts/verify-sena-repo-governance.mjs`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_VERIFIER_BLOB_SHA ||
+      gitText([
+        "rev-parse",
+        `${POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
+      ]).trim() !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_TEST_BLOB_SHA ||
+      !sameJson(
+        loadRegistryFromCommit(
+          POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+        ).parsed,
+        sourceRegistry
+      ) ||
+      postPr83CurrentnessLifecycle(sourceRegistry)?.status !==
+        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS
     ) {
       throw new Error();
     }
   } catch {
     throw new Error(
-      "rule=post-pr83-currentness-build-ci-type-fix-transition-invalid"
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-source-invalid"
+    );
+  }
+  return sourceRegistry;
+}
+
+export function validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes(
+  bytes
+) {
+  if (
+    !Buffer.isBuffer(bytes) ||
+    sha256Buffer(bytes) !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-registry-bytes-invalid"
+    );
+  }
+  return true;
+}
+
+export function validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) ===
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-replay"
+    );
+  }
+  validatePostPr83FinalHeartbeatAuditSourceRegistry(sourceRegistry);
+  if (
+    sha256Buffer(Buffer.from(JSON.stringify(candidateRegistry))) !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256
+  ) {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-invalid"
+    );
+  }
+  try {
+    if (
+      validatePostPr83CurrentnessLifecycleShape(candidateRegistry).status !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS
+    ) {
+      throw new Error();
+    }
+  } catch {
+    throw new Error(
+      "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-transition-invalid"
     );
   }
   return true;
@@ -9717,7 +9929,7 @@ export function validatePostPr83PushDraftReadiness(
     const diffCheck = git([
       "diff",
       "--check",
-      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
       headSha,
       "--",
       ...POST_PR83_CURRENTNESS_INITIAL_PATHS
@@ -9738,7 +9950,7 @@ export function validatePostPr83PushDraftReadiness(
         `${headSha}:sena-hk-template/lib/sena/__tests__/repo-governance.test.ts`
       ]).trim(),
       compatibilityDiffSha256: postPr83CanonicalBinaryDiffSha256(
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
         headSha
       ),
       cumulativeDiffSha256: postPr83CanonicalBinaryDiffSha256(
@@ -9754,30 +9966,32 @@ export function validatePostPr83PushDraftReadiness(
     };
     const now = options.now ?? new Date().toISOString();
     if (
-      lifecycle.status !== POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS ||
+      lifecycle.status !== POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS ||
       !sameJson(
         lifecycle.pushDraftReadinessPrerequisites,
         POST_PR83_CURRENTNESS_PUSH_DRAFT_READINESS_PREREQUISITES
       ) ||
       boundary
-        ?.buildCiTypeFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts !==
+        ?.finalHeartbeatAuditExceptionFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts !==
         true ||
       boundary?.cumulativeReviewFixPushOrDraftPrAuthorizedNow !== false ||
       boundary?.pushReadinessFixPushOrDraftPrAuthorizedNow !== false ||
       boundary?.qualitySecurityFixPushOrDraftPrAuthorizedNow !== false ||
       boundary?.cleanContextFixPushOrDraftPrAuthorizedNow !== false ||
       boundary?.buildCiTypeFixPushOrDraftPrAuthorizedNow !== false ||
+      boundary?.finalHeartbeatAuditExceptionFixPushOrDraftPrAuthorizedNow !==
+        false ||
       branchName !== POST_PR83_CURRENTNESS_BRANCH ||
       gitText([
         "rev-parse",
         `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}`
       ]).trim() !== headSha ||
       !sameJson(commitParents(headSha), [
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
       ]) ||
       !sameStringSet(
         protectedMainAdvanceChangedPaths(
-          POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+          POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
           headSha
         ) ?? [],
         POST_PR83_CURRENTNESS_INITIAL_PATHS
@@ -9791,9 +10005,9 @@ export function validatePostPr83PushDraftReadiness(
       ) ||
       !rawRegistry ||
       sha256Buffer(rawRegistry) !==
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256 ||
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256 ||
       sha256Buffer(Buffer.from(JSON.stringify(registry))) !==
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256 ||
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256 ||
       !sameJson(loadRegistryFromCommit(headSha).parsed, registry) ||
       gitText([
         "status",
@@ -9879,16 +10093,16 @@ function validatePostPr83CurrentnessCompletionEvidence(
       evidence.annotationsEmpty !== true ||
       !rawRegistry ||
       sha256Buffer(rawRegistry) !==
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_FILE_SHA256 ||
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_FILE_SHA256 ||
       !sameJson(sourceRegistry, loadRegistryFromCommit(sourceHeadSha).parsed) ||
       sha256Buffer(Buffer.from(JSON.stringify(sourceRegistry))) !==
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_REGISTRY_CANONICAL_SHA256 ||
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_REGISTRY_CANONICAL_SHA256 ||
       !sameJson(commitParents(sourceHeadSha), [
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
       ]) ||
       !sameStringSet(
         protectedMainAdvanceChangedPaths(
-          POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+          POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
           sourceHeadSha
         ) ?? [],
         POST_PR83_CURRENTNESS_INITIAL_PATHS
@@ -9915,7 +10129,7 @@ function validatePostPr83CurrentnessCompletionEvidence(
         POST_PR83_CURRENTNESS_INITIAL_PATHS
       ) ||
       postPr83CanonicalBinaryDiffSha256(
-        POST_PR83_CURRENTNESS_BUILD_CI_TYPE_SOURCE_HEAD_SHA,
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA,
         sourceHeadSha
       ) !== evidence.compatibilityDiffSha256 ||
       postPr83CanonicalBinaryDiffSha256(
@@ -10062,14 +10276,15 @@ function validatePostPr83CurrentnessFinalFields(
     sourceHeadSha
   ]).trim();
   if (
-    sourceLifecycle.status !== POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS ||
+    sourceLifecycle.status !==
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS ||
     candidateLifecycle.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
     normalizedPostPr83FinalRegistrySha256(sourceRegistry) !==
       normalizedPostPr83FinalRegistrySha256(candidateRegistry) ||
     item?.headSha !== sourceHeadSha ||
     !sameJson(item?.aheadBehind, {
       baseRef: "origin/main",
-      ahead: 7,
+      ahead: 8,
       behind: 0
     }) ||
     !Number.isInteger(item.prNumber) ||
@@ -10808,6 +11023,15 @@ export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
       ).parsed,
       registry
     );
+  } else if (
+    lifecycle.status === POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS
+  ) {
+    validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+      loadRegistryFromCommit(
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+      ).parsed,
+      registry
+    );
   } else {
     const sourceHeadSha =
       lifecycle.initialCandidateCompletionEvidence?.headSha;
@@ -11053,8 +11277,42 @@ function validatePostPr83CurrentnessIndexTransition(candidateRegistry) {
     return true;
   }
   if (
+    currentHeadSha ===
+    POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_SOURCE_HEAD_SHA
+  ) {
+    if (
+      candidateLifecycle?.status !==
+        POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS ||
+      !sameJson(stagedChangedPaths(), POST_PR83_CURRENTNESS_INITIAL_PATHS)
+    ) {
+      throw new Error(
+        "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-index-invalid"
+      );
+    }
+    validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixRegistryBytes(
+      Buffer.from(git(["show", `:${REGISTRY_REPO_PATH}`], {
+        binary: true
+      }).stdout)
+    );
+    for (const path of POST_PR83_CURRENTNESS_INITIAL_PATHS.slice(1)) {
+      if (
+        gitText(["rev-parse", `:${path}`]).trim() !==
+        gitText(["hash-object", "--no-filters", join(REPO_ROOT, path)]).trim()
+      ) {
+        throw new Error(
+          "rule=post-pr83-currentness-final-heartbeat-audit-exception-fix-index-invalid"
+        );
+      }
+    }
+    validatePostPr83CurrentnessCorrectionFinalHeartbeatAuditExceptionFixTransition(
+      sourceRegistry,
+      candidateRegistry
+    );
+    return true;
+  }
+  if (
     postPr83CurrentnessLifecycle(sourceRegistry)?.status ===
-      POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS
   ) {
     if (
       candidateLifecycle?.status !== POST_PR83_CURRENTNESS_FINAL_STATUS ||
@@ -11101,6 +11359,7 @@ function postPr83ProtectedLaneContract(item, registry) {
       POST_PR83_CURRENTNESS_QUALITY_SECURITY_STATUS,
       POST_PR83_CURRENTNESS_CLEAN_CONTEXT_STATUS,
       POST_PR83_CURRENTNESS_BUILD_CI_TYPE_STATUS,
+      POST_PR83_CURRENTNESS_FINAL_HEARTBEAT_AUDIT_STATUS,
       POST_PR83_CURRENTNESS_FINAL_STATUS
     ].includes(lifecycle?.status) ||
     !sameJson(
@@ -14040,6 +14299,20 @@ function runAudit(flags) {
           dirtyState: item.dirtyState,
           lifecycleStatus:
             item.postPr82TopologyHeartbeatLifecycle?.status,
+          preCommit: flags.has("pre-commit"),
+          registryFromIndex: flags.has("registry-from-index"),
+          dirtyPaths,
+          stagedPaths: preCommitStagedPaths,
+          unstagedPaths: preCommitUnstagedPaths
+        }) ||
+        postPr83FinalHeartbeatPreCommitCleanClaimAllowed({
+          registry,
+          taskId: item.taskId,
+          branch: item.branch,
+          actualHeadSha: actual.headSha,
+          dirtyState: item.dirtyState,
+          lifecycleStatus:
+            item.postPr83CurrentnessCorrectionLifecycle?.status,
           preCommit: flags.has("pre-commit"),
           registryFromIndex: flags.has("registry-from-index"),
           dirtyPaths,
