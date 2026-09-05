@@ -8606,6 +8606,7 @@ export function externalPreservationObservationErrors(item, observed) {
       observed.commonDirectory !== item.preservation.commonDirectory) {
     return ["preserved worktree identity changed"];
   }
+  if (observed.indexMatchesHead !== true) return ["preserved index changed"];
   if (!sameStringSet(observed.dirtyPaths, item.allowedPaths) ||
       !sameJson(observed.fileSha256, item.preservation.fileSha256)) {
     return ["preserved source inventory changed"];
@@ -8640,7 +8641,11 @@ function inspectExternalPreservation(item, registered) {
       branch: registered.detached ? "(detached)" : registered.branch,
       commonDirectory,
       dirtyPaths: worktreeStatusPaths(item.worktreePath),
-      fileSha256
+      fileSha256,
+      indexMatchesHead: git(
+        ["diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+        { ...options, allowFailure: true }
+      ).status === 0
     });
   } catch {
     return ["preserved worktree cannot be verified"];

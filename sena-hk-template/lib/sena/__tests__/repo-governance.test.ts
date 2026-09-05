@@ -6045,19 +6045,75 @@ describe("SENA repository governance", () => {
         branch: item.branch,
         commonDirectory: "/Volumes/Starship/SENA/.git",
         dirtyPaths: item.allowedPaths,
-        fileSha256: item.preservation.fileSha256
+        fileSha256: item.preservation.fileSha256,
+        indexMatchesHead: true
       };
       expect(governance.externalPreservationObservationErrors(item, expectedObservation)).toEqual([]);
       for (const override of [
         { commonDirectory: "/private/tmp/other.git" },
         { headSha: "e".repeat(40) },
         { branch: "codex/unauthorized-writer" },
+        { indexMatchesHead: false },
+        { indexMatchesHead: undefined },
         { dirtyPaths: [...item.allowedPaths, "unexpected.ts"] },
         { fileSha256: { ...item.preservation.fileSha256, [item.allowedPaths[0]]: "0".repeat(64) } }
       ]) {
         expect(governance.externalPreservationObservationErrors(item, { ...expectedObservation, ...override }).length).toBeGreaterThan(0);
       }
     }
+  });
+
+  it("rejects hidden staged source in an otherwise unchanged preservation checkout", async () => {
+    const governance = await import(`${pathToFileURL(governanceScript).href}?preservation-index=${Date.now()}`);
+    const item = stagedRegistrySnapshot().workItems.find(
+      (entry: { taskId: string }) => entry.taskId === "SENA-SHARED-RECOVERY-MUTWT2-20260905"
+    );
+    const root = temporaryRoot("preservation-private-index");
+    const sourceIndex = join(item.preservation.gitDirectory, "index");
+    const sourceIndexSha256 = sha256File(sourceIndex);
+    const sourcePath = join(item.worktreePath, item.allowedPaths[0]);
+    const sourceSha256 = sha256File(sourcePath);
+    const refsBefore = stableRepositoryRefSnapshot(projectRoot);
+    const privateIndex = join(root, "index");
+    const objects = join(root, "objects");
+    mkdirSync(objects);
+    copyFileSync(sourceIndex, privateIndex);
+    const environment = {
+      GIT_DIR: item.preservation.gitDirectory,
+      GIT_WORK_TREE: item.worktreePath,
+      GIT_INDEX_FILE: privateIndex,
+      GIT_OBJECT_DIRECTORY: objects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(item.preservation.commonDirectory, "objects"),
+      GIT_OPTIONAL_LOCKS: "0"
+    };
+    runGitWithEnvironment(projectRoot,
+      ["diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+      environment);
+    const stagedBlob = runGitWithEnvironment(projectRoot, ["hash-object", "-w", "--stdin"],
+      environment, "// synthetic preservation review fixture\n");
+    runGitWithEnvironment(projectRoot,
+      ["update-index", "--add", "--cacheinfo", `100644,${stagedBlob},${item.allowedPaths[0]}`],
+      environment);
+    const stagedComparison = spawnSync("git",
+      ["diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+      { cwd: projectRoot, env: { ...process.env, ...environment }, encoding: "utf8" });
+    expect(stagedComparison.status).toBe(1);
+    const dirtyPaths = runGitWithEnvironment(projectRoot,
+      ["status", "--porcelain=v1", "-z", "--untracked-files=all"], environment)
+      .split("\0").filter(Boolean).map((record) => record.slice(3));
+    expect(dirtyPaths).toEqual(item.allowedPaths);
+    expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
+    expect(sha256File(sourcePath)).toBe(sourceSha256);
+    expect(stableRepositoryRefSnapshot(projectRoot)).toBe(refsBefore);
+    expect(governance.externalPreservationObservationErrors(item, {
+      path: item.worktreePath,
+      headSha: item.headSha,
+      branch: item.branch,
+      commonDirectory: item.preservation.commonDirectory,
+      dirtyPaths,
+      fileSha256: item.preservation.fileSha256,
+      indexMatchesHead: stagedComparison.status === 0
+    })).toContain("preserved index changed");
   });
 
   it("reports a closed incident with restored root control plane as pass", () => {
