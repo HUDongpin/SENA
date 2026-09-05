@@ -14162,7 +14162,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(candidateRegistry.branches).toHaveLength(
       protectedRegistry.branches.length + 2
     );
-    expect(candidateRegistry.updatedAt).toBe("2026-09-05T03:33:55.602Z");
+    expect(candidateRegistry.updatedAt).toBe("2026-09-05T03:51:02.705Z");
     const releaseItem = candidateRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
@@ -14176,19 +14176,29 @@ describe("post-PR83 protected currentness correction", () => {
         "scripts/verify-sena-repo-governance.mjs",
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
-      lastHeartbeatAt: "2026-09-05T03:33:55.602Z",
-      lastObservedAt: "2026-09-05T03:33:55.602Z",
-      nextReviewAt: "2026-09-07T03:33:55.602Z"
+      headSha: "50fbbcc664ac94feb59341f40806e6a5f4084a44",
+      prNumber: 85,
+      prIsDraft: true,
+      prReadyForReview: false,
+      mergeAuthorized: false,
+      lastHeartbeatAt: "2026-09-05T03:51:02.705Z",
+      lastObservedAt: "2026-09-05T03:51:02.705Z",
+      nextReviewAt: "2026-09-07T03:51:02.705Z"
     });
     const releaseBranch = candidateRegistry.branches.find(
       (entry: { name?: string }) =>
         entry.name === "codex/sena-main-gap-mobile-release-20260904"
     );
     expect(releaseBranch).toMatchObject({
-      remoteObservedAt: "2026-09-05T03:33:55.602Z",
-      lastOwnerHeartbeatAt: "2026-09-05T03:33:55.602Z",
-      lastObservedAt: "2026-09-05T03:33:55.602Z",
-      nextReviewAt: "2026-09-07T03:33:55.602Z"
+      upstream: "origin/codex/sena-main-gap-mobile-release-20260904",
+      remotePresent: true,
+      remoteHeadSha: "50fbbcc664ac94feb59341f40806e6a5f4084a44",
+      pr: 85,
+      prState: "OPEN",
+      remoteObservedAt: "2026-09-05T03:51:02.705Z",
+      lastOwnerHeartbeatAt: "2026-09-05T03:51:02.705Z",
+      lastObservedAt: "2026-09-05T03:51:02.705Z",
+      nextReviewAt: "2026-09-07T03:51:02.705Z"
     });
     expect(releaseItem.convergenceOnlyRewriteAuthorization).toEqual({
       mode: "explicit-owner-conversation-authorization",
