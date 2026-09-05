@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-05T09:35:43Z",
+  "updatedAt": "2026-09-05T12:11:22Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -6301,41 +6301,39 @@
       "owner": "Codex SENA branch-worktree convergence bootstrap writer",
       "ownerKey": "Codex-sena-main-gap-mobile-release-20260904",
       "ownerLane": "SENA-A01 repository currentness and branch-worktree convergence bootstrap",
-      "laneType": "governance-bootstrap",
+      "laneType": "read-only",
       "branch": "codex/sena-main-gap-mobile-release-20260904",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
       "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
-      "headSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+      "headSha": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 4,
-        "behind": 0
+        "ahead": 0,
+        "behind": 1
       },
       "allowedPaths": [
-        "coordination/repo-governance/active-work.json",
-        "scripts/verify-sena-repo-governance.mjs",
-        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        "<read-only-retained-pr85>"
       ],
       "createdAt": "2026-09-04T06:58:35Z",
       "lastHeartbeatAt": "2026-09-05T09:35:43Z",
-      "lastObservedAt": "2026-09-05T09:35:43Z",
-      "nextReviewAt": "2026-09-07T09:35:43Z",
+      "lastObservedAt": "2026-09-05T12:11:22Z",
+      "nextReviewAt": "2026-09-07T12:11:22Z",
       "expectedCloseAt": "owner-gated:PR85-protected-integration-and-post-main-audit",
       "prNumber": 85,
       "noPrReason": null,
-      "prIsDraft": true,
+      "prIsDraft": false,
       "prReadyForReview": false,
-      "mergeAuthorized": true,
-      "dirtyState": "staged-pr85-protected-integration-candidate",
+      "mergeAuthorized": false,
+      "dirtyState": "clean-retained-pr85-protected-merge",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "PR85 integration successor is being implemented from exact ed09ff9.",
-        "ci": "Predecessor CI passed; the integration candidate requires its own checks.",
-        "merged": "PR85 is OPEN/Draft; owner authorized Ready and protected merge after independent review.",
+        "local": "PR85 reviewed head retained clean and read-only.",
+        "ci": "PR85 final and post-main checks passed; source proof is independently revalidated.",
+        "merged": "PR85 protected merge c782aa03 completed on 2026-09-05T11:04:29Z.",
         "deployed": "No deployment is authorized.",
-        "live": "Observed main b2d07177 and retained remote/PR85 head ed09ff9."
+        "live": "Local, remote and PR85 reviewed heads remain 59acaa74."
       },
-      "disposition": "active",
+      "disposition": "integrated",
       "freezeException": null,
       "convergenceOnlyRewriteAuthorization": {
         "mode": "explicit-owner-conversation-authorization",
@@ -6414,6 +6412,21 @@
           "status": "deferred-until-pr85-post-main-audit",
           "implementationOnIntegrationBranchAuthorized": false
         }
+      },
+      "prState": "MERGED",
+      "prHeadSha": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+      "aheadBehindObservationMode": "integrated-monotonic-behind",
+      "lastMergedPullRequest": {
+        "number": 85,
+        "headSha": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+        "mergeCommitSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+        "mergedAt": "2026-09-05T11:04:29Z",
+        "postMainBuildRunId": 33962341939,
+        "postMainBuildJobId": 101296282917,
+        "postMainRepositorySecurityRunId": 33962341942,
+        "postMainRepositorySecurityJobId": 101296282924,
+        "postMainChecksPassed": true,
+        "annotationsEmpty": true
       }
     },
     {
@@ -6514,6 +6527,81 @@
           "sena-hk-template/lib/sena/__tests__/ops-metrics-configured-gauges.test.ts": "733b49fbf478ba4e95f2eeb571fbb8c7f16ad2a797abc684ea1e0a568c7c4abb"
         },
         "recoveryManifestSha256": "935b13914b2a856f42c7da99d8c84c8a65ff5ee44eb990a65189634b710c6119"
+      }
+    },
+    {
+      "taskId": "SENA-MOBILE-RESEARCH-PILOT-20260905",
+      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/Volumes/Starship/SENA/.worktrees/sena-mobile-research-pilot-20260905",
+      "owner": "Codex SENA mobile research pilot writer",
+      "ownerKey": "Codex-sena-mobile-research-pilot-20260905",
+      "ownerLane": "SENA-A01 enrollment; SENA-A06 mobile UI; SENA-A11 verification",
+      "laneType": "integration-release",
+      "branch": "codex/sena-mobile-research-pilot-20260905",
+      "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-mobile-research-pilot-20260905",
+      "baseSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+      "headSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 0,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts",
+        "coordination/repo-governance/developmental-gap-register-20260905.md",
+        "sena-hk-template/components/sena/workspace/workspace-main-shell-section.tsx",
+        "sena-hk-template/components/sena/workspace/workspace-shell-panels.tsx",
+        "sena-hk-template/components/sena/workspace/central-fusion-analysis-scope.tsx",
+        "sena-hk-template/components/sena/workspace/workspace-data-import-feedback-section.tsx",
+        "sena-hk-template/lib/sena/__tests__/workspace-essential-shell.test.ts",
+        "sena-hk-template/lib/sena/__tests__/workspace-import-error-drawer-retry.test.ts",
+        "sena-hk-template/lib/sena/__tests__/browser-smoke-manifest.test.ts",
+        "sena-hk-template/scripts/verify-sena-browser-smoke.mjs",
+        "sena-hk-template/scripts/verify-sena-mobile-browser-matrix.mjs",
+        "sena-hk-template/scripts/verify-sena-pilot.mjs",
+        "sena-hk-template/README.md"
+      ],
+      "createdAt": "2026-09-05T12:11:22Z",
+      "lastHeartbeatAt": "2026-09-05T12:11:22Z",
+      "lastObservedAt": "2026-09-05T12:11:22Z",
+      "nextReviewAt": "2026-09-07T12:11:22Z",
+      "expectedCloseAt": "owner-gated:mobile-research-pilot-exact-merge-release-verification",
+      "prNumber": null,
+      "noPrReason": "Registered mobile pilot before first push and Draft PR.",
+      "prState": null,
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "prHeadSha": null,
+      "dirtyState": "active-mobile-pilot-enrollment",
+      "sensitivePaths": [],
+      "disposition": "active",
+      "freezeException": null,
+      "evidenceState": {
+        "local": "Enrollment in progress.",
+        "ci": "Candidate CI pending.",
+        "merged": "Product merge pending.",
+        "deployed": "No deployment authorized.",
+        "live": "Source PR85 proof required."
+      },
+      "mobilePilotLifecycle": {
+        "schemaVersion": "sena-mobile-pilot-lane/v1",
+        "status": "registered",
+        "sourcePullRequest": 85,
+        "sourceMergeSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+        "taskId": "SENA-MOBILE-RESEARCH-PILOT-20260905",
+        "ownerKey": "Codex-sena-mobile-research-pilot-20260905",
+        "branch": "codex/sena-mobile-research-pilot-20260905",
+        "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-mobile-research-pilot-20260905",
+        "scope": "mobile-p1-and-research-pilot",
+        "postMergeVerification": {
+          "mode": "local-only-fast-forward-to-own-protected-merge",
+          "sourceWritesAuthorized": false,
+          "pushAuthorized": false,
+          "retainNamedRemoteAtReviewedHead": true
+        }
       }
     }
   ],
@@ -7591,26 +7679,28 @@
       "owner": "Codex SENA branch-worktree convergence bootstrap writer",
       "ownerKey": "Codex-sena-main-gap-mobile-release-20260904",
       "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
-      "headSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+      "headSha": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
       "upstream": "origin/codex/sena-main-gap-mobile-release-20260904",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
-      "remoteObservedAt": "2026-09-05T09:35:43Z",
+      "remoteHeadSha": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+      "remoteObservedAt": "2026-09-05T12:11:22Z",
       "pr": 85,
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-05T09:35:43Z",
-      "lastObservedAt": "2026-09-05T09:35:43Z",
-      "lastCommitAt": "2026-09-05T12:32:25+08:00",
-      "nextReviewAt": "2026-09-07T09:35:43Z",
+      "lastObservedAt": "2026-09-05T12:11:22Z",
+      "lastCommitAt": "2026-09-05T18:48:12+08:00",
+      "nextReviewAt": "2026-09-07T12:11:22Z",
       "expectedCloseAt": "owner-gated:PR85-protected-integration-and-post-main-audit",
-      "disposition": "active",
-      "closeout": "PR85 authorized for protected integration; product work awaits a separate lane after post-main audit.",
-      "prHeadSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
-      "prState": "OPEN",
+      "disposition": "integrated",
+      "closeout": "PR85 protected merge and post-main checks verified; reviewed branch and worktree retained read-only.",
+      "prHeadSha": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+      "prState": "MERGED",
       "prBase": "main",
-      "prStateObservationMode": "monotonic"
+      "prStateObservationMode": "monotonic",
+      "prIsDraft": false,
+      "prReadyForReview": false
     },
     {
       "name": "fix/ops-metrics-configured-gauge-pins",
@@ -7633,6 +7723,34 @@
       "expectedCloseAt": "owner-gated:source-review-and-retained-worktree-disposition",
       "disposition": "frozen-recovery",
       "closeout": "Retained on existing scratchpad/wt with both root ledger changes and the untracked test; no deletion or integration authorized."
+    },
+    {
+      "name": "codex/sena-mobile-research-pilot-20260905",
+      "owner": "Codex SENA mobile research pilot writer",
+      "ownerKey": "Codex-sena-mobile-research-pilot-20260905",
+      "baseSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+      "headSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+      "upstream": null,
+      "upstreamState": "not-applicable",
+      "upstreamCacheState": "not-applicable",
+      "remotePresent": false,
+      "remoteHeadSha": null,
+      "remoteObservedAt": "2026-09-05T12:11:22Z",
+      "pr": null,
+      "noPrReason": "Registered mobile pilot before first push and Draft PR.",
+      "prHeadSha": null,
+      "prState": null,
+      "prBase": "main",
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "prStateObservationMode": "monotonic",
+      "lastOwnerHeartbeatAt": "2026-09-05T12:11:22Z",
+      "lastObservedAt": "2026-09-05T12:11:22Z",
+      "lastCommitAt": "2026-09-05T19:04:29+08:00",
+      "nextReviewAt": "2026-09-07T12:11:22Z",
+      "expectedCloseAt": "owner-gated:mobile-research-pilot-exact-merge-release-verification",
+      "disposition": "active",
+      "closeout": "Mobile pilot enrollment; exact reviewed merge verification remains pending."
     }
   ],
   "orphanWorktrees": [

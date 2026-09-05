@@ -4177,17 +4177,14 @@ describe("SENA repository governance", () => {
   });
 
   it("fails closed when an active writer exceeds the 72-hour heartbeat freeze threshold", () => {
-    const root = temporaryRoot("stale-heartbeat");
-    const registry = JSON.parse(
-      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
-    );
-    const active = registry.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST);
+    const { root, script, registry, registryPath } = createGovernedFixture("stale-heartbeat");
+    expect(runNode(script, ["registry", "--registry", registryPath], { cwd: root }).status).toBe(0);
+    const active = registry.workItems.find(isActiveWriter);
     expect(isActiveWriter(active)).toBe(true);
     active.lastHeartbeatAt = "2020-01-01T00:00:00Z";
-    const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
-    const result = runNode(governanceScript, ["registry", "--registry", registryPath]);
+    const result = runNode(script, ["registry", "--registry", registryPath], { cwd: root });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("more than 72 hours and must be frozen");
   });
@@ -5902,19 +5899,16 @@ describe("SENA repository governance", () => {
   });
 
   it("fails closed when an active lane misses its scheduled review", () => {
-    const root = temporaryRoot("registry-review-deadline");
-    const registry = JSON.parse(
-      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
-    );
-    const active = registry.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST);
+    const { root, script, registry, registryPath } = createGovernedFixture("registry-review-deadline");
+    expect(runNode(script, ["registry", "--registry", registryPath], { cwd: root }).status).toBe(0);
+    const active = registry.workItems.find(isActiveWriter);
     expect(isActiveWriter(active)).toBe(true);
     const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
     active.nextReviewAt = "2020-01-01T00:00:00Z";
     branch.nextReviewAt = "2020-01-01T00:00:00Z";
-    const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
 
-    const result = runNode(governanceScript, ["registry", "--registry", registryPath]);
+    const result = runNode(script, ["registry", "--registry", registryPath], { cwd: root });
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("active workItem");
     expect(result.stderr).toContain("active branch");
@@ -6121,12 +6115,23 @@ describe("SENA repository governance", () => {
 
   it("reports a closed incident with restored root control plane as pass", () => {
     const result = runNode(governanceScript, ["audit"]);
-    expect(result.status).toBe(0);
+    let diagnostic = "audit JSON unavailable; raw stdout/stderr omitted";
+    try {
+      const report = JSON.parse(result.stdout);
+      diagnostic = JSON.stringify({
+        errors: Array.isArray(report.errors) ? report.errors.filter((value: unknown) => typeof value === "string") : [],
+        ownerBlockers: Array.isArray(report.ownerBlockers) ? report.ownerBlockers.filter((value: unknown) => typeof value === "string") : [],
+        sourceProofTransportUnavailable: result.stderr.includes("SENA_GITHUB_READ failed reason=transport-unavailable")
+      });
+    } catch { /* Never include an arbitrary response body in test diagnostics. */ }
+    expect(result.status, diagnostic).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("pass");
     expect(report.errors).toEqual([]);
     expect(report.ownerBlockers).toEqual([]);
-  }, 120_000);
+  // This host acceptance check includes real protected GitHub proof and full retained history.
+  // The 2026-09-05 successful audit took 304s with two bounded GET retries; keep a finite local margin.
+  }, 420_000);
 
   it("does not let an empty copied candidate index authorize another worktree", () => {
     const root = temporaryRoot("candidate-index-isolation");
@@ -13200,6 +13205,484 @@ function pr85GitHubTransportForTest(fixture: any) {
   } };
 }
 
+const MOBILE_SOURCE_FOR_TEST = "c782aa03940028a2c19db18dfddec55370c797b1";
+const MOBILE_TASK_FOR_TEST = "SENA-MOBILE-RESEARCH-PILOT-20260905";
+const MOBILE_BRANCH_FOR_TEST = "codex/sena-mobile-research-pilot-20260905";
+const MOBILE_PATHS_FOR_TEST = [
+  "coordination/repo-governance/active-work.json",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts",
+  "coordination/repo-governance/developmental-gap-register-20260905.md",
+  "sena-hk-template/components/sena/workspace/workspace-main-shell-section.tsx",
+  "sena-hk-template/components/sena/workspace/workspace-shell-panels.tsx",
+  "sena-hk-template/components/sena/workspace/central-fusion-analysis-scope.tsx",
+  "sena-hk-template/components/sena/workspace/workspace-data-import-feedback-section.tsx",
+  "sena-hk-template/lib/sena/__tests__/workspace-essential-shell.test.ts",
+  "sena-hk-template/lib/sena/__tests__/workspace-import-error-drawer-retry.test.ts",
+  "sena-hk-template/lib/sena/__tests__/browser-smoke-manifest.test.ts",
+  "sena-hk-template/scripts/verify-sena-browser-smoke.mjs",
+  "sena-hk-template/scripts/verify-sena-mobile-browser-matrix.mjs",
+  "sena-hk-template/scripts/verify-sena-pilot.mjs",
+  "sena-hk-template/README.md"
+];
+
+function mobilePilotRegistryForTest() {
+  const registry = JSON.parse(runGit(projectRoot, ["show", `${MOBILE_SOURCE_FOR_TEST}:${POST_PR83_PATHS_FOR_TEST[0]}`]));
+  const now = "2026-09-05T12:11:22Z";
+  const review = "2026-09-07T12:11:22Z";
+  const sourceHead = runGit(projectRoot, ["rev-parse", `${MOBILE_SOURCE_FOR_TEST}^2`]);
+  registry.updatedAt = now;
+  const old = registry.workItems.find((item: any) => item.taskId === PR85_TASK_FOR_TEST);
+  const oldBranch = registry.branches.find((item: any) => item.name === PR85_BRANCH_FOR_TEST);
+  Object.assign(old, {
+    disposition: "integrated", laneType: "read-only", headSha: sourceHead,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 1 },
+    allowedPaths: ["<read-only-retained-pr85>"], prState: "MERGED", prIsDraft: false,
+    prReadyForReview: false, prHeadSha: sourceHead, mergeAuthorized: false,
+    dirtyState: "clean-retained-pr85-protected-merge", lastObservedAt: now, nextReviewAt: review,
+    aheadBehindObservationMode: "integrated-monotonic-behind",
+    lastMergedPullRequest: {
+      number: 85, headSha: sourceHead, mergeCommitSha: MOBILE_SOURCE_FOR_TEST,
+      mergedAt: "2026-09-05T11:04:29Z", postMainBuildRunId: 33962341939,
+      postMainBuildJobId: 101296282917, postMainRepositorySecurityRunId: 33962341942,
+      postMainRepositorySecurityJobId: 101296282924, postMainChecksPassed: true, annotationsEmpty: true
+    },
+    evidenceState: {
+      local: "PR85 reviewed head retained clean and read-only.",
+      ci: "PR85 final and post-main checks passed; source proof is independently revalidated.",
+      merged: "PR85 protected merge c782aa03 completed on 2026-09-05T11:04:29Z.",
+      deployed: old.evidenceState.deployed,
+      live: "Local, remote and PR85 reviewed heads remain 59acaa74."
+    }
+  });
+  Object.assign(oldBranch, {
+    disposition: "integrated", headSha: sourceHead, remoteHeadSha: sourceHead, prHeadSha: sourceHead,
+    prState: "MERGED", prIsDraft: false, prReadyForReview: false,
+    remoteObservedAt: now, lastObservedAt: now, nextReviewAt: review,
+    lastCommitAt: runGit(projectRoot, ["show", "-s", "--format=%cI", sourceHead]),
+    closeout: "PR85 protected merge and post-main checks verified; reviewed branch and worktree retained read-only."
+  });
+  const item = {
+    taskId: MOBILE_TASK_FOR_TEST, threadId: "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+    repo: registry.repo, cwd: `${registry.repo}/.worktrees/sena-mobile-research-pilot-20260905`,
+    owner: "Codex SENA mobile research pilot writer", ownerKey: "Codex-sena-mobile-research-pilot-20260905",
+    ownerLane: "SENA-A01 enrollment; SENA-A06 mobile UI; SENA-A11 verification",
+    laneType: "integration-release", branch: MOBILE_BRANCH_FOR_TEST,
+    worktreePath: `${registry.repo}/.worktrees/sena-mobile-research-pilot-20260905`,
+    baseSha: MOBILE_SOURCE_FOR_TEST, headSha: MOBILE_SOURCE_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 0 }, allowedPaths: [...MOBILE_PATHS_FOR_TEST],
+    createdAt: now, lastHeartbeatAt: now, lastObservedAt: now, nextReviewAt: review,
+    expectedCloseAt: "owner-gated:mobile-research-pilot-exact-merge-release-verification",
+    prNumber: null, noPrReason: "Registered mobile pilot before first push and Draft PR.",
+    prState: null, prIsDraft: false, prReadyForReview: false, prHeadSha: null,
+    dirtyState: "active-mobile-pilot-enrollment", sensitivePaths: [], disposition: "active", freezeException: null,
+    evidenceState: { local: "Enrollment in progress.", ci: "Candidate CI pending.", merged: "Product merge pending.", deployed: "No deployment authorized.", live: "Source PR85 proof required." },
+    mobilePilotLifecycle: {
+      schemaVersion: "sena-mobile-pilot-lane/v1", status: "registered", sourcePullRequest: 85,
+      sourceMergeSha: MOBILE_SOURCE_FOR_TEST, taskId: MOBILE_TASK_FOR_TEST,
+      ownerKey: "Codex-sena-mobile-research-pilot-20260905", branch: MOBILE_BRANCH_FOR_TEST,
+      worktreePath: `${registry.repo}/.worktrees/sena-mobile-research-pilot-20260905`, scope: "mobile-p1-and-research-pilot",
+      postMergeVerification: { mode: "local-only-fast-forward-to-own-protected-merge", sourceWritesAuthorized: false, pushAuthorized: false, retainNamedRemoteAtReviewedHead: true }
+    }
+  };
+  registry.workItems.push(item);
+  registry.branches.push({
+    name: item.branch, owner: item.owner, ownerKey: item.ownerKey, baseSha: item.baseSha, headSha: item.headSha,
+    upstream: null, upstreamState: "not-applicable", upstreamCacheState: "not-applicable",
+    remotePresent: false, remoteHeadSha: null, remoteObservedAt: now,
+    pr: null, noPrReason: item.noPrReason, prHeadSha: null, prState: null, prBase: "main",
+    prIsDraft: false, prReadyForReview: false, prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: now, lastObservedAt: now,
+    lastCommitAt: runGit(projectRoot, ["show", "-s", "--format=%cI", item.headSha]),
+    nextReviewAt: review, expectedCloseAt: item.expectedCloseAt, disposition: "active",
+    closeout: "Mobile pilot enrollment; exact reviewed merge verification remains pending."
+  });
+  return registry;
+}
+
+async function createMobilePilotFixture() {
+  const fixtureRoot = temporaryRoot("mobile-pilot");
+  const root = join(fixtureRoot, "repo");
+  safePr85BranchClone(fixtureRoot, root);
+  try {
+    const sensitive = "15a131415d0206782265902b0af612a80e16bae2";
+    if (runGit(projectRoot, ["rev-list", "--objects", MOBILE_SOURCE_FOR_TEST]).split("\n").some((line) => line.split(" ")[0] === sensitive)) throw new Error();
+    runGit(root, ["fetch", "-q", "--no-tags", "--no-write-fetch-head", projectRoot, `${MOBILE_SOURCE_FOR_TEST}:refs/remotes/origin/main`]);
+    const absent = spawnSync("git", ["cat-file", "-e", sensitive], { cwd: root, encoding: "utf8", env: { ...process.env, GIT_NO_LAZY_FETCH: "1" } });
+    const allowed = ["refs/remotes/origin/HEAD", `refs/remotes/origin/${PR85_BRANCH_FOR_TEST}`, "refs/remotes/origin/codex/sena-branch-retirement-20260829", "refs/remotes/origin/main"];
+    if (absent.status !== 1 || runGit(root, ["for-each-ref", "--format=%(refname)", "refs/remotes/"]).split("\n").some((ref) => !allowed.includes(ref))) throw new Error();
+  } catch {
+    tempRoots.splice(tempRoots.indexOf(fixtureRoot), 1);
+    throw new Error(`Mobile fixture isolation failed; retained metadata-only review target: ${fixtureRoot}`);
+  }
+  runGit(root, ["checkout", "-q", "-b", MOBILE_BRANCH_FOR_TEST, MOBILE_SOURCE_FOR_TEST]);
+  runGit(root, ["config", "user.name", "SENA mobile fixture"]);
+  runGit(root, ["config", "user.email", "mobile@example.invalid"]);
+  const registry = mobilePilotRegistryForTest();
+  const item = registry.workItems.at(-1);
+  const branch = registry.branches.at(-1);
+  const writeRegistry = () => writeFileSync(join(root, POST_PR83_PATHS_FOR_TEST[0]), `${JSON.stringify(registry, null, 2)}\n`);
+  writeRegistry();
+  runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  runGit(root, ["commit", "-q", "-m", "register mobile pilot"]);
+  const firstHead = runGit(root, ["rev-parse", "HEAD"]);
+  Object.assign(item, { headSha: firstHead, aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 }, prNumber: 86, noPrReason: null, prState: "OPEN", prIsDraft: true, prHeadSha: firstHead });
+  Object.assign(branch, { headSha: firstHead, upstream: `origin/${MOBILE_BRANCH_FOR_TEST}`, upstreamState: "live", upstreamCacheState: "present", remotePresent: true, remoteHeadSha: firstHead, pr: 86, noPrReason: null, prState: "OPEN", prIsDraft: true, prHeadSha: firstHead, lastCommitAt: runGit(root, ["show", "-s", "--format=%cI", firstHead]) });
+  writeRegistry();
+  runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  runGit(root, ["commit", "-q", "-m", "observe mobile Draft PR"]);
+  const headSha = runGit(root, ["rev-parse", "HEAD"]);
+  const treeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+  const mergeSha = runGit(root, ["commit-tree", treeSha, "-p", MOBILE_SOURCE_FOR_TEST, "-p", headSha, "-m", "mobile protected merge"]);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", mergeSha]);
+  runGit(root, ["update-ref", `refs/remotes/origin/${MOBILE_BRANCH_FOR_TEST}`, headSha]);
+  const oldTarget = process.env.SENA_GOVERNANCE_TARGET_ROOT;
+  process.env.SENA_GOVERNANCE_TARGET_ROOT = root;
+  let governance: any;
+  try { governance = await import(`${pathToFileURL(governanceScript).href}?mobile=${Date.now()}-${Math.random()}`); }
+  finally { if (oldTarget === undefined) delete process.env.SENA_GOVERNANCE_TARGET_ROOT; else process.env.SENA_GOVERNANCE_TARGET_ROOT = oldTarget; }
+  const descriptor = { mergeTimeRegistry: registry, currentObservationRegistry: registry, mergeCommitSha: mergeSha, orderedParentShas: [MOBILE_SOURCE_FOR_TEST, headSha], secondParentSha: headSha, mergeTreeSha: treeSha, registryBlobSha: runGit(root, ["rev-parse", `${headSha}:${POST_PR83_PATHS_FOR_TEST[0]}`]) };
+  return { root, registry, governance, firstHead, headSha, treeSha, mergeSha, descriptor };
+}
+
+function mobileGitHubTransportForTest(fixture: any) {
+  const sourceHead = runGit(fixture.root, ["rev-parse", `${MOBILE_SOURCE_FOR_TEST}^2`]);
+  const source = pr85GitHubTransportForTest({ headSha: sourceHead, mergeSha: MOBILE_SOURCE_FOR_TEST });
+  const product = pr85GitHubTransportForTest(fixture);
+  const responses = { ...source.responses };
+  for (const [key, value] of Object.entries(product.responses)) {
+    if (key.includes("/pulls/85") || key.includes(`/heads/${PR85_BRANCH_FOR_TEST}`) || key.includes("rulesets/")) continue;
+    const transformed = JSON.parse(JSON.stringify(value).replaceAll(PR85_BRANCH_FOR_TEST, MOBILE_BRANCH_FOR_TEST));
+    // Independent job identities for the product and historical source.
+    responses[key.replace(/8500([1-5])/g, "8600$1").replace(/8510([1-5])/g, "8610$1")] = JSON.parse(JSON.stringify(transformed).replace(/8500([1-5])/g, "8600$1").replace(/8510([1-5])/g, "8610$1"));
+  }
+  responses["repos/HUDongpin/SENA/pulls/86"] = { ...product.responses["repos/HUDongpin/SENA/pulls/85"], number: 86, head: { sha: fixture.headSha, ref: MOBILE_BRANCH_FOR_TEST, repo: { full_name: "HUDongpin/SENA" } } };
+  responses[`repos/HUDongpin/SENA/git/ref/heads/${MOBILE_BRANCH_FOR_TEST}`] = { ref: `refs/heads/${MOBILE_BRANCH_FOR_TEST}`, object: { sha: fixture.headSha } };
+  responses["repos/HUDongpin/SENA/git/ref/heads/main"] = { ref: "refs/heads/main", object: { sha: fixture.mergeSha } };
+  const suite = { ...product.responses["repos/HUDongpin/SENA/rulesets/rule-suites/85800"], id: 86800, before_sha: MOBILE_SOURCE_FOR_TEST };
+  responses["repos/HUDongpin/SENA/rulesets/rule-suites/86800"] = suite;
+  responses["repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1"].push(suite);
+  const calls: string[] = [];
+  return { responses, calls, transport(key: string) { calls.push(key); if (!Object.hasOwn(responses, key)) throw new Error(`unexpected mobile request: ${key}`); return structuredClone(responses[key]); } };
+}
+
+describe("mobile pilot enrollment", () => {
+  it("requires the retained D physical checkout in addition to its refs", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-retained-d=${Date.now()}`);
+    const sourceHead = runGit(projectRoot, ["rev-parse", `${MOBILE_SOURCE_FOR_TEST}^2`]);
+    const tree = runGit(projectRoot, ["rev-parse", `${sourceHead}^{tree}`]);
+    const facts = {
+      repo: "/Volumes/Starship/SENA", worktreePath: "/Volumes/Starship/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
+      worktreeExists: true, registered: true,
+      registeredWorktreePath: "/Volumes/Starship/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
+      registeredBranch: PR85_BRANCH_FOR_TEST, registeredHeadSha: sourceHead,
+      markerKind: "gitdir-file", markerValid: true, markerIsSymlink: false,
+      gitDirectory: "/Volumes/Starship/SENA/.git/worktrees/sena-main-gap-mobile-release-20260904",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git", branch: PR85_BRANCH_FOR_TEST,
+      headSha: sourceHead, headTreeSha: tree, indexTreeSha: tree, sourceClean: true
+    };
+    expect(typeof governance.mobilePilotRetainedSourceHostObservationAllowed).toBe("function");
+    expect(governance.mobilePilotRetainedSourceHostObservationAllowed(facts)).toBe(true);
+    for (const key of Object.keys(facts)) {
+      const missing: Record<string, unknown> = { ...facts }; delete missing[key];
+      expect(governance.mobilePilotRetainedSourceHostObservationAllowed(missing), key).toBe(false);
+      const value = facts[key as keyof typeof facts];
+      expect(governance.mobilePilotRetainedSourceHostObservationAllowed({ ...facts, [key]: typeof value === "boolean" ? !value : "wrong" }), key).toBe(false);
+    }
+    // Read the actual retained D; never change its directory, registration, source or index.
+    expect(governance.resolveMobilePilotRetainedSourceCustody(mobilePilotRegistryForTest())).toEqual(facts);
+  });
+
+  it("treats aged release deadlines as diagnostics but never accepts a commit-only or forged host exemption", async () => {
+    const fixture = await createMobilePilotFixture();
+    const provider = mobileGitHubTransportForTest(fixture);
+    const proof = fixture.governance.resolveMobilePilotReleaseCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport });
+    expect(proof).toBeTruthy();
+    expect(typeof fixture.governance.mobilePilotReleaseDeadlineObservations).toBe("function");
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-10T12:11:22Z"));
+    expect(fixture.governance.mobilePilotReleaseDeadlineObservations(fixture.registry, proof)).toEqual({
+      taskId: MOBILE_TASK_FOR_TEST, branch: MOBILE_BRANCH_FOR_TEST,
+      ownerHeartbeatExpired: true, workItemReviewExpired: true, branchReviewExpired: true
+    });
+    const strict = fixture.governance.validateRegistry(fixture.registry);
+    expect(strict.errors).toEqual(expect.arrayContaining([
+      `active workItem ${MOBILE_TASK_FOR_TEST} has no heartbeat for more than 72 hours and must be frozen`,
+      `active workItem ${MOBILE_TASK_FOR_TEST} has an overdue nextReviewAt`,
+      `active branch ${MOBILE_BRANCH_FOR_TEST} has an overdue nextReviewAt`
+    ]));
+    for (const untrusted of [proof, { ...proof }, JSON.parse(JSON.stringify(proof)), { validated: true, level: "host" }]) {
+      expect(fixture.governance.validateRegistry(fixture.registry, untrusted).errors).toEqual(strict.errors);
+    }
+    for (const untrusted of [{ ...proof }, JSON.parse(JSON.stringify(proof)), { validated: true, level: "host" }, null]) {
+      expect(fixture.governance.mobilePilotReleaseDeadlineObservations(fixture.registry, untrusted)).toBeNull();
+    }
+    const drifted = structuredClone(fixture.registry); drifted.workItems.at(-1).allowedPaths.push("other");
+    expect(fixture.governance.mobilePilotReleaseDeadlineObservations(drifted, proof)).toBeNull();
+    expect(fixture.governance.resolveMobilePilotReleaseVerification(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport })).toBeNull();
+  }, 120_000);
+
+  it("retries only one transient protected GitHub GET transport failure and never retries provider decisions", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-get-retry=${Date.now()}`);
+    expect(typeof governance.readPostPr83GitHubJsonWithSingleTransportRetry).toBe("function");
+    for (const stderr of ["TLS handshake timeout", "connection reset by peer", "HTTP 502", "HTTP 503", "HTTP 504"]) {
+      let calls = 0;
+      expect(governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => ++calls === 1
+        ? { status: 1, stderr }
+        : { status: 0, stdout: '{"fresh":true}' })).toEqual({ fresh: true });
+      expect(calls, stderr).toBe(2);
+    }
+    for (const response of [{ status: 1, stderr: "HTTP 403 permission denied" }, { status: 1, stderr: "HTTP 429 rate limit" }, { status: 0, stdout: "invalid JSON" }]) {
+      let calls = 0;
+      expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => { calls += 1; return response; })).toThrow();
+      expect(calls).toBe(1);
+    }
+    let calls = 0;
+    expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => { calls += 1; return { status: 1, stderr: "TLS handshake timeout" }; })).toThrow();
+    expect(calls).toBe(2);
+    calls = 0;
+    expect(governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => { calls += 1; return { status: 0, stdout: '{"conclusion":"failure"}' }; })).toEqual({ conclusion: "failure" });
+    expect(calls).toBe(1);
+  });
+
+  describe("terminal EOF GitHub GET transport", () => {
+    it("retries recognized EOF forms once and returns only the fresh second JSON", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-success=${Date.now()}`);
+      const endpoint = "https://transport.invalid/nonsecret-eof-sentinel";
+      for (const stderr of ["EOF", "unexpected EOF", `Get "${endpoint}": EOF`, `Get "${endpoint}": unexpected EOF\n`]) {
+        let calls = 0;
+        const events: unknown[] = [];
+        expect(governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => ++calls === 1
+          ? { status: 1, signal: null, stdout: '{"fresh":false}', stderr }
+          : { status: 0, stdout: '{"fresh":true}' }, (event: unknown) => events.push(event))).toEqual({ fresh: true });
+        expect(calls).toBe(2);
+        expect(events).toEqual([{ event: "retry", reason: "transport-unavailable", attempt: 1 }]);
+        expect(JSON.stringify(events).includes(endpoint)).toBe(false);
+        expect(JSON.stringify(events).includes("nonsecret-eof-sentinel")).toBe(false);
+      }
+    });
+
+    it("fails after two EOF reads with fixed redacted diagnostics", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-repeated=${Date.now()}`);
+      let calls = 0;
+      const events: unknown[] = [];
+      expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => {
+        calls += 1;
+        return { status: 1, stderr: 'Get "https://transport.invalid/nonsecret-eof-sentinel": unexpected EOF' };
+      }, (event: unknown) => events.push(event))).toThrowError(/^rule=post-pr83-currentness-live-github-readback-failed$/);
+      expect(calls).toBe(2);
+      expect(events).toEqual([
+        { event: "retry", reason: "transport-unavailable", attempt: 1 },
+        { event: "failed", reason: "transport-unavailable", attempt: 2 }
+      ]);
+      expect(JSON.stringify(events).includes("nonsecret-eof-sentinel")).toBe(false);
+      expect(JSON.stringify(events).includes("https://")).toBe(false);
+    });
+
+    it("never retries explicit HTTP or provider refusals accompanied by EOF", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-refused=${Date.now()}`);
+      for (const refusal of [
+        ...[400, 401, 403, 404, 418, 422, 429, 500, 501].map((status) => `HTTP ${status}`),
+        "authentication failed", "permission denied", "rate limit exceeded", "gh: API request failed"
+      ]) {
+        for (const suffix of ["EOF", 'Get "https://transport.invalid/nonsecret-eof-sentinel": unexpected EOF']) {
+          let calls = 0;
+          const events: unknown[] = [];
+          expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => ++calls === 1
+            ? { status: 1, stderr: `${refusal}\n${suffix}` }
+            : { status: 0, stdout: '{"fresh":true}' }, (event: unknown) => events.push(event)))
+            .toThrowError(/^rule=post-pr83-currentness-live-github-readback-failed$/);
+          expect(calls).toBe(1);
+          expect(events).toEqual([{ event: "failed", reason: "provider-read-refused", attempt: 1 }]);
+        }
+      }
+    });
+
+    it("does not treat arbitrary prose mentioning EOF as a transport failure", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-prose=${Date.now()}`);
+      for (const stderr of ["provider rejected the EOF marker", "the required field is EOF", "request failed: EOF", "EOF is not permitted"]) {
+        let calls = 0;
+        expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => ++calls === 1
+          ? { status: 1, stderr }
+          : { status: 0, stdout: '{"fresh":true}' })).toThrowError(/^rule=post-pr83-currentness-live-github-readback-failed$/);
+        expect(calls).toBe(1);
+      }
+    });
+
+    it("never retries a status-zero invalid JSON response even with EOF diagnostics", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-json=${Date.now()}`);
+      for (const afterEof of [false, true]) {
+        let calls = 0;
+        const events: unknown[] = [];
+        expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => {
+          calls += 1;
+          return afterEof && calls === 1 ? { status: 1, stderr: "EOF" }
+            : { status: 0, stdout: "invalid JSON", stderr: "EOF" };
+        }, (event: unknown) => events.push(event))).toThrowError(/^rule=post-pr83-currentness-live-github-readback-failed$/);
+        expect(calls).toBe(afterEof ? 2 : 1);
+        expect(events.at(-1)).toEqual({ event: "failed", reason: "invalid-json", attempt: calls });
+      }
+    });
+
+    it("preserves failed business JSON for caller validation before or after an EOF retry", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-business=${Date.now()}`);
+      for (const afterEof of [false, true]) {
+        let calls = 0;
+        expect(governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => {
+          calls += 1;
+          return afterEof && calls === 1 ? { status: 1, stderr: "EOF" }
+            : { status: 0, stdout: '{"conclusion":"failure"}' };
+        })).toEqual({ conclusion: "failure" });
+        expect(calls).toBe(afterEof ? 2 : 1);
+      }
+    });
+
+    it("does not accept a provider refusal as the fresh read after an EOF retry", async () => {
+      const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-eof-second-refused=${Date.now()}`);
+      let calls = 0;
+      const events: unknown[] = [];
+      expect(() => governance.readPostPr83GitHubJsonWithSingleTransportRetry(() => ++calls === 1
+        ? { status: 1, stderr: "EOF" }
+        : { status: 1, stdout: '{"conclusion":"failure"}', stderr: "HTTP 403 permission denied\nEOF" },
+      (event: unknown) => events.push(event))).toThrowError(/^rule=post-pr83-currentness-live-github-readback-failed$/);
+      expect(calls).toBe(2);
+      expect(events.at(-1)).toEqual({ event: "failed", reason: "provider-read-refused", attempt: 2 });
+    });
+  });
+
+  it("still rejects head drift on a historical branch with no work item", () => {
+    const fixture = createGovernedFixture("unoccupied-branch-drift");
+    runGit(fixture.root, ["branch", "unoccupied", fixture.head]);
+    fixture.registry.branches.push({ ...fixture.registry.branches[0], name: "unoccupied", headSha: fixture.base,
+      disposition: "integrated", upstream: null, upstreamState: "not-applicable", upstreamCacheState: "not-applicable" });
+    writeFileSync(fixture.registryPath, `${JSON.stringify(fixture.registry, null, 2)}\n`);
+    const result = runNode(fixture.script, ["audit", "--registry", fixture.registryPath], { cwd: fixture.root, env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root } });
+    expect(JSON.parse(result.stdout).errors).toContain("branch head differs from registry: unoccupied");
+  });
+
+  it("requires every physical host observation before a release grant", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-host=${Date.now()}`);
+    const facts = {
+      repo: "/Volumes/Starship/SENA", worktreePath: "/Volumes/Starship/SENA/.worktrees/sena-mobile-research-pilot-20260905",
+      gitDirectory: "/Volumes/Starship/SENA/.git/worktrees/sena-mobile-research-pilot-20260905",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git", branch: MOBILE_BRANCH_FOR_TEST,
+      localHeadSha: "a".repeat(40), registeredHeadSha: "a".repeat(40), rootMainSha: "a".repeat(40),
+      rootBranch: "main", rootHeadSha: "a".repeat(40), rootSourceClean: true,
+      cachedMainSha: "a".repeat(40), liveMainSha: "a".repeat(40), mergeCommitSha: "a".repeat(40),
+      headTreeSha: "b".repeat(40), indexTreeSha: "b".repeat(40), reviewedHeadSha: "c".repeat(40),
+      cachedNamedRemoteSha: "c".repeat(40), sourceClean: true
+    };
+    expect(typeof governance.mobilePilotReleaseHostObservationAllowed).toBe("function");
+    expect(governance.mobilePilotReleaseHostObservationAllowed(facts)).toBe(true);
+    for (const key of Object.keys(facts)) {
+      const missing: Record<string, unknown> = { ...facts }; delete missing[key];
+      expect(governance.mobilePilotReleaseHostObservationAllowed(missing), key).toBe(false);
+      expect(governance.mobilePilotReleaseHostObservationAllowed({ ...facts, [key]: ["sourceClean", "rootSourceClean"].includes(key) ? false : "wrong" }), key).toBe(false);
+    }
+  });
+
+  it("accepts exactly one successor from actual protected PR85 and preserves every other record", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-shape=${Date.now()}`);
+    const registry = mobilePilotRegistryForTest();
+    expect(typeof governance.validateMobilePilotSuccessorSnapshot).toBe("function");
+    const result = governance.validateMobilePilotSuccessorSnapshot(registry);
+    expect(result.source.mergeCommitSha).toBe(MOBILE_SOURCE_FOR_TEST);
+    expect(result.source.secondParentSha).toBe("59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf");
+    expect(() => governance.validatePostPr83CurrentnessCorrectionSnapshot(registry)).not.toThrow();
+    const pr46 = registry.workItems.find((item: any) => item.taskId === "SENA-BRANCH-RETIREMENT-20260829");
+    expect(governance.postPr83ProtectedLaneShapeAllowed(pr46, registry)).toBe(true);
+    const mutations: Array<(r: any) => void> = [
+      (r) => { r.workItems.at(-1).mobilePilotLifecycle.sourceMergeSha = PR85_PREDECESSOR_FOR_TEST; },
+      (r) => { r.workItems.at(-1).mobilePilotLifecycle.sourcePullRequest = 46; },
+      (r) => { r.workItems.at(-1).mobilePilotLifecycle.approved = true; },
+      (r) => { r.workItems.at(-1).mobilePilotLifecycle.postMergeVerification.pushAuthorized = true; },
+      (r) => { r.workItems.at(-1).allowedPaths.push("other"); },
+      (r) => { r.workItems.at(-1).ownerKey = "other"; },
+      (r) => { r.workItems.at(-1).worktreePath = r.workItems.find((i: any) => i.taskId === PR85_TASK_FOR_TEST).worktreePath; },
+      (r) => { r.workItems.at(-1).commitAuthorized = true; },
+      (r) => { r.workItems.push(structuredClone(r.workItems.at(-1))); },
+      (r) => { r.branches.push(structuredClone(r.branches.at(-1))); },
+      (r) => { r.workItems.find((i: any) => i.taskId === PR85_TASK_FOR_TEST).lastHeartbeatAt = r.updatedAt; },
+      (r) => { r.workItems.find((i: any) => i.taskId === PR85_TASK_FOR_TEST).disposition = "active"; },
+      (r) => { r.workItems[0].headSha = MOBILE_SOURCE_FOR_TEST; },
+      (r) => { r.policy.maxActiveWriteWorktrees = 4; },
+      (r) => { r.releaseReceipts.push({ approved: true }); },
+      (r) => { r.incident.credentialExposure.status = "open"; }
+    ];
+    for (const mutate of mutations) { const copy = structuredClone(registry); mutate(copy); expect(() => governance.validateMobilePilotSuccessorSnapshot(copy)).toThrow("rule=mobile-pilot-snapshot-invalid"); }
+  });
+
+  it("validates ordinary successors and the full protected PR84 PR85 product chain without future SHA constants", async () => {
+    const fixture = await createMobilePilotFixture();
+    const provider = mobileGitHubTransportForTest(fixture);
+    expect(fixture.governance.validateMobilePilotSuccessorSnapshot(fixture.registry)).toBeTruthy();
+    expect(fixture.governance.protectedMainMergeTimeCandidateResolution(fixture.descriptor)?.kind).toBe("mobile-research-pilot");
+    for (const from of [POST_PR83_SOURCE_SHA_FOR_TEST, fixture.registry.workItems.find((i: any) => i.branch === "main").headSha]) {
+      const result = fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, from, fixture.mergeSha, { exactHistoricalProtectedMainObservation: true, githubTransport: provider.transport });
+      expect(result, JSON.stringify(result)).toMatchObject({ allowed: true });
+    }
+    for (const fields of [{ orderedParentShas: [...fixture.descriptor.orderedParentShas].reverse() }, { mergeTreeSha: "f".repeat(40) }, { registryBlobSha: "f".repeat(40) }, { secondParentSha: fixture.firstHead }]) {
+      expect(fixture.governance.validateMobilePilotProtectedMergeDescriptor({ ...fixture.descriptor, ...fields }, { mergeTimeOnly: true })).toBe(false);
+    }
+    const outsideTree = treeFromCommitWithPathChanges(fixture.root, fixture.headSha, fixture.headSha, [], [{ kind: "content", path: "outside.txt", content: "outside\n" }]);
+    const outside = runGit(fixture.root, ["commit-tree", outsideTree, "-p", fixture.headSha, "-m", "outside scope"]);
+    const reverted = runGit(fixture.root, ["commit-tree", fixture.treeSha, "-p", outside, "-m", "revert outside"]);
+    const merge = runGit(fixture.root, ["commit-tree", fixture.treeSha, "-p", MOBILE_SOURCE_FOR_TEST, "-p", reverted, "-m", "bad product"]);
+    expect(fixture.governance.validateMobilePilotProtectedMergeDescriptor({ ...fixture.descriptor, secondParentSha: reverted, orderedParentShas: [MOBILE_SOURCE_FOR_TEST, reverted], mergeCommitSha: merge }, { mergeTimeOnly: true })).toBe(false);
+  }, 120_000);
+
+  it("requires actual source and product provider proof, latest successful checks and active rules", async () => {
+    const fixture = await createMobilePilotFixture();
+    const valid = mobileGitHubTransportForTest(fixture);
+    expect(fixture.governance.validateMobilePilotSourceEvidence(fixture.registry, { githubTransport: valid.transport }).validated).toBe(true);
+    expect(fixture.governance.validateMobilePilotFinalHeadLiveGitHubEvidence(fixture.descriptor, { githubTransport: valid.transport }).validated).toBe(true);
+    const mutations: Array<(r: any) => void> = [
+      (r) => { r["repos/HUDongpin/SENA/pulls/85"].merged = false; },
+      (r) => { r["repos/HUDongpin/SENA/pulls/85"].merge_commit_sha = fixture.mergeSha; },
+      (r) => { r[`repos/HUDongpin/SENA/git/ref/heads/${PR85_BRANCH_FOR_TEST}`].object.sha = fixture.headSha; },
+      (r) => { r["repos/HUDongpin/SENA/pulls/86"].merged = false; },
+      (r) => { r[`repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.headSha}&per_page=100&page=1`].workflow_runs[0].conclusion = "failure"; },
+      (r) => { r[`repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.mergeSha}&per_page=100&page=1`].workflow_runs[0].status = "in_progress"; },
+      (r) => { r["repos/HUDongpin/SENA/check-runs/86101/annotations"] = [{}]; },
+      (r) => { r["repos/HUDongpin/SENA/rulesets/rule-suites/86800"].rule_evaluations[3].result = "bypass"; }
+    ];
+    for (const mutate of mutations) { const p = mobileGitHubTransportForTest(fixture); mutate(p.responses); expect(() => fixture.governance.validateMobilePilotFinalHeadLiveGitHubEvidence(fixture.descriptor, { githubTransport: p.transport, approved: true })).toThrow(); }
+    expect(() => fixture.governance.validateMobilePilotSourceEvidence(fixture.registry, { githubTransport: () => { throw new Error("unavailable"); } })).toThrow();
+  }, 120_000);
+
+  it("derives exact P and retained HP for release and denies writes and pushes after its merge even without provider access", async () => {
+    const fixture = await createMobilePilotFixture();
+    const provider = mobileGitHubTransportForTest(fixture);
+    expect(typeof fixture.governance.resolveMobilePilotReleaseCommit).toBe("function");
+    expect(fixture.governance.resolveMobilePilotReleaseCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport })).toMatchObject({
+      effectiveRole: "read-only-release-verification", mergeCommitSha: fixture.mergeSha,
+      reviewedHeadSha: fixture.headSha, sourceWritesAuthorized: false, pushAuthorized: false
+    });
+    expect(fixture.governance.resolveMobilePilotReleaseCommit(fixture.registry, fixture.headSha, { githubTransport: provider.transport })).toBeNull();
+    expect(fixture.governance.resolveMobilePilotReleaseCommit(fixture.registry, fixture.mergeSha, { githubTransport: () => { throw new Error("unavailable"); } })).toBeNull();
+    // Only this isolated fixture branch advances; the real product and retained D never do.
+    runGit(fixture.root, ["merge", "--ff-only", fixture.mergeSha]);
+    const policyRegistry = structuredClone(fixture.registry);
+    delete policyRegistry.workItems.at(-1).mobilePilotLifecycle;
+    writeFileSync(join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]), `${JSON.stringify(policyRegistry, null, 2)}\n`);
+    runGit(fixture.root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+    const write = runNode(governanceScript, ["write-policy", "--registry-from-index", "--staged"], { cwd: fixture.root, env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root } });
+    expect(write.status).toBe(1);
+    expect(write.stderr).toContain("rule=mobile-pilot-release-source-write-denied");
+    const push = runNode(governanceScript, ["push-policy", "--remote-name", "origin"], {
+      cwd: fixture.root, env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root },
+      input: `refs/heads/${MOBILE_BRANCH_FOR_TEST} ${fixture.mergeSha} refs/heads/${MOBILE_BRANCH_FOR_TEST} ${fixture.headSha}\n`
+    });
+    expect(push.status).toBe(1);
+    expect(push.stderr).toContain("rule=mobile-pilot-release-push-denied");
+    expect(fixture.governance.resolveMobilePilotReleaseVerification(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport })).toBeNull();
+    runGit(fixture.root, ["commit", "-q", "-m", "attempt to remove committed policy"]);
+    const descendant = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    expect(fixture.governance.resolveMobilePilotReleaseCommit(fixture.registry, descendant, { githubTransport: provider.transport })).toBeNull();
+    const denied = runNode(governanceScript, ["write-policy", "--registry-from-index", "--staged"], { cwd: fixture.root, env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root } });
+    expect(denied.stderr).toContain("rule=mobile-pilot-release-source-write-denied");
+  }, 120_000);
+});
+
 describe("PR85 protected integration successor", () => {
   it("accepts the typed successor while preserving historical bootstrap and all other owners", async () => {
     const governance: any = await import(`${pathToFileURL(governanceScript).href}?pr85-shape=${Date.now()}`);
@@ -14586,7 +15069,9 @@ describe("post-PR83 protected currentness correction", () => {
   });
 
   it("preserves the exact PR84 snapshot while allowing only the authorized recovery bootstrap", async () => {
-    const governance = await import(`${pathToFileURL(governanceScript).href}?post-pr83-forward-snapshot=${Date.now()}`);
+    const historical = await createPr85IntegrationFixture();
+    runGit(historical.root, ["update-ref", "refs/remotes/origin/main", POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST]);
+    const governance = historical.governance;
     const protectedRegistry = JSON.parse(
       runGit(projectRoot, [
         "show",
@@ -14733,10 +15218,10 @@ describe("post-PR83 protected currentness correction", () => {
       stashAuthorized: false,
       cleanAuthorized: false
     });
-    const protectedRootItem = candidateRegistry.workItems.find(
+    const protectedRootItem = { ...candidateRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
-    );
+    ), repo: historical.root, cwd: historical.root, worktreePath: historical.root };
     let unexpectedGithubCalls = 0;
     expect(
       governance.integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
