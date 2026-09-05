@@ -73,6 +73,7 @@ const MAX_TEXT_SCAN_BYTES = 64 * 1024 * 1024;
 const MAX_ACTIVE_WRITE_WORKTREES = 3;
 const MAX_ACTIVE_INTEGRATION_RELEASE_LANES = 1;
 const MAX_ACTIVE_FEATURE_LANES = 2;
+const MAX_ACTIVE_GOVERNANCE_BOOTSTRAP_LANES = 1;
 const ACTIVE_WRITE_DISPOSITIONS = new Set(["active", "ready-for-pr"]);
 const REF_DELETION_AUTHORIZATION_STATUSES = new Set(["pending-provider-readback", "active", "consumed"]);
 const EXPECTED_REMOTE_IDENTITY = Object.freeze({
@@ -102,7 +103,13 @@ const BRANCH_DISPOSITIONS = new Set([
   "cleanup-approved"
 ]);
 const ORPHAN_DISPOSITIONS = new Set(["preservation-review", "archived", "cleanup-approved"]);
-const LANE_TYPES = new Set(["feature", "integration-release", "security-quarantine", "read-only"]);
+const LANE_TYPES = new Set([
+  "feature",
+  "integration-release",
+  "governance-bootstrap",
+  "security-quarantine",
+  "read-only"
+]);
 const FREEZE_EXCEPTIONS = new Set([
   "governance-preservation",
   "security-containment",
@@ -8464,6 +8471,194 @@ const POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS =
   "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate";
 const POST_PR83_CURRENTNESS_FINAL_STATUS =
   "registry-only-post-pr83-currentness-correction-final-candidate";
+export const POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA =
+  "b2d07177c23192cb6d9b730b330ae79cc2165525";
+const POST_PR83_FORWARD_RELEASE_TASK_ID =
+  "SENA-MAIN-GAP-MOBILE-RELEASE-20260904";
+const POST_PR83_FORWARD_RELEASE_BRANCH =
+  "codex/sena-main-gap-mobile-release-20260904";
+const POST_PR83_FORWARD_REGISTRY_CANONICAL_SHA256 =
+  "1005a963feecde92b4fa5baadaf2557ced6be7d7f3a21c62880de0acaacc45aa";
+const POST_PR83_FORWARD_RELEASE_ITEM_CANONICAL_SHA256 =
+  "cc8fc2b70531042c92ece2e388530442ee28fcb7fd0f7f42f0fcb7eff2b2becc";
+const POST_PR83_FORWARD_RELEASE_BRANCH_CANONICAL_SHA256 =
+  "6d5529b7046771bd72ecfe6c1f32dabdd41d0ea3ea123e7fc9c2cf3b493c425a";
+const POST_PR83_FORWARD_CONVERGENCE_REWRITE_AUTHORIZATION = {
+  mode: "explicit-owner-conversation-authorization",
+  status: "consumed-by-exact-convergence-only-local-rewrite",
+  exactSentenceSha256:
+    "b36aefdbc96994250dd6c0f63991c6fbad39b21c03c7712fb6a294f526692101",
+  sourceHeadSha: "b2d07177c23192cb6d9b730b330ae79cc2165525",
+  sourceTreeSha: "b786c44ab440d7d59e6dc5ee2a7b32faf52928cf",
+  sourceStagedTreeSha: "32dbed4bf512a2b3cf5500911b344be89b7a043c",
+  sourceStagedBlobs: {
+    "coordination/repo-governance/active-work.json":
+      "e1285e739b23279612416a1f587c1a0a30cd99f2",
+    "scripts/verify-sena-repo-governance.mjs":
+      "1f6520ce87575752fd91dd1c7979d49a4fb33775",
+    "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts":
+      "7800e18ee6e10eb48bebe4d55dab45131e27a239"
+  },
+  sourceCanonicalDiffSha256:
+    "1ddc8e4c88e75515a6d3ea292652876040fed013138ed98bc53b2e31706c6301",
+  sourceFullIndexDiffSha256:
+    "c3f0841e51a5786ba90b475d75416f0319d86018b95a8a134d088d6c532f9221",
+  recoveryPackagePath:
+    "/Volumes/Starship/SENA-backups/20260904-convergence-recovery/d-lane-pre-minimal-bootstrap-20260904T140628Z",
+  recoveryManifestSha256:
+    "20b8c64150007f188f729e10c41b4b19f5c60622d9de404c0c96d3491d909e81"
+};
+const POST_PR83_FORWARD_CONVERGENCE_AUTHORIZATION_BOUNDARY = {
+  localThreePathRewriteAuthorized: true,
+  commitAuthorized: true,
+  pushAuthorized: true,
+  pullRequestAuthorized: true,
+  ciAuthorized: true,
+  rootFastForwardAuthorized: false,
+  githubSupportSubmissionAuthorized: false,
+  secretProtectionEnablementAuthorized: false,
+  credentialOrProviderMutationAuthorized: false,
+  historyRemovalAuthorized: false,
+  productAndReleaseLaneAuthorized: false,
+  readyAuthorized: false,
+  protectedMergeAuthorized: false,
+  historyRewriteAuthorized: false,
+  forceAuthorized: false,
+  productionDeploymentAuthorized: false,
+  refMutationAuthorized: false,
+  tagMutationAuthorized: false,
+  branchDeletionAuthorized: false,
+  worktreeRemovalAuthorized: false,
+  orphanMutationAuthorized: false,
+  quarantineMutationAuthorized: false,
+  resetAuthorized: false,
+  rebaseAuthorized: false,
+  stashAuthorized: false,
+  cleanAuthorized: false
+};
+const POST_PR83_FORWARD_RETIREMENT_TASK_ID =
+  "SENA-BRANCH-RETIREMENT-20260829";
+const POST_PR83_FORWARD_RETIREMENT_BRANCH =
+  "codex/sena-branch-retirement-20260829";
+const POST_PR83_FORWARD_RETIREMENT_OBSERVED_AT =
+  "2026-09-04T14:33:23Z";
+const POST_PR83_FORWARD_RETIREMENT_NEXT_REVIEW_AT =
+  "2026-09-05T14:33:23Z";
+
+function expectedPostPr83ForwardProtectedWorkItem(entry) {
+  if (entry?.taskId !== POST_PR83_FORWARD_RETIREMENT_TASK_ID) {
+    return entry;
+  }
+  return {
+    ...entry,
+    aheadBehind: {
+      baseRef: "origin/main",
+      ahead: 8,
+      behind: 40
+    },
+    lastObservedAt: POST_PR83_FORWARD_RETIREMENT_OBSERVED_AT,
+    nextReviewAt: POST_PR83_FORWARD_RETIREMENT_NEXT_REVIEW_AT,
+    dirtyState:
+      "clean-local-pr46-head-e24c635-live-pr-conflicting-dirty-current-main-b2d07177-observer-refresh-no-mutation-authorized",
+    evidenceState: {
+      local:
+        "PR46 local, cached named remote, live named remote, and live Draft PR head are exact clean e24c635 with tree 56be367; relative to live protected main b2d07177 it is ahead 8 and behind 40",
+      ci: entry.evidenceState.ci,
+      merged:
+        "PR84 is merged as protected main b2d07177. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen",
+      deployed: entry.evidenceState.deployed,
+      live:
+        "live and cached main are exact b2d07177; local, cached/live remote, and PR46 head are exact e24c635. This observer refresh changes no owner heartbeat and grants no PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation authority"
+    }
+  };
+}
+
+function expectedPostPr83ForwardProtectedBranch(entry) {
+  if (entry?.name !== POST_PR83_FORWARD_RETIREMENT_BRANCH) {
+    return entry;
+  }
+  return {
+    ...entry,
+    remoteObservedAt: POST_PR83_FORWARD_RETIREMENT_OBSERVED_AT,
+    lastObservedAt: POST_PR83_FORWARD_RETIREMENT_OBSERVED_AT,
+    nextReviewAt: POST_PR83_FORWARD_RETIREMENT_NEXT_REVIEW_AT,
+    closeout:
+      "local, cached named remote, live named remote, and live Draft PR46 head remain exact clean e24c635; against live protected main b2d07177 it is ahead 8/behind 40 and CONFLICTING/DIRTY. Observer timestamps do not change owner heartbeats or authorize PR46, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation"
+  };
+}
+
+const EXTERNAL_PRESERVATION_RECORD_SHA256 = Object.freeze({"SENA-SHARED-RECOVERY-MUTWT2-20260905":"8234b5661a848f8e60a80c1952c251c046d152dadb1a2c4738b47b3af21cfe3c","SENA-SHARED-RECOVERY-WT-20260905":"7251cd37645197bcc17f2800a285af98e44f3b934b0db8acee4f24bb771faa3a"});
+
+export function externalPreservationRecordAllowed(item) {
+  try {
+    const expected = EXTERNAL_PRESERVATION_RECORD_SHA256[item?.taskId];
+    return Boolean(expected && isPlainRecord(item) &&
+      sha256Buffer(Buffer.from(JSON.stringify(item))) === expected);
+  } catch {
+    return false;
+  }
+}
+
+export function externalPreservationObservationErrors(item, observed) {
+  if (!externalPreservationRecordAllowed(item)) return ["invalid preservation record"];
+  if (!observed || observed.path !== item.worktreePath ||
+      observed.headSha !== item.headSha || observed.branch !== item.branch ||
+      observed.commonDirectory !== item.preservation.commonDirectory) {
+    return ["preserved worktree identity changed"];
+  }
+  if (observed.indexMatchesHead !== true) return ["preserved index changed"];
+  if (!sameStringSet(observed.dirtyPaths, item.allowedPaths) ||
+      !sameJson(observed.fileSha256, item.preservation.fileSha256)) {
+    return ["preserved source inventory changed"];
+  }
+  return [];
+}
+
+function inspectExternalPreservation(item, registered) {
+  try {
+    if (!registered || realpathSync(item.worktreePath) !== item.worktreePath ||
+        lstatSync(join(item.worktreePath, ".git")).isSymbolicLink()) {
+      throw new Error();
+    }
+    const marker = markerInfo(item.worktreePath);
+    if (!marker.valid || marker.target !== item.preservation.gitDirectory) throw new Error();
+    const options = {
+      cwd: item.worktreePath,
+      unsetEnv: GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT
+    };
+    const commonDirectory = realpathSync(gitText(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"], options
+    ).trim());
+    const fileSha256 = {};
+    for (const path of item.allowedPaths) {
+      const file = join(item.worktreePath, path);
+      if (!lstatSync(file).isFile() || realpathSync(file) !== file) throw new Error();
+      fileSha256[path] = sha256File(file);
+    }
+    return externalPreservationObservationErrors(item, {
+      path: registered.path,
+      headSha: registered.headSha,
+      branch: registered.detached ? "(detached)" : registered.branch,
+      commonDirectory,
+      dirtyPaths: worktreeStatusPaths(item.worktreePath),
+      fileSha256,
+      indexMatchesHead: git(
+        ["diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+        { ...options, allowFailure: true }
+      ).status === 0
+    });
+  } catch {
+    return ["preserved worktree cannot be verified"];
+  }
+}
+
+function postPr83ForwardSnapshotExact(registry) {
+  return Boolean(
+    isPlainRecord(registry) &&
+      sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
+        POST_PR83_FORWARD_REGISTRY_CANONICAL_SHA256
+  );
+}
 const POST_PR83_CURRENTNESS_LIFECYCLE_KEY =
   "postPr83CurrentnessCorrectionLifecycle";
 const POST_PR83_CURRENTNESS_RECEIPT_KIND =
@@ -10776,7 +10971,8 @@ function postPr83RuleSuiteReceiptPayload(
   suite,
   descriptor,
   pullRequestNumber,
-  observedAt
+  observedAt,
+  binding = POST_PR84_GITHUB_BINDING
 ) {
   const evaluations = Array.isArray(suite?.rule_evaluations)
     ? [...suite.rule_evaluations].sort((left, right) =>
@@ -10792,7 +10988,7 @@ function postPr83RuleSuiteReceiptPayload(
     !Number.isInteger(suite.id) ||
     suite.id <= 0 ||
     suite.actor_name !== "HUDongpin" ||
-    suite.before_sha !== POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA ||
+    suite.before_sha !== binding.beforeSha ||
     suite.after_sha !== descriptor.mergeCommitSha ||
     suite.repository_name !== "SENA" ||
     suite.result !== "pass" ||
@@ -10816,7 +11012,7 @@ function postPr83RuleSuiteReceiptPayload(
     throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
   }
   return {
-    schema: "sena-post-pr83-post-main-rule-suite/v1",
+    schema: binding.receiptSchema,
     suiteId: suite.id,
     mergeCommitSha: descriptor.mergeCommitSha,
     orderedParentShas: [...descriptor.orderedParentShas],
@@ -10837,7 +11033,8 @@ function postPr83RuleSuiteReceiptPayload(
 function validatePostPr83RuleSuiteReceiptShape(
   receipt,
   descriptor,
-  pullRequestNumber
+  pullRequestNumber,
+  binding = POST_PR84_GITHUB_BINDING
 ) {
   const payload = receipt?.payload;
   if (
@@ -10851,7 +11048,7 @@ function validatePostPr83RuleSuiteReceiptShape(
       Object.keys(payload),
       POST_PR83_RULE_SUITE_RECEIPT_PAYLOAD_KEYS
     ) ||
-    payload.schema !== "sena-post-pr83-post-main-rule-suite/v1" ||
+    payload.schema !== binding.receiptSchema ||
     !Number.isInteger(payload.suiteId) ||
     payload.suiteId <= 0 ||
     payload.mergeCommitSha !== descriptor.mergeCommitSha ||
@@ -10889,7 +11086,7 @@ function postPr83RuleSuiteReceiptFromEnvironment() {
   }
 }
 
-function discoverPostPr83RuleSuiteId(descriptor, githubTransport) {
+function discoverPostPr83RuleSuiteId(descriptor, githubTransport, binding = POST_PR84_GITHUB_BINDING) {
   for (let page = 1; page <= 100; page += 1) {
     const suites = postPr83GithubApiJson(
       `repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=${page}`,
@@ -10904,7 +11101,7 @@ function discoverPostPr83RuleSuiteId(descriptor, githubTransport) {
         Number.isInteger(suite.id) &&
         suite.id > 0 &&
         suite.actor_name === "HUDongpin" &&
-        suite.before_sha === POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA &&
+        suite.before_sha === binding.beforeSha &&
         suite.after_sha === descriptor.mergeCommitSha &&
         suite.repository_name === "SENA" &&
         suite.result === "pass"
@@ -11001,34 +11198,35 @@ function validatePostPr83CurrentnessLiveGitHubEvidence(
   return true;
 }
 
-export function validatePostPr83FinalHeadLiveGitHubEvidence(
-  descriptor,
-  pullRequestNumber,
-  options = {}
-) {
-  const finalHeadSha = descriptor?.secondParentSha;
-  const mergeCommitSha = descriptor?.mergeCommitSha;
-  const githubTransport = options.githubTransport ?? null;
-  if (
-    !isSha(finalHeadSha) ||
-    !isSha(mergeCommitSha) ||
-    !sameJson(descriptor?.orderedParentShas, [
-      POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
-      finalHeadSha
-    ]) ||
-    !sameJson(
-      protectedMainAdvanceCommitParents(mergeCommitSha),
-      descriptor.orderedParentShas
-    ) ||
-    !Number.isInteger(pullRequestNumber) ||
-    pullRequestNumber <= 0
-  ) {
-    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+const POST_PR84_GITHUB_BINDING = Object.freeze({
+  branch: POST_PR83_CURRENTNESS_BRANCH,
+  beforeSha: POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
+  receiptSchema: "sena-post-pr83-post-main-rule-suite/v1",
+  requirePostMain: false
+});
+const PR85_GITHUB_BINDING = Object.freeze({
+  branch: POST_PR83_FORWARD_RELEASE_BRANCH,
+  beforeSha: POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA,
+  receiptSchema: "sena-pr85-post-main-rule-suite/v1",
+  requirePostMain: true
+});
+
+export function validatePostPr83FinalHeadLiveGitHubEvidence(descriptor, pullRequestNumber, options = {}) {
+  return validateProtectedFinalHeadLiveGitHubEvidence(descriptor, pullRequestNumber, POST_PR84_GITHUB_BINDING, options);
+}
+
+export function validatePr85FinalHeadLiveGitHubEvidence(descriptor, options = {}) {
+  if (!validatePr85ProtectedMainMergeDescriptor(descriptor, { mergeTimeOnly: true })) {
+    throw new Error("rule=pr85-protected-merge-evidence-invalid");
   }
+  return validateProtectedFinalHeadLiveGitHubEvidence(descriptor, 85, PR85_GITHUB_BINDING, options);
+}
+
+function validateProtectedWorkflowChecks(headSha, branchName, requiredWorkflows, githubTransport) {
   const runs = [];
   for (let page = 1; page <= 100; page += 1) {
     const runsResponse = postPr83GithubApiJson(
-      `repos/HUDongpin/SENA/actions/runs?head_sha=${finalHeadSha}&per_page=100&page=${page}`,
+      `repos/HUDongpin/SENA/actions/runs?head_sha=${headSha}&per_page=100&page=${page}`,
       githubTransport
     );
     if (!Array.isArray(runsResponse?.workflow_runs)) {
@@ -11042,15 +11240,15 @@ export function validatePostPr83FinalHeadLiveGitHubEvidence(
       (run) =>
         isPlainRecord(run) &&
         run.name === name &&
-        run.event === event &&
-        run.head_sha === finalHeadSha &&
-        run.head_branch === POST_PR83_CURRENTNESS_BRANCH &&
-        run.head_repository?.full_name === "HUDongpin/SENA"
+        run.event === event
     );
     if (
       candidates.length === 0 ||
       candidates.some(
         (run) =>
+          run.head_sha !== headSha ||
+          run.head_branch !== branchName ||
+          run.head_repository?.full_name !== "HUDongpin/SENA" ||
           !Number.isInteger(run.id) ||
           run.id <= 0 ||
           !isIsoTimestamp(run.created_at) ||
@@ -11069,42 +11267,32 @@ export function validatePostPr83FinalHeadLiveGitHubEvidence(
       right.id - left.id
     )[0];
   };
-  const buildRun = selectLatestRun("build-gate", "pull_request");
-  const pushSecurityRun = selectLatestRun("repo-security-gate", "push");
-  const prSecurityRun = selectLatestRun("repo-security-gate", "pull_request");
-  const latestRuns = [buildRun, pushSecurityRun, prSecurityRun];
-  if (
-    latestRuns.some(
-      (run) => run.status !== "completed" || run.conclusion !== "success"
-    ) ||
-    new Set(latestRuns.map((run) => run.id)).size !== 3
-  ) {
+  const expectedRuns = requiredWorkflows.map(([name, event, jobName]) => [selectLatestRun(name, event), jobName]);
+  const latestRuns = expectedRuns.map(([run]) => run);
+  if (latestRuns.some((run) => run.status !== "completed" || run.conclusion !== "success") ||
+      new Set(latestRuns.map((run) => run.id)).size !== expectedRuns.length) {
     throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
   }
-  const expectedRuns = [
-    [buildRun, "build"],
-    [pushSecurityRun, "repository-security"],
-    [prSecurityRun, "repository-security"]
-  ];
   const observedJobIds = [];
   for (const [run, expectedJobName] of expectedRuns) {
     const jobsResponse = postPr83GithubApiJson(
       `repos/HUDongpin/SENA/actions/runs/${run.id}/attempts/${run.run_attempt}/jobs`,
       githubTransport
     );
-    const matchingJobs = (jobsResponse?.jobs ?? []).filter(
+    const namedJobs = (jobsResponse?.jobs ?? []).filter((job) => job?.name === expectedJobName);
+    const matchingJobs = namedJobs.filter(
       (job) =>
         isPlainRecord(job) &&
         job.run_id === run.id &&
         job.run_attempt === run.run_attempt &&
         job.name === expectedJobName &&
-        job.head_sha === finalHeadSha &&
+        job.head_sha === headSha &&
         job.status === "completed" &&
         job.conclusion === "success" &&
         Number.isInteger(job.id) &&
         job.id > 0
     );
-    if (matchingJobs.length !== 1) {
+    if (namedJobs.length !== 1 || matchingJobs.length !== 1) {
       throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
     }
     observedJobIds.push(matchingJobs[0].id);
@@ -11116,15 +11304,59 @@ export function validatePostPr83FinalHeadLiveGitHubEvidence(
       throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
     }
   }
-  if (new Set(observedJobIds).size !== 3) {
+  if (new Set(observedJobIds).size !== expectedRuns.length) {
     throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  return observedJobIds;
+}
+
+function validateProtectedFinalHeadLiveGitHubEvidence(
+  descriptor,
+  pullRequestNumber,
+  binding,
+  options = {}
+) {
+  const finalHeadSha = descriptor?.secondParentSha;
+  const mergeCommitSha = descriptor?.mergeCommitSha;
+  const githubTransport = options.githubTransport ?? null;
+  if (
+    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING].includes(binding) ||
+    (binding === PR85_GITHUB_BINDING && pullRequestNumber !== 85) ||
+    !isSha(finalHeadSha) ||
+    !isSha(mergeCommitSha) ||
+    !sameJson(descriptor?.orderedParentShas, [
+      binding.beforeSha,
+      finalHeadSha
+    ]) ||
+    !sameJson(
+      protectedMainAdvanceCommitParents(mergeCommitSha),
+      descriptor.orderedParentShas
+    ) ||
+    !Number.isInteger(pullRequestNumber) ||
+    pullRequestNumber <= 0
+  ) {
+    throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+  }
+  const observedJobIds = validateProtectedWorkflowChecks(finalHeadSha, binding.branch, [
+    ["build-gate", "pull_request", "build"],
+    ["repo-security-gate", "push", "repository-security"],
+    ["repo-security-gate", "pull_request", "repository-security"]
+  ], githubTransport);
+  if (binding.requirePostMain) {
+    const postMainJobIds = validateProtectedWorkflowChecks(mergeCommitSha, "main", [
+      ["build-gate", "push", "build"],
+      ["repo-security-gate", "push", "repository-security"]
+    ], githubTransport);
+    if (new Set([...observedJobIds, ...postMainJobIds]).size !== 5) {
+      throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
+    }
   }
   const pullRequest = postPr83GithubApiJson(
     `repos/HUDongpin/SENA/pulls/${pullRequestNumber}`,
     githubTransport
   );
   const remoteRef = postPr83GithubApiJson(
-    `repos/HUDongpin/SENA/git/ref/heads/${POST_PR83_CURRENTNESS_BRANCH}`,
+    `repos/HUDongpin/SENA/git/ref/heads/${binding.branch}`,
     githubTransport
   );
   if (
@@ -11135,27 +11367,28 @@ export function validatePostPr83FinalHeadLiveGitHubEvidence(
     pullRequest.merged !== true ||
     pullRequest.merge_commit_sha !== mergeCommitSha ||
     pullRequest.head?.sha !== finalHeadSha ||
-    pullRequest.head?.ref !== POST_PR83_CURRENTNESS_BRANCH ||
+    pullRequest.head?.ref !== binding.branch ||
     pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
     pullRequest.base?.ref !== "main" ||
     pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
     !isPlainRecord(remoteRef) ||
-    remoteRef.ref !== `refs/heads/${POST_PR83_CURRENTNESS_BRANCH}` ||
+    remoteRef.ref !== `refs/heads/${binding.branch}` ||
     remoteRef.object?.sha !== finalHeadSha
   ) {
     throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
   }
   const suppliedReceipt = options.ruleSuiteReceipt ??
-    postPr83RuleSuiteReceiptFromEnvironment();
+    (binding === POST_PR84_GITHUB_BINDING ? postPr83RuleSuiteReceiptFromEnvironment() : null);
   const suppliedPayload = suppliedReceipt
     ? validatePostPr83RuleSuiteReceiptShape(
         suppliedReceipt,
         descriptor,
-        pullRequestNumber
+        pullRequestNumber,
+        binding
       )
     : null;
   const suiteId = suppliedPayload?.suiteId ??
-    discoverPostPr83RuleSuiteId(descriptor, githubTransport);
+    discoverPostPr83RuleSuiteId(descriptor, githubTransport, binding);
   const suite = postPr83GithubApiJson(
     `repos/HUDongpin/SENA/rulesets/rule-suites/${suiteId}`,
     githubTransport
@@ -11166,7 +11399,8 @@ export function validatePostPr83FinalHeadLiveGitHubEvidence(
     suite,
     descriptor,
     pullRequestNumber,
-    observedAt
+    observedAt,
+    binding
   );
   if (suppliedPayload && !sameJson(payload, suppliedPayload)) {
     throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
@@ -11253,7 +11487,324 @@ function postPr83CompletionContextFromEnvironment() {
   };
 }
 
+export function validatePostPr83CurrentnessForwardSnapshot(registry) {
+  try {
+    const protectedRegistry = loadRegistryFromCommit(
+      POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA
+    ).parsed;
+    const protectedLifecycle = postPr83CurrentnessLifecycle(protectedRegistry);
+    const protectedEvidence =
+      protectedLifecycle?.initialCandidateCompletionEvidence;
+    validatePostPr83CurrentnessFinalFields(
+      loadRegistryFromCommit(protectedEvidence.headSha).parsed,
+      protectedRegistry,
+      protectedEvidence.headSha
+    );
+    if (
+      !isPlainRecord(registry) ||
+      sha256Buffer(Buffer.from(JSON.stringify(registry))) !==
+        POST_PR83_FORWARD_REGISTRY_CANONICAL_SHA256 ||
+      !sameJson(Object.keys(registry), Object.keys(protectedRegistry)) ||
+      !isIsoTimestamp(registry.updatedAt) ||
+      !sameJson(registry.schemaVersion, protectedRegistry.schemaVersion) ||
+      !sameJson(registry.repo, protectedRegistry.repo) ||
+      !sameJson(registry.policy, protectedRegistry.policy) ||
+      !sameJson(registry.incident, protectedRegistry.incident) ||
+      !sameJson(registry.rescue, protectedRegistry.rescue) ||
+      !sameJson(registry.orphanWorktrees, protectedRegistry.orphanWorktrees) ||
+      !Array.isArray(registry.workItems) ||
+      !Array.isArray(registry.branches) ||
+      !Array.isArray(registry.releaseReceipts) ||
+      registry.workItems.length !== protectedRegistry.workItems.length + 3 ||
+      registry.branches.length !== protectedRegistry.branches.length + 2 ||
+      registry.releaseReceipts.length !== protectedRegistry.releaseReceipts.length ||
+      !sameJson(
+        registry.releaseReceipts.slice(
+          0,
+          protectedRegistry.releaseReceipts.length
+        ),
+        protectedRegistry.releaseReceipts
+      )
+    ) {
+      throw new Error();
+    }
+
+    for (let index = 0; index < protectedRegistry.workItems.length; index += 1) {
+      const expected = expectedPostPr83ForwardProtectedWorkItem(
+        protectedRegistry.workItems[index]
+      );
+      const observed = registry.workItems[index];
+      if (!sameJson(observed, expected)) {
+        throw new Error();
+      }
+    }
+    for (let index = 0; index < protectedRegistry.branches.length; index += 1) {
+      const expected = expectedPostPr83ForwardProtectedBranch(
+        protectedRegistry.branches[index]
+      );
+      const observed = registry.branches[index];
+      if (!sameJson(observed, expected)) {
+        throw new Error();
+      }
+    }
+
+    const releaseItems = registry.workItems.filter(
+      (entry) => entry?.taskId === POST_PR83_FORWARD_RELEASE_TASK_ID
+    );
+    const preservedItems = registry.workItems.slice(protectedRegistry.workItems.length + 1);
+    if (preservedItems.length !== 2 || !preservedItems.every(externalPreservationRecordAllowed) ||
+        new Set(preservedItems.map((item) => item.taskId)).size !== 2 ||
+        sha256Buffer(Buffer.from(JSON.stringify(registry.branches.at(-1)))) !==
+          "7d470e4b8eeeeec50cfbb21c035591a623b19c1522e2dff3220c1d865138f75e") {
+      throw new Error();
+    }
+    const releaseBranches = registry.branches.filter(
+      (entry) => entry?.name === POST_PR83_FORWARD_RELEASE_BRANCH
+    );
+    if (
+      releaseItems.length !== 1 ||
+      releaseBranches.length !== 1 ||
+      sha256Buffer(Buffer.from(JSON.stringify(releaseItems[0]))) !==
+        POST_PR83_FORWARD_RELEASE_ITEM_CANONICAL_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(releaseBranches[0]))) !==
+        POST_PR83_FORWARD_RELEASE_BRANCH_CANONICAL_SHA256 ||
+      releaseItems[0].ownerKey !==
+        "Codex-sena-main-gap-mobile-release-20260904" ||
+      releaseItems[0].owner !==
+        "Codex SENA branch-worktree convergence bootstrap writer" ||
+      releaseItems[0].ownerLane !==
+        "SENA-A01 repository currentness and branch-worktree convergence bootstrap" ||
+      releaseItems[0].laneType !== "governance-bootstrap" ||
+      releaseItems[0].branch !== POST_PR83_FORWARD_RELEASE_BRANCH ||
+      releaseItems[0].baseSha !==
+        POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA ||
+      releaseItems[0].repo !== protectedRegistry.repo ||
+      !sameJson(
+        releaseItems[0].allowedPaths,
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameJson(
+        releaseItems[0].convergenceOnlyRewriteAuthorization,
+        POST_PR83_FORWARD_CONVERGENCE_REWRITE_AUTHORIZATION
+      ) ||
+      !sameJson(
+        releaseItems[0].authorizationBoundary,
+        POST_PR83_FORWARD_CONVERGENCE_AUTHORIZATION_BOUNDARY
+      ) ||
+      releaseBranches[0].ownerKey !== releaseItems[0].ownerKey ||
+      releaseBranches[0].owner !== releaseItems[0].owner ||
+      releaseBranches[0].baseSha !==
+        POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA
+    ) {
+      throw new Error();
+    }
+
+    return true;
+  } catch {
+    throw new Error("rule=post-pr83-currentness-forward-snapshot-invalid");
+  }
+}
+
+const PR85_INTEGRATION_PREDECESSOR_SHA = "ed09ff92976ca5a86137bfda75f8562335c8a0c6";
+const PR85_INTEGRATION_PREDECESSOR_TREE = "d3d2d32c8b8c37fc5a54fc8f19b3de1fbab93375";
+const PR85_INTEGRATION_LIFECYCLE_KEY = "pr85ProtectedIntegrationLifecycle";
+const PR84_RETAINED_HEAD_SHA = "03e24b66ff7ab2792762d073cd7ea675c181fd89";
+const PR85_ITEM_OBSERVATION_FIELDS = [
+  "headSha", "aheadBehind", "lastHeartbeatAt", "lastObservedAt", "nextReviewAt",
+  "expectedCloseAt", "prIsDraft", "prReadyForReview", "mergeAuthorized", "dirtyState",
+  "evidenceState", "authorizationBoundary"
+];
+const PR85_BRANCH_OBSERVATION_FIELDS = [
+  "headSha", "remoteHeadSha", "remoteObservedAt", "prHeadSha", "prState",
+  "lastOwnerHeartbeatAt", "lastObservedAt", "lastCommitAt", "nextReviewAt",
+  "expectedCloseAt", "closeout"
+];
+
+function pr85IntegrationItem(registry) {
+  return (registry?.workItems ?? []).find((item) => item?.taskId === POST_PR83_FORWARD_RELEASE_TASK_ID);
+}
+
+function pr85ExactRecord(value, keys) {
+  return exactPlainJsonOwnKeys(value, keys) &&
+    Reflect.ownKeys(value).length === keys.length &&
+    Object.values(Object.getOwnPropertyDescriptors(value)).every((entry) => entry.enumerable && Object.hasOwn(entry, "value"));
+}
+
+function pr85PlainJsonData(value) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  const array = Array.isArray(value);
+  if (Object.getPrototypeOf(value) !== (array ? Array.prototype : Object.prototype)) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  const keys = Reflect.ownKeys(descriptors);
+  if (array && keys.length !== value.length + 1) return false;
+  return keys.every((key) => {
+    if (typeof key !== "string") return false;
+    if (array && key === "length") return true;
+    const entry = descriptors[key];
+    if (array && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length)) return false;
+    return entry.enumerable && Object.hasOwn(entry, "value") && pr85PlainJsonData(entry.value);
+  });
+}
+
+function pr85OrdinaryDescendant(fromSha, toSha) {
+  if (!isSha(fromSha) || !isSha(toSha) ||
+      !gitObjectExists(`${fromSha}^{commit}`) || !gitObjectExists(`${toSha}^{commit}`)) return false;
+  if (fromSha === toSha) return true;
+  if (git(["merge-base", "--is-ancestor", fromSha, toSha], { allowFailure: true }).status !== 0) return false;
+  const lines = protectedMainAdvanceGitText(["rev-list", "--reverse", "--parents", `${fromSha}..${toSha}`]);
+  if (!lines) return false;
+  let previous = fromSha;
+  for (const line of lines.split("\n")) {
+    const [sha, ...parents] = line.split(" ");
+    const paths = protectedMainAdvanceChangedPaths(previous, sha);
+    if (!sameJson(parents, [previous]) || !paths ||
+        paths.some((path) => !POST_PR83_CURRENTNESS_INITIAL_PATHS.includes(path))) return false;
+    previous = sha;
+  }
+  return previous === toSha;
+}
+
+// This is the single already-merged PR84 closeout, not a general lane mutation rule.
+function pr85ClosedPr84Item(source, observedAt, nextReviewAt) {
+  return {
+    ...source, disposition: "integrated", laneType: "read-only", headSha: PR84_RETAINED_HEAD_SHA,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 1 },
+    allowedPaths: ["<read-only-retained-pr84>"], prState: "MERGED", prIsDraft: false,
+    prReadyForReview: false, prHeadSha: PR84_RETAINED_HEAD_SHA,
+    dirtyState: "clean-retained-pr84-protected-merge", lastObservedAt: observedAt, nextReviewAt,
+    evidenceState: {
+      local: "Retained PR84 head 03e24b66 is clean; the lane is now read-only.",
+      ci: "Protected main b2d07177 build 33842051950 and security 33842051943 passed with zero annotations.",
+      merged: "PR84 merged as b2d07177 on 2026-09-04T05:51:23Z.",
+      deployed: source.evidenceState.deployed,
+      live: "PR84 and retained local/remote branch are exact 03e24b66; no further implementation is active."
+    },
+    aheadBehindObservationMode: "integrated-monotonic-behind",
+    lastMergedPullRequest: {
+      number: 84, headSha: PR84_RETAINED_HEAD_SHA,
+      mergeCommitSha: POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA,
+      mergedAt: "2026-09-04T05:51:23Z",
+      postMainBuildRunId: 33842051950, postMainBuildJobId: 100926173927,
+      postMainRepositorySecurityRunId: 33842051943,
+      postMainRepositorySecurityJobId: 100926173915,
+      postMainChecksPassed: true, annotationsEmpty: true
+    }
+  };
+}
+
+function pr85ClosedPr84Branch(source, observedAt, nextReviewAt) {
+  return {
+    ...source, disposition: "integrated", headSha: PR84_RETAINED_HEAD_SHA,
+    remoteHeadSha: PR84_RETAINED_HEAD_SHA, prHeadSha: PR84_RETAINED_HEAD_SHA,
+    prState: "MERGED", prIsDraft: false, prReadyForReview: false,
+    remoteObservedAt: observedAt, lastObservedAt: observedAt, nextReviewAt,
+    lastCommitAt: gitText(["show", "-s", "--format=%cI", PR84_RETAINED_HEAD_SHA]).trim(),
+    closeout: "PR84 protected merge b2d07177 and post-main checks verified; exact 03e24b66 branch/worktree retained read-only."
+  };
+}
+
+export function validatePr85IntegrationSnapshot(registry) {
+  try {
+    if (!pr85PlainJsonData(registry)) throw new Error();
+    const frozen = loadRegistryFromCommit(PR85_INTEGRATION_PREDECESSOR_SHA).parsed;
+    validatePostPr83CurrentnessForwardSnapshot(frozen);
+    if (protectedMainAdvanceObjectSha(`${PR85_INTEGRATION_PREDECESSOR_SHA}^{tree}`) !== PR85_INTEGRATION_PREDECESSOR_TREE) throw new Error();
+    const item = pr85IntegrationItem(registry);
+    const sourceItem = pr85IntegrationItem(frozen);
+    const branch = (registry?.branches ?? []).find((entry) => entry?.name === POST_PR83_FORWARD_RELEASE_BRANCH);
+    const sourceBranch = frozen.branches.find((entry) => entry.name === POST_PR83_FORWARD_RELEASE_BRANCH);
+    const lifecycle = item?.[PR85_INTEGRATION_LIFECYCLE_KEY];
+    const expectedLifecycle = {
+      schemaVersion: "sena-pr85-protected-integration/v1", status: "authorized",
+      predecessorHeadSha: PR85_INTEGRATION_PREDECESSOR_SHA,
+      predecessorTreeSha: PR85_INTEGRATION_PREDECESSOR_TREE,
+      protectedBaseSha: POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA,
+      pullRequestNumber: 85, branch: POST_PR83_FORWARD_RELEASE_BRANCH,
+      ownerKey: sourceItem.ownerKey, worktreePath: sourceItem.worktreePath,
+      integrationPaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+      postMainAuditAuthorized: true,
+      productLane: { status: "deferred-until-pr85-post-main-audit", implementationOnIntegrationBranchAuthorized: false }
+    };
+    const expectedBoundary = { ...sourceItem.authorizationBoundary,
+      rootFastForwardAuthorized: true, productAndReleaseLaneAuthorized: true,
+      readyAuthorized: true, protectedMergeAuthorized: true
+    };
+    if (!pr85ExactRecord(registry, Object.keys(frozen)) ||
+        !pr85ExactRecord(item, [...Object.keys(sourceItem), PR85_INTEGRATION_LIFECYCLE_KEY]) ||
+        !pr85ExactRecord(branch, [...Object.keys(sourceBranch), "prStateObservationMode"]) ||
+        !pr85ExactRecord(lifecycle, Object.keys(expectedLifecycle)) ||
+        !pr85ExactRecord(lifecycle.productLane, Object.keys(expectedLifecycle.productLane)) ||
+        !isDeepStrictEqual(lifecycle, expectedLifecycle) ||
+        !pr85ExactRecord(item.authorizationBoundary, Object.keys(expectedBoundary)) ||
+        !isDeepStrictEqual(item.authorizationBoundary, expectedBoundary) ||
+        !pr85ExactRecord(item.evidenceState, ["local", "ci", "merged", "deployed", "live"]) ||
+        !Object.values(item.evidenceState).every((value) => typeof value === "string" && value.length > 0) ||
+        !pr85ExactRecord(item.aheadBehind, ["baseRef", "ahead", "behind"]) ||
+        !sameJson(item.aheadBehind, { ...actualAheadBehind(item.headSha, POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA), baseRef: "origin/main" }) ||
+        !pr85OrdinaryDescendant(PR85_INTEGRATION_PREDECESSOR_SHA, item.headSha) ||
+        branch.headSha !== item.headSha || branch.remoteHeadSha !== branch.prHeadSha ||
+        !pr85OrdinaryDescendant(PR85_INTEGRATION_PREDECESSOR_SHA, branch.remoteHeadSha) ||
+        !pr85OrdinaryDescendant(branch.remoteHeadSha, item.headSha) ||
+        typeof item.prIsDraft !== "boolean" || typeof item.prReadyForReview !== "boolean" ||
+        item.prReadyForReview !== !item.prIsDraft || item.mergeAuthorized !== true ||
+        !["OPEN", "MERGED"].includes(branch.prState) ||
+        (branch.prState === "MERGED" && item.prIsDraft) ||
+        branch.prStateObservationMode !== "monotonic" ||
+        typeof item.dirtyState !== "string" || !item.dirtyState.startsWith("staged-pr85-") ||
+        !isExpectedClose(item.expectedCloseAt) || branch.expectedCloseAt !== item.expectedCloseAt ||
+        typeof branch.closeout !== "string" || !branch.closeout ||
+        branch.lastCommitAt !== gitText(["show", "-s", "--format=%cI", item.headSha]).trim()) throw new Error();
+    for (const [value, previous] of [
+      [registry.updatedAt, frozen.updatedAt],
+      ...["lastHeartbeatAt", "lastObservedAt", "nextReviewAt"].map((field) => [item[field], sourceItem[field]]),
+      ...["remoteObservedAt", "lastOwnerHeartbeatAt", "lastObservedAt", "nextReviewAt"].map((field) => [branch[field], sourceBranch[field]])
+    ]) {
+      if (!isIsoTimestamp(value) || Date.parse(value) < Date.parse(previous)) throw new Error();
+    }
+    if (timestampIsInFuture(registry.updatedAt) || timestampIsInFuture(item.lastHeartbeatAt) ||
+        timestampIsInFuture(item.lastObservedAt) || timestampIsInFuture(branch.remoteObservedAt) ||
+        timestampIsInFuture(branch.lastOwnerHeartbeatAt) || timestampIsInFuture(branch.lastObservedAt) ||
+        Date.parse(item.nextReviewAt) <= Date.parse(item.lastObservedAt) ||
+        branch.nextReviewAt !== item.nextReviewAt || branch.lastOwnerHeartbeatAt !== item.lastHeartbeatAt) throw new Error();
+    const closedItem = postPr83CurrentnessItem(registry);
+    const closedBranch = postPr83CurrentnessBranch(registry);
+    if (!isIsoTimestamp(closedItem?.lastObservedAt) || !isIsoTimestamp(closedItem?.nextReviewAt) ||
+        Date.parse(closedItem.lastObservedAt) < Date.parse("2026-09-04T05:51:23Z") ||
+        timestampIsInFuture(closedItem.lastObservedAt) ||
+        Date.parse(closedItem.nextReviewAt) <= Date.parse(closedItem.lastObservedAt) ||
+        !isDeepStrictEqual(closedItem, pr85ClosedPr84Item(postPr83CurrentnessItem(frozen), closedItem.lastObservedAt, closedItem.nextReviewAt)) ||
+        !isDeepStrictEqual(closedBranch, pr85ClosedPr84Branch(postPr83CurrentnessBranch(frozen), closedItem.lastObservedAt, closedItem.nextReviewAt))) throw new Error();
+    // Restore only individually validated fields and the exact PR84 closeout.
+    // Everything else, including all authority histories and preservation records, must survive intact.
+    const projected = protectedActivationNativeStructuredClone(registry);
+    projected.updatedAt = frozen.updatedAt;
+    const projectedItem = pr85IntegrationItem(projected);
+    const projectedBranch = projected.branches.find((entry) => entry.name === POST_PR83_FORWARD_RELEASE_BRANCH);
+    for (const field of PR85_ITEM_OBSERVATION_FIELDS) projectedItem[field] = protectedActivationNativeStructuredClone(sourceItem[field]);
+    for (const field of PR85_BRANCH_OBSERVATION_FIELDS) projectedBranch[field] = protectedActivationNativeStructuredClone(sourceBranch[field]);
+    delete projectedItem[PR85_INTEGRATION_LIFECYCLE_KEY];
+    delete projectedBranch.prStateObservationMode;
+    projected.workItems[projected.workItems.findIndex((entry) => entry.taskId === POST_PR83_CURRENTNESS_TASK_ID)] = postPr83CurrentnessItem(frozen);
+    projected.branches[projected.branches.findIndex((entry) => entry.name === POST_PR83_CURRENTNESS_BRANCH)] = postPr83CurrentnessBranch(frozen);
+    if (!isDeepStrictEqual(projected, frozen)) throw new Error();
+    return lifecycle;
+  } catch {
+    throw new Error("rule=pr85-integration-snapshot-invalid");
+  }
+}
+
+function pr85IntegrationSnapshotAllowed(registry) {
+  if (!pr85IntegrationItem(registry)?.[PR85_INTEGRATION_LIFECYCLE_KEY]) return false;
+  try { validatePr85IntegrationSnapshot(registry); return true; } catch { return false; }
+}
+
 export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
+  if (pr85IntegrationItem(registry)?.[PR85_INTEGRATION_LIFECYCLE_KEY]) {
+    validatePr85IntegrationSnapshot(registry);
+    return postPr83CurrentnessLifecycle(registry);
+  }
   if (
     sha256Buffer(Buffer.from(JSON.stringify(registry))) ===
     POST_PR83_CURRENTNESS_PUSH_READINESS_REGISTRY_CANONICAL_SHA256
@@ -11381,11 +11932,19 @@ export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
     if (!isSha(sourceHeadSha)) {
       throw new Error("rule=post-pr83-currentness-final-evidence-invalid");
     }
-    validatePostPr83CurrentnessFinalFields(
-      loadRegistryFromCommit(sourceHeadSha).parsed,
-      registry,
-      sourceHeadSha
-    );
+    try {
+      validatePostPr83CurrentnessFinalFields(
+        loadRegistryFromCommit(sourceHeadSha).parsed,
+        registry,
+        sourceHeadSha
+      );
+    } catch (error) {
+      const hasAuthorizedForwardLane = (registry.workItems ?? []).some(
+        (entry) => entry?.taskId === POST_PR83_FORWARD_RELEASE_TASK_ID
+      );
+      if (!hasAuthorizedForwardLane) throw error;
+      validatePostPr83CurrentnessForwardSnapshot(registry);
+    }
   }
   return lifecycle;
 }
@@ -11780,9 +12339,19 @@ function postPr83ProtectedLaneContract(item, registry) {
   ) {
     return null;
   }
-  return POST_PR83_CURRENTNESS_PROTECTED_LANES.find(
+  const contract = POST_PR83_CURRENTNESS_PROTECTED_LANES.find(
     (entry) => entry.taskId === item?.taskId
   ) ?? null;
+  if (
+    contract?.taskId === POST_PR83_FORWARD_RETIREMENT_TASK_ID &&
+    (postPr83ForwardSnapshotExact(registry) || pr85IntegrationSnapshotAllowed(registry))
+  ) {
+    return {
+      ...contract,
+      behind: 40
+    };
+  }
+  return contract;
 }
 
 export function postPr83ProtectedLaneShapeAllowed(item, registry) {
@@ -12071,7 +12640,11 @@ function validateRegistry(registry) {
   if (!Array.isArray(registry.orphanWorktrees)) errors.push("orphanWorktrees must be an array");
 
   const activeWriters = [];
-  const activeLaneCounts = { "integration-release": 0, feature: 0 };
+  const activeLaneCounts = {
+    "integration-release": 0,
+    feature: 0,
+    "governance-bootstrap": 0
+  };
   const branchOwners = new Map();
   for (const item of registry.workItems ?? []) {
     for (const key of [
@@ -12137,7 +12710,9 @@ function validateRegistry(registry) {
     if (!Array.isArray(item.allowedPaths) || item.allowedPaths.length === 0) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} must declare allowedPaths`);
     }
-    if (item.repo !== registry.repo || !pathIsWithin(item.repo, item.worktreePath) || !pathIsWithin(item.worktreePath, item.cwd)) {
+    if (item.repo !== registry.repo ||
+        (!pathIsWithin(item.repo, item.worktreePath) && !externalPreservationRecordAllowed(item)) ||
+        !pathIsWithin(item.worktreePath, item.cwd)) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} repo/worktreePath/cwd custody is inconsistent`);
     }
     if (!WORK_ITEM_DISPOSITIONS.has(item.disposition)) {
@@ -12164,8 +12739,38 @@ function validateRegistry(registry) {
       if (!isIsoTimestamp(item.lastHeartbeatAt)) {
         errors.push(`active workItem ${item.taskId} requires an owner heartbeat`);
       }
-      if (!new Set(["feature", "integration-release"]).has(item.laneType)) {
-        errors.push(`active workItem ${item.taskId} must use feature or integration-release laneType`);
+      if (
+        !new Set([
+          "feature",
+          "integration-release",
+          "governance-bootstrap"
+        ]).has(item.laneType)
+      ) {
+        errors.push(
+          `active workItem ${item.taskId} must use feature, integration-release, or governance-bootstrap laneType`
+        );
+      }
+      if (
+        item.laneType === "governance-bootstrap" &&
+        !(item.taskId === POST_PR83_FORWARD_RELEASE_TASK_ID && pr85IntegrationSnapshotAllowed(registry)) &&
+        (
+          item.taskId !== POST_PR83_FORWARD_RELEASE_TASK_ID ||
+          item.branch !== POST_PR83_FORWARD_RELEASE_BRANCH ||
+          item.ownerKey !== "Codex-sena-main-gap-mobile-release-20260904" ||
+          !sameJson(item.allowedPaths, POST_PR83_CURRENTNESS_INITIAL_PATHS) ||
+          !sameJson(
+            item.convergenceOnlyRewriteAuthorization,
+            POST_PR83_FORWARD_CONVERGENCE_REWRITE_AUTHORIZATION
+          ) ||
+          !sameJson(
+            item.authorizationBoundary,
+            POST_PR83_FORWARD_CONVERGENCE_AUTHORIZATION_BOUNDARY
+          )
+        )
+      ) {
+        errors.push(
+          `active workItem ${item.taskId} has invalid convergence-only governance-bootstrap custody`
+        );
       }
       if (
         registry.incident?.credentialExposure?.status === "blocked-owner"
@@ -12185,6 +12790,9 @@ function validateRegistry(registry) {
       }
       if (item.laneType === "integration-release") activeLaneCounts["integration-release"] += 1;
       if (item.laneType === "feature") activeLaneCounts.feature += 1;
+      if (item.laneType === "governance-bootstrap") {
+        activeLaneCounts["governance-bootstrap"] += 1;
+      }
       if (branchOwners.has(item.branch)) {
         errors.push(`branch ${item.branch} has multiple active writers`);
       }
@@ -12310,6 +12918,14 @@ function validateRegistry(registry) {
   }
   if (activeLaneCounts.feature > MAX_ACTIVE_FEATURE_LANES) {
     errors.push(`active feature lane count exceeds ${MAX_ACTIVE_FEATURE_LANES}`);
+  }
+  if (
+    activeLaneCounts["governance-bootstrap"] >
+    MAX_ACTIVE_GOVERNANCE_BOOTSTRAP_LANES
+  ) {
+    errors.push(
+      `active governance-bootstrap lane count exceeds ${MAX_ACTIVE_GOVERNANCE_BOOTSTRAP_LANES}`
+    );
   }
 
   const branchNames = new Set();
@@ -12450,6 +13066,8 @@ function validateRegistry(registry) {
   }
   const branchByName = new Map((registry.branches ?? []).map((branch) => [branch.name, branch]));
   for (const item of registry.workItems ?? []) {
+    // A detached, hash-bound preservation checkout has no branch ref to own.
+    if (item.branch === "(detached)" && externalPreservationRecordAllowed(item)) continue;
     const branch = branchByName.get(item.branch);
     if (!branch || branch.ownerKey !== item.ownerKey) {
       errors.push(`workItem ${item.taskId ?? "<unknown>"} ownerKey does not match its branch disposition`);
@@ -13828,6 +14446,89 @@ function protectedMainPr46MergeTimeCandidate(descriptor) {
   };
 }
 
+export function validatePr83HistoricalProtectedMainMergeDescriptor(
+  descriptor,
+  options = {}
+) {
+  try {
+    const {
+      mergeTimeRegistry,
+      currentObservationRegistry,
+      mergeCommitSha,
+      orderedParentShas,
+      secondParentSha,
+      mergeTreeSha,
+      registryBlobSha
+    } = descriptor ?? {};
+    if (
+      mergeCommitSha !== POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA ||
+      !sameJson(orderedParentShas, POST_PR83_CURRENTNESS_SOURCE_PARENTS) ||
+      secondParentSha !== POST_PR83_CURRENTNESS_SOURCE_PARENTS[1] ||
+      mergeTreeSha !== POST_PR83_CURRENTNESS_SOURCE_TREE_SHA ||
+      registryBlobSha !== POST_PR83_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA ||
+      protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !==
+        POST_PR83_CURRENTNESS_SOURCE_TREE_SHA ||
+      protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !==
+        POST_PR83_CURRENTNESS_SOURCE_TREE_SHA ||
+      protectedMainAdvanceObjectSha(
+        `${mergeCommitSha}:${REGISTRY_REPO_PATH}`
+      ) !== POST_PR83_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA ||
+      protectedMainAdvanceObjectSha(
+        `${secondParentSha}:${REGISTRY_REPO_PATH}`
+      ) !== POST_PR83_CURRENTNESS_SOURCE_REGISTRY_BLOB_SHA ||
+      !sameJson(
+        protectedMainAdvanceCommitParents(mergeCommitSha),
+        POST_PR83_CURRENTNESS_SOURCE_PARENTS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          POST_PR83_CURRENTNESS_SOURCE_PARENTS[0],
+          mergeCommitSha
+        ) ?? [],
+        POST_PR83_CURRENTNESS_INITIAL_PATHS
+      ) ||
+      !sameJson(
+        protectedMainAdvanceRegistryFromCommit(secondParentSha),
+        mergeTimeRegistry
+      )
+    ) {
+      return false;
+    }
+    validatePostPr83CurrentnessSourceRegistry(mergeTimeRegistry);
+    if (options.mergeTimeOnly === true) return true;
+    return (
+      validatePostPr83CurrentnessCorrectionSnapshot(
+        currentObservationRegistry
+      ).status === POST_PR83_CURRENTNESS_FINAL_STATUS
+    );
+  } catch {
+    return false;
+  }
+}
+
+function protectedMainPr83HistoricalMergeTimeCandidate(descriptor) {
+  if (
+    !validatePr83HistoricalProtectedMainMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    return null;
+  }
+  return {
+    kind: "pr83-historical-governance",
+    expectedPaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr83HistoricalProtectedMainMergeDescriptor({
+        ...descriptor,
+        currentObservationRegistry
+      });
+    }
+  };
+}
+
+// Only the enclosing resolver can admit an exact historical step before its endpoint.
+const PROTECTED_MAIN_CHAIN_ENDPOINT = Symbol("protected-main-chain-endpoint");
+
 function postPr83ProtectedCurrentObservationValid(
   currentObservationRegistry,
   descriptor,
@@ -13851,27 +14552,45 @@ function postPr83ProtectedCurrentObservationValid(
     ) {
       return false;
     }
-    const liveEvidence = validatePostPr83FinalHeadLiveGitHubEvidence(
-      descriptor,
-      postPr83CurrentnessItem(currentObservationRegistry)?.prNumber,
-      options
-    );
-    if (
-      Array.isArray(options.ruleSuiteReceiptCollector) &&
-      liveEvidence?.ruleSuiteReceipt
-    ) {
-      options.ruleSuiteReceiptCollector.push(liveEvidence.ruleSuiteReceipt);
+    if (options.exactHistoricalProtectedMainObservation === true) {
+      if (
+        descriptor.mergeCommitSha !==
+          POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA ||
+        (liveMainSha !== descriptor.mergeCommitSha &&
+          options[PROTECTED_MAIN_CHAIN_ENDPOINT] !== liveMainSha)
+      ) {
+        return false;
+      }
+    } else {
+      const liveEvidence = validatePostPr83FinalHeadLiveGitHubEvidence(
+        descriptor,
+        postPr83CurrentnessItem(currentObservationRegistry)?.prNumber,
+        options
+      );
+      if (
+        Array.isArray(options.ruleSuiteReceiptCollector) &&
+        liveEvidence?.ruleSuiteReceipt
+      ) {
+        options.ruleSuiteReceiptCollector.push(liveEvidence.ruleSuiteReceipt);
+      }
     }
+    const exactForwardSnapshot = postPr83ForwardSnapshotExact(currentObservationRegistry) ||
+      pr85IntegrationSnapshotAllowed(currentObservationRegistry);
     return POST_PR83_CURRENTNESS_PROTECTED_LANES.every((contract) => {
       const item = (currentObservationRegistry.workItems ?? []).find(
         (entry) => entry?.taskId === contract.taskId
       );
       const observed = actualAheadBehind(item?.headSha, "origin/main");
+      const refreshedRetirementObservation =
+        exactForwardSnapshot &&
+        contract.taskId === POST_PR83_FORWARD_RETIREMENT_TASK_ID;
       return Boolean(
         postPr83ProtectedLaneShapeAllowed(item, currentObservationRegistry) &&
           observed &&
           observed.ahead === item.aheadBehind.ahead &&
-          observed.behind > item.aheadBehind.behind
+          (refreshedRetirementObservation
+            ? observed.behind >= item.aheadBehind.behind
+            : observed.behind > item.aheadBehind.behind)
       );
     });
   } catch {
@@ -13979,7 +14698,7 @@ function protectedMainPostPr83CurrentnessMergeTimeCandidate(
       return validatePostPr83ProtectedMainMergeDescriptor({
         ...descriptor,
         currentObservationRegistry
-      }, options);
+      }, { ...options, mergeTimeOnly: false });
     }
   };
 }
@@ -13987,6 +14706,48 @@ function protectedMainPostPr83CurrentnessMergeTimeCandidate(
 export function protectedMainUniqueMergeTimeCandidate(matches) {
   const candidates = matches.filter(Boolean);
   return candidates.length === 1 ? candidates[0] : null;
+}
+
+export function validatePr85ProtectedMainMergeDescriptor(descriptor, options = {}) {
+  try {
+    const { mergeTimeRegistry, currentObservationRegistry, mergeCommitSha,
+      orderedParentShas, secondParentSha, mergeTreeSha, registryBlobSha } = descriptor ?? {};
+    validatePr85IntegrationSnapshot(mergeTimeRegistry);
+    if (!isSha(mergeCommitSha) || !isSha(secondParentSha) || !isSha(mergeTreeSha) || !isSha(registryBlobSha) ||
+        secondParentSha === PR85_INTEGRATION_PREDECESSOR_SHA ||
+        !sameJson(orderedParentShas, [POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA, secondParentSha]) ||
+        !sameJson(protectedMainAdvanceCommitParents(mergeCommitSha), orderedParentShas) ||
+        !pr85OrdinaryDescendant(PR85_INTEGRATION_PREDECESSOR_SHA, secondParentSha) ||
+        !pr85OrdinaryDescendant(pr85IntegrationItem(mergeTimeRegistry).headSha, secondParentSha) ||
+        protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !== mergeTreeSha ||
+        protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !== mergeTreeSha ||
+        protectedMainAdvanceObjectSha(`${mergeCommitSha}:${REGISTRY_REPO_PATH}`) !== registryBlobSha ||
+        protectedMainAdvanceObjectSha(`${secondParentSha}:${REGISTRY_REPO_PATH}`) !== registryBlobSha ||
+        !sameJson(protectedMainAdvanceRegistryFromCommit(secondParentSha), mergeTimeRegistry) ||
+        !sameStringSet(protectedMainAdvanceChangedPaths(POST_PR83_CURRENTNESS_PROTECTED_MERGE_SHA, secondParentSha) ?? [], POST_PR83_CURRENTNESS_INITIAL_PATHS)) return false;
+    if (options.mergeTimeOnly === true) return true;
+    validatePr85IntegrationSnapshot(currentObservationRegistry);
+    if (!pr85OrdinaryDescendant(pr85IntegrationItem(currentObservationRegistry).headSha, secondParentSha) ||
+        protectedMainAdvanceObjectSha("origin/main^{commit}") !== mergeCommitSha) return false;
+    // Authorization and caller-authored receipts are never provider merge evidence.
+    const evidence = validatePr85FinalHeadLiveGitHubEvidence(descriptor, {
+      githubTransport: options.githubTransport,
+      observedAt: options.observedAt,
+      ruleSuiteReceipt: options.pr85RuleSuiteReceipt
+    });
+    if (Array.isArray(options.ruleSuiteReceiptCollector)) options.ruleSuiteReceiptCollector.push(evidence.ruleSuiteReceipt);
+    return true;
+  } catch { return false; }
+}
+
+function protectedMainPr85IntegrationMergeTimeCandidate(descriptor, options) {
+  if (!validatePr85ProtectedMainMergeDescriptor(descriptor, { mergeTimeOnly: true })) return null;
+  return {
+    kind: "pr85-protected-integration", expectedPaths: POST_PR83_CURRENTNESS_INITIAL_PATHS,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr85ProtectedMainMergeDescriptor({ ...descriptor, currentObservationRegistry }, { ...options, mergeTimeOnly: false });
+    }
+  };
 }
 
 export function protectedMainMergeTimeCandidateResolution(
@@ -13997,7 +14758,9 @@ export function protectedMainMergeTimeCandidateResolution(
     protectedMainPr81MergeTimeCandidate(descriptor),
     protectedMainRepairMergeTimeCandidate(descriptor),
     protectedMainPr46MergeTimeCandidate(descriptor),
-    protectedMainPostPr83CurrentnessMergeTimeCandidate(descriptor, options)
+    protectedMainPr83HistoricalMergeTimeCandidate(descriptor),
+    protectedMainPostPr83CurrentnessMergeTimeCandidate(descriptor, options),
+    protectedMainPr85IntegrationMergeTimeCandidate(descriptor, options)
   ]);
 }
 
@@ -14011,6 +14774,7 @@ export function protectedMainAdvanceChainResolution(
   const postPr83RuleSuiteReceipts = [];
   const resolutionOptions = {
     ...options,
+    [PROTECTED_MAIN_CHAIN_ENDPOINT]: toSha,
     ruleSuiteReceiptCollector: postPr83RuleSuiteReceipts
   };
   const receiptResult = () =>
@@ -14137,7 +14901,8 @@ export function protectedMainAdvanceChainResolution(
 export function integratedReadOnlyRootRegistryAdvanceAllowed(
   item,
   actualHeadSha,
-  currentObservationRegistry
+  currentObservationRegistry,
+  options = {}
 ) {
   if (
     item?.taskId !== "SENA-A01-ROOT-CONTROL-PLANE-20260828" ||
@@ -14163,8 +14928,26 @@ export function integratedReadOnlyRootRegistryAdvanceAllowed(
   return protectedMainAdvanceChainResolution(
     currentObservationRegistry,
     item.headSha,
-    actualHeadSha
+    actualHeadSha,
+    options
   ).allowed;
+}
+
+export function integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
+  item,
+  actualHeadSha,
+  currentObservationRegistry,
+  { live = false, githubTransport = null } = {}
+) {
+  return integratedReadOnlyRootRegistryAdvanceAllowed(
+    item,
+    actualHeadSha,
+    currentObservationRegistry,
+    {
+      exactHistoricalProtectedMainObservation: live !== true,
+      githubTransport
+    }
+  );
 }
 
 export function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(
@@ -14669,7 +15452,12 @@ function runAudit(flags) {
       branchItem && ACTIVE_WRITE_DISPOSITIONS.has(branchItem.disposition) ? branchItem : null;
     const integratedRootRegistryAdvance =
       branchItem?.headSha === branchRecord.headSha &&
-      integratedReadOnlyRootRegistryAdvanceAllowed(branchItem, actual.headSha, registry);
+      integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
+        branchItem,
+        actual.headSha,
+        registry,
+        { live: flags.has("live") }
+      );
     if (actual.headSha !== branchRecord.headSha && !activeItem && !integratedRootRegistryAdvance) {
       errors.push(`branch head differs from registry: ${branchRecord.name}`);
     }
@@ -14684,6 +15472,13 @@ function runAudit(flags) {
 
   for (const item of registry.workItems ?? []) {
     const isActive = ACTIVE_WRITE_DISPOSITIONS.has(item.disposition);
+    if (externalPreservationRecordAllowed(item)) {
+      const registered = registeredByPath.get(canonicalExistingPath(item.worktreePath));
+      for (const reason of inspectExternalPreservation(item, registered)) {
+        errors.push(`preservation custody failed: ${item.taskId}: ${reason}`);
+      }
+      continue;
+    }
     const actual = actualBranches.get(item.branch);
     if (!actual) {
       errors.push(`workItem branch is absent: ${item.taskId} branch=${item.branch}`);
@@ -14739,10 +15534,11 @@ function runAudit(flags) {
       }
     }
 
-    const integratedRootRegistryAdvance = integratedReadOnlyRootRegistryAdvanceAllowed(
+    const integratedRootRegistryAdvance = integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
       item,
       actual.headSha,
-      registry
+      registry,
+      { live: flags.has("live") }
     );
     if (actual.headSha !== item.headSha) {
       const advance = scopedWorkItemAdvance(item, actual.headSha);
@@ -14774,7 +15570,10 @@ function runAudit(flags) {
           item,
           actual.headSha,
           observed,
-          registry
+          registry,
+          {
+            exactHistoricalProtectedMainObservation: !flags.has("live")
+          }
         )
       ) {
         warnings.push(

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   mkdtempSync,
   mkdirSync,
@@ -71,6 +71,33 @@ function runGit(root: string, args: string[]) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
   }
   return result.stdout.trim();
+}
+
+function stagedRegistrySnapshot() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "--no-optional-locks",
+      "show",
+      ":coordination/repo-governance/active-work.json"
+    ])
+  );
+}
+
+function stableRepositoryRefSnapshotFromText(refs: string) {
+  return refs
+    .split("\n")
+    .filter((line) => !line.startsWith("refs/codex/turn-diffs/"))
+    .join("\n");
+}
+
+function stableRepositoryRefSnapshot(root: string) {
+  return stableRepositoryRefSnapshotFromText(
+    runGit(root, [
+      "--no-optional-locks",
+      "for-each-ref",
+      "--format=%(refname) %(objectname)"
+    ])
+  );
 }
 
 function protectedCurrentnessRepairFrozenSourceForTest() {
@@ -1961,12 +1988,28 @@ function realPr81DescriptorForTest() {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks();
   while (tempRoots.length > 0) {
     rmSync(tempRoots.pop()!, { recursive: true, force: true });
   }
 });
 
 describe("SENA repository governance", () => {
+  it("excludes only host-owned turn-diff refs from mutation custody snapshots", () => {
+    expect(
+      stableRepositoryRefSnapshotFromText([
+        "refs/heads/main a".padEnd(56, "a"),
+        "refs/codex/turn-diffs/volatile b".padEnd(74, "b"),
+        "refs/codex/persistent c".padEnd(60, "c"),
+        "refs/tags/release d".padEnd(58, "d")
+      ].join("\n"))
+    ).toBe([
+      "refs/heads/main a".padEnd(56, "a"),
+      "refs/codex/persistent c".padEnd(60, "c"),
+      "refs/tags/release d".padEnd(58, "d")
+    ].join("\n"));
+  });
+
   it("does not downgrade a pre-push audit when the registry repo is a symlink alias of the control root", async () => {
     const controlRoot = temporaryRoot("audit-control-root");
     const aliasParent = temporaryRoot("audit-control-alias-parent");
@@ -4138,7 +4181,8 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find(isActiveWriter);
+    const active = registry.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST);
+    expect(isActiveWriter(active)).toBe(true);
     active.lastHeartbeatAt = "2020-01-01T00:00:00Z";
     const registryPath = join(root, "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
@@ -5383,6 +5427,38 @@ describe("SENA repository governance", () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("unsupported disposition");
     expect(result.stderr).toContain("unsupported laneType");
+
+    const spoofedRegistry = stagedRegistrySnapshot();
+    const exactBootstrap = spoofedRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
+    );
+    const spoofedBootstrap = spoofedRegistry.workItems.find(
+      (entry: { taskId?: string; disposition?: string }) =>
+        entry.taskId !== "SENA-MAIN-GAP-MOBILE-RELEASE-20260904" &&
+        ["active", "ready-for-pr"].includes(entry.disposition ?? "")
+    );
+    spoofedBootstrap.laneType = "governance-bootstrap";
+    spoofedBootstrap.allowedPaths = structuredClone(exactBootstrap.allowedPaths);
+    spoofedBootstrap.convergenceOnlyRewriteAuthorization = structuredClone(
+      exactBootstrap.convergenceOnlyRewriteAuthorization
+    );
+    spoofedBootstrap.authorizationBoundary = structuredClone(
+      exactBootstrap.authorizationBoundary
+    );
+    const spoofedRegistryPath = join(root, "spoofed-governance-bootstrap.json");
+    writeFileSync(
+      spoofedRegistryPath,
+      `${JSON.stringify(spoofedRegistry, null, 2)}\n`
+    );
+    const spoofedResult = runNode(
+      governanceScript,
+      ["registry", "--registry", spoofedRegistryPath]
+    );
+    expect(spoofedResult.status).toBe(1);
+    expect(spoofedResult.stderr).toContain(
+      `active workItem ${spoofedBootstrap.taskId} has invalid convergence-only governance-bootstrap custody`
+    );
   });
 
   it("binds a P0 freeze exception to the exact task, owner, branch, lane, and allowed paths", () => {
@@ -5830,7 +5906,8 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const active = registry.workItems.find(isActiveWriter);
+    const active = registry.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST);
+    expect(isActiveWriter(active)).toBe(true);
     const branch = registry.branches.find((entry: { name: string }) => entry.name === active.branch);
     active.nextReviewAt = "2020-01-01T00:00:00Z";
     branch.nextReviewAt = "2020-01-01T00:00:00Z";
@@ -5946,6 +6023,102 @@ describe("SENA repository governance", () => {
     );
   });
 
+  it("allows only the two exact external preservation records and rejects write or path expansion", async () => {
+    const governance = await import(`${pathToFileURL(governanceScript).href}?external-preservation=${Date.now()}`);
+    const records = stagedRegistrySnapshot().workItems.filter(
+      (item: { taskId: string }) => item.taskId.startsWith("SENA-SHARED-RECOVERY-")
+    );
+    expect(records).toHaveLength(2);
+    for (const item of records) {
+      expect(governance.externalPreservationRecordAllowed(item)).toBe(true);
+      for (const override of [
+        { disposition: "active" },
+        { laneType: "feature" },
+        { worktreePath: `${item.worktreePath}-other` },
+        { allowedPaths: ["**"] },
+        { headSha: "f".repeat(40) },
+        { ownerKey: "another-writer" },
+        { cleanupAuthorization: { status: "active" } }
+      ]) {
+        expect(governance.externalPreservationRecordAllowed({ ...item, ...override })).toBe(false);
+      }
+      const expectedObservation = {
+        path: item.worktreePath,
+        headSha: item.headSha,
+        branch: item.branch,
+        commonDirectory: "/Volumes/Starship/SENA/.git",
+        dirtyPaths: item.allowedPaths,
+        fileSha256: item.preservation.fileSha256,
+        indexMatchesHead: true
+      };
+      expect(governance.externalPreservationObservationErrors(item, expectedObservation)).toEqual([]);
+      for (const override of [
+        { commonDirectory: "/private/tmp/other.git" },
+        { headSha: "e".repeat(40) },
+        { branch: "codex/unauthorized-writer" },
+        { indexMatchesHead: false },
+        { indexMatchesHead: undefined },
+        { dirtyPaths: [...item.allowedPaths, "unexpected.ts"] },
+        { fileSha256: { ...item.preservation.fileSha256, [item.allowedPaths[0]]: "0".repeat(64) } }
+      ]) {
+        expect(governance.externalPreservationObservationErrors(item, { ...expectedObservation, ...override }).length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("rejects hidden staged source in an otherwise unchanged preservation checkout", async () => {
+    const governance = await import(`${pathToFileURL(governanceScript).href}?preservation-index=${Date.now()}`);
+    const item = stagedRegistrySnapshot().workItems.find(
+      (entry: { taskId: string }) => entry.taskId === "SENA-SHARED-RECOVERY-MUTWT2-20260905"
+    );
+    const root = temporaryRoot("preservation-private-index");
+    const sourceIndex = join(item.preservation.gitDirectory, "index");
+    const sourceIndexSha256 = sha256File(sourceIndex);
+    const sourcePath = join(item.worktreePath, item.allowedPaths[0]);
+    const sourceSha256 = sha256File(sourcePath);
+    const refsBefore = stableRepositoryRefSnapshot(projectRoot);
+    const privateIndex = join(root, "index");
+    const objects = join(root, "objects");
+    mkdirSync(objects);
+    copyFileSync(sourceIndex, privateIndex);
+    const environment = {
+      GIT_DIR: item.preservation.gitDirectory,
+      GIT_WORK_TREE: item.worktreePath,
+      GIT_INDEX_FILE: privateIndex,
+      GIT_OBJECT_DIRECTORY: objects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(item.preservation.commonDirectory, "objects"),
+      GIT_OPTIONAL_LOCKS: "0"
+    };
+    runGitWithEnvironment(projectRoot,
+      ["diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+      environment);
+    const stagedBlob = runGitWithEnvironment(projectRoot, ["hash-object", "-w", "--stdin"],
+      environment, "// synthetic preservation review fixture\n");
+    runGitWithEnvironment(projectRoot,
+      ["update-index", "--add", "--cacheinfo", `100644,${stagedBlob},${item.allowedPaths[0]}`],
+      environment);
+    const stagedComparison = spawnSync("git",
+      ["diff", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--"],
+      { cwd: projectRoot, env: { ...process.env, ...environment }, encoding: "utf8" });
+    expect(stagedComparison.status).toBe(1);
+    const dirtyPaths = runGitWithEnvironment(projectRoot,
+      ["status", "--porcelain=v1", "-z", "--untracked-files=all"], environment)
+      .split("\0").filter(Boolean).map((record) => record.slice(3));
+    expect(dirtyPaths).toEqual(item.allowedPaths);
+    expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
+    expect(sha256File(sourcePath)).toBe(sourceSha256);
+    expect(stableRepositoryRefSnapshot(projectRoot)).toBe(refsBefore);
+    expect(governance.externalPreservationObservationErrors(item, {
+      path: item.worktreePath,
+      headSha: item.headSha,
+      branch: item.branch,
+      commonDirectory: item.preservation.commonDirectory,
+      dirtyPaths,
+      fileSha256: item.preservation.fileSha256,
+      indexMatchesHead: stagedComparison.status === 0
+    })).toContain("preserved index changed");
+  });
+
   it("reports a closed incident with restored root control plane as pass", () => {
     const result = runNode(governanceScript, ["audit"]);
     expect(result.status).toBe(0);
@@ -5953,7 +6126,7 @@ describe("SENA repository governance", () => {
     expect(report.status).toBe("pass");
     expect(report.errors).toEqual([]);
     expect(report.ownerBlockers).toEqual([]);
-  });
+  }, 120_000);
 
   it("does not let an empty copied candidate index authorize another worktree", () => {
     const root = temporaryRoot("candidate-index-isolation");
@@ -5987,7 +6160,8 @@ describe("SENA repository governance", () => {
         "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
         "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
         "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
-        "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate"
+        "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate",
+        "registry-only-post-pr83-currentness-correction-final-candidate"
       ].includes(indexedLifecycleStatus);
     expect(
       expectedEmptyIndexFailure
@@ -6045,11 +6219,7 @@ describe("SENA repository governance", () => {
       SENA_REPAIR_PR_NUMBER: "82"
     };
     const realIndexSha256Before = sha256File(indexPath);
-    const realRefsBefore = runGit(projectRoot, [
-      "--no-optional-locks",
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ]);
+    const realRefsBefore = stableRepositoryRefSnapshot(projectRoot);
     const realObjectCountBefore = runGit(projectRoot, [
       "--no-optional-locks",
       "count-objects",
@@ -6241,11 +6411,7 @@ describe("SENA repository governance", () => {
       );
     }
     expect(sha256File(indexPath)).toBe(realIndexSha256Before);
-    expect(runGit(projectRoot, [
-      "--no-optional-locks",
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ])).toBe(realRefsBefore);
+    expect(stableRepositoryRefSnapshot(projectRoot)).toBe(realRefsBefore);
     expect(runGit(projectRoot, [
       "--no-optional-locks",
       "count-objects",
@@ -6469,11 +6635,7 @@ describe("SENA repository governance", () => {
       SENA_REPAIR_PR_NUMBER: "82"
     };
     const indexSha256Before = sha256File(indexPath);
-    const refsBefore = runGit(projectRoot, [
-      "--no-optional-locks",
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ]);
+    const refsBefore = stableRepositoryRefSnapshot(projectRoot);
     const objectCountBefore = runGit(projectRoot, [
       "--no-optional-locks",
       "count-objects",
@@ -6529,11 +6691,7 @@ describe("SENA repository governance", () => {
       );
     }
     expect(sha256File(indexPath)).toBe(indexSha256Before);
-    expect(runGit(projectRoot, [
-      "--no-optional-locks",
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ])).toBe(refsBefore);
+    expect(stableRepositoryRefSnapshot(projectRoot)).toBe(refsBefore);
     expect(runGit(projectRoot, [
       "--no-optional-locks",
       "count-objects",
@@ -7735,10 +7893,10 @@ process.stdout.write(JSON.stringify(value));
     expect(typeof governance.protectedCurrentnessRepairTrueBooleanPaths).toBe("function");
 
     const currentRegistry = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
     );
     const currentItem = protectedCurrentnessRepairItemForTest(currentRegistry);
     const actualPrNumber = currentItem.prNumber;
@@ -7957,7 +8115,7 @@ process.stdout.write(JSON.stringify(value));
     ]);
     expect(orphanCorrectionResult.status).toBe(1);
     expect(orphanCorrectionResult.stderr).toContain(
-      "rule=post-pr83-currentness-stdin-hang-test-fix-transition-invalid"
+      "rule=post-pr83-currentness-final-transition-invalid"
     );
     const initial = buildProtectedCurrentnessRepairInitialFixture(
       designPlanSeedRegistry,
@@ -8190,57 +8348,14 @@ process.stdout.write(JSON.stringify(value));
       { env: cleanIndexEnvironment }
     );
     expect(cleanIndexWritePolicy.status).toBe(1);
-    const cleanIndexSourceRegistry = JSON.parse(runGit(projectRoot, [
-      "show",
-      `${currentHead}:coordination/repo-governance/active-work.json`
-    ]));
-    const cleanIndexSourceStatus = cleanIndexSourceRegistry.workItems.find(
-      (entry: { taskId?: string }) =>
-        entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
-    )?.postPr82TopologyHeartbeatLifecycle?.status;
-    const cleanIndexPostPr83Status = cleanIndexSourceRegistry.workItems.find(
-      (entry: { taskId?: string }) =>
-        entry.taskId === POST_PR83_TASK_FOR_TEST
-    )?.postPr83CurrentnessCorrectionLifecycle?.status;
-    const cleanIndexHasRecognizedPostPr83Snapshot = [
-      "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
-      "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
-      "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
-      "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
-      "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
-      "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
-      "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate"
-    ].includes(cleanIndexPostPr83Status);
-    const cleanIndexSourceReviewIsOverdue = [
-      ...(cleanIndexSourceRegistry.workItems ?? []),
-      ...(cleanIndexSourceRegistry.branches ?? [])
-    ].some(
-      (entry: {
-        nextReviewAt?: string;
-        disposition?: string;
-        taskId?: string;
-        name?: string;
-      }) =>
-        ["active", "ready-for-pr"].includes(entry.disposition ?? "") &&
-        entry.taskId !== "SENA-EVIDENCEFLOW-V1-20260828" &&
-        entry.name !== "codex/sena-evidenceflow-v1-20260828" &&
-        typeof entry.nextReviewAt === "string" &&
-        Date.parse(entry.nextReviewAt) < Date.now()
-    );
-    const expectedCleanIndexFailure =
-      cleanIndexSourceStatus ===
-        "three-path-post-pr82-topology-heartbeat-bootstrap-candidate" ||
-      cleanIndexSourceReviewIsOverdue ||
-      (cleanIndexPostPr83Status && !cleanIndexHasRecognizedPostPr83Snapshot)
-        ? ["index registry snapshot is invalid"]
-        : [
-            "index registry snapshot is invalid",
-            "rule=empty-staged-index-not-authorized"
-          ];
     expect(
-      expectedCleanIndexFailure.some((message) =>
+      [
+        "index registry snapshot is invalid",
+        "rule=empty-staged-index-not-authorized"
+      ].some((message) =>
         cleanIndexWritePolicy.stderr.includes(message)
-      )
+      ),
+      cleanIndexWritePolicy.stderr
     ).toBe(true);
 
     const expectInitialFailure = (mutate: (candidate: any) => void, rule?: string) => {
@@ -9585,11 +9700,7 @@ process.stdout.write(JSON.stringify(value));
       "--short",
       "HEAD"
     ]);
-    const realRefsBefore = runGit(projectRoot, [
-      "--no-optional-locks",
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ]);
+    const realRefsBefore = stableRepositoryRefSnapshot(projectRoot);
     const realObjectCountBefore = runGit(projectRoot, [
       "--no-optional-locks",
       "count-objects",
@@ -9847,11 +9958,7 @@ process.stdout.write(JSON.stringify(value));
       "--short",
       "HEAD"
     ])).toBe(realBranchBefore);
-    expect(runGit(projectRoot, [
-      "--no-optional-locks",
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ])).toBe(realRefsBefore);
+    expect(stableRepositoryRefSnapshot(projectRoot)).toBe(realRefsBefore);
     expect(runGit(projectRoot, ["--no-optional-locks", "count-objects", "-v"]))
       .toBe(realObjectCountBefore);
     expect(runGit(projectRoot, [
@@ -10083,10 +10190,7 @@ process.stdout.write(JSON.stringify(value));
       "--cached",
       "--name-only"
     ]);
-    const realRefsBefore = runGit(projectRoot, [
-      "for-each-ref",
-      "--format=%(refname) %(objectname)"
-    ]);
+    const realRefsBefore = stableRepositoryRefSnapshot(projectRoot);
     const realObjectCountBefore = runGit(projectRoot, ["count-objects", "-v"]);
 
     const exact = runNode(
@@ -10240,9 +10344,7 @@ process.stdout.write(JSON.stringify(value));
         "--name-only"
       ])
     ).toBe(realCachedPathsBefore);
-    expect(
-      runGit(projectRoot, ["for-each-ref", "--format=%(refname) %(objectname)"])
-    ).toBe(realRefsBefore);
+    expect(stableRepositoryRefSnapshot(projectRoot)).toBe(realRefsBefore);
     expect(runGit(projectRoot, ["count-objects", "-v"])).toBe(realObjectCountBefore);
   });
 
@@ -12874,6 +12976,427 @@ describe("protected activation completion and PR46 repair rebinding", () => {
   });
 });
 
+const PR85_PREDECESSOR_FOR_TEST = "ed09ff92976ca5a86137bfda75f8562335c8a0c6";
+const PR85_BRANCH_FOR_TEST = "codex/sena-main-gap-mobile-release-20260904";
+const PR85_TASK_FOR_TEST = "SENA-MAIN-GAP-MOBILE-RELEASE-20260904";
+const PR85_LIFECYCLE_FOR_TEST = "pr85ProtectedIntegrationLifecycle";
+const PR84_RETAINED_HEAD_FOR_TEST = "03e24b66ff7ab2792762d073cd7ea675c181fd89";
+
+function pr85PredecessorRegistryForTest() {
+  return JSON.parse(runGit(projectRoot, [
+    "show", `${PR85_PREDECESSOR_FOR_TEST}:coordination/repo-governance/active-work.json`
+  ]));
+}
+
+function pr85IntegrationRegistryForTest() {
+  const registry = pr85PredecessorRegistryForTest();
+  const observedAt = "2026-09-05T09:35:43Z";
+  const item = registry.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST);
+  const branch = registry.branches.find((entry: any) => entry.name === PR85_BRANCH_FOR_TEST);
+  registry.updatedAt = observedAt;
+  Object.assign(item, {
+    headSha: PR85_PREDECESSOR_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 4, behind: 0 },
+    lastHeartbeatAt: observedAt, lastObservedAt: observedAt,
+    nextReviewAt: "2026-09-07T09:35:43Z",
+    expectedCloseAt: "owner-gated:PR85-protected-integration-and-post-main-audit",
+    mergeAuthorized: true,
+    dirtyState: "staged-pr85-protected-integration-candidate",
+    evidenceState: {
+      local: "PR85 integration successor is being implemented from exact ed09ff9.",
+      ci: "Predecessor CI passed; the integration candidate requires its own checks.",
+      merged: "PR85 is OPEN/Draft; owner authorized Ready and protected merge after independent review.",
+      deployed: "No deployment is authorized.",
+      live: "Observed main b2d07177 and retained remote/PR85 head ed09ff9."
+    }
+  });
+  for (const field of ["rootFastForwardAuthorized", "productAndReleaseLaneAuthorized", "readyAuthorized", "protectedMergeAuthorized"]) {
+    item.authorizationBoundary[field] = true;
+  }
+  item[PR85_LIFECYCLE_FOR_TEST] = {
+    schemaVersion: "sena-pr85-protected-integration/v1", status: "authorized",
+    predecessorHeadSha: PR85_PREDECESSOR_FOR_TEST,
+    predecessorTreeSha: "d3d2d32c8b8c37fc5a54fc8f19b3de1fbab93375",
+    protectedBaseSha: POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST,
+    pullRequestNumber: 85, branch: PR85_BRANCH_FOR_TEST,
+    ownerKey: item.ownerKey, worktreePath: item.worktreePath,
+    integrationPaths: [...POST_PR83_PATHS_FOR_TEST],
+    postMainAuditAuthorized: true,
+    productLane: { status: "deferred-until-pr85-post-main-audit", implementationOnIntegrationBranchAuthorized: false }
+  };
+  Object.assign(branch, {
+    headSha: item.headSha, remoteHeadSha: item.headSha, prHeadSha: item.headSha,
+    remoteObservedAt: observedAt, lastOwnerHeartbeatAt: observedAt,
+    lastObservedAt: observedAt, nextReviewAt: item.nextReviewAt,
+    lastCommitAt: runGit(projectRoot, ["show", "-s", "--format=%cI", item.headSha]),
+    expectedCloseAt: item.expectedCloseAt,
+    closeout: "PR85 authorized for protected integration; product work awaits a separate lane after post-main audit.",
+    prStateObservationMode: "monotonic"
+  });
+  const previous = registry.workItems.find((entry: any) => entry.taskId === POST_PR83_TASK_FOR_TEST);
+  const previousBranch = registry.branches.find((entry: any) => entry.name === POST_PR83_BRANCH_FOR_TEST);
+  Object.assign(previous, {
+    disposition: "integrated", laneType: "read-only", headSha: PR84_RETAINED_HEAD_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 1 },
+    aheadBehindObservationMode: "integrated-monotonic-behind",
+    allowedPaths: ["<read-only-retained-pr84>"],
+    prState: "MERGED", prIsDraft: false, prReadyForReview: false,
+    prHeadSha: PR84_RETAINED_HEAD_FOR_TEST,
+    dirtyState: "clean-retained-pr84-protected-merge",
+    lastObservedAt: observedAt, nextReviewAt: "2026-09-12T09:35:43Z",
+    evidenceState: {
+      local: "Retained PR84 head 03e24b66 is clean; the lane is now read-only.",
+      ci: "Protected main b2d07177 build 33842051950 and security 33842051943 passed with zero annotations.",
+      merged: "PR84 merged as b2d07177 on 2026-09-04T05:51:23Z.",
+      deployed: previous.evidenceState.deployed,
+      live: "PR84 and retained local/remote branch are exact 03e24b66; no further implementation is active."
+    },
+    lastMergedPullRequest: {
+      number: 84, headSha: PR84_RETAINED_HEAD_FOR_TEST,
+      mergeCommitSha: POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST,
+      mergedAt: "2026-09-04T05:51:23Z",
+      postMainBuildRunId: 33842051950, postMainBuildJobId: 100926173927,
+      postMainRepositorySecurityRunId: 33842051943,
+      postMainRepositorySecurityJobId: 100926173915,
+      postMainChecksPassed: true, annotationsEmpty: true
+    }
+  });
+  Object.assign(previousBranch, {
+    disposition: "integrated", headSha: PR84_RETAINED_HEAD_FOR_TEST,
+    remoteHeadSha: PR84_RETAINED_HEAD_FOR_TEST, prHeadSha: PR84_RETAINED_HEAD_FOR_TEST,
+    prState: "MERGED", prIsDraft: false, prReadyForReview: false,
+    remoteObservedAt: observedAt, lastObservedAt: observedAt,
+    nextReviewAt: previous.nextReviewAt,
+    lastCommitAt: runGit(projectRoot, ["show", "-s", "--format=%cI", PR84_RETAINED_HEAD_FOR_TEST]),
+    closeout: "PR84 protected merge b2d07177 and post-main checks verified; exact 03e24b66 branch/worktree retained read-only."
+  });
+  return registry;
+}
+
+function safePr85BranchClone(fixtureRoot: string, root: string) {
+  const retirementSha = "e24c635d1f53fccb2264c6be002aec2775de127c";
+  const retirementRef = "refs/remotes/origin/codex/sena-branch-retirement-20260829";
+  const sensitiveSha = "15a131415d0206782265902b0af612a80e16bae2";
+  try {
+    const sourceHead = runGit(projectRoot, ["rev-parse", "HEAD"]);
+    const sourceBranchHead = runGit(projectRoot, ["rev-parse", `refs/heads/${PR85_BRANCH_FOR_TEST}`]);
+    // PR46's frozen behind-count needs only its explicitly pinned clean history.
+    for (const sha of new Set([sourceHead, sourceBranchHead, retirementSha])) {
+      const objects = runGit(projectRoot, ["rev-list", "--objects", sha]);
+      if (objects.split("\n").some((line) => line.split(" ")[0] === sensitiveSha)) throw new Error();
+    }
+    runGit(fixtureRoot, ["clone", "-q", "--no-local", "--single-branch", "--branch", PR85_BRANCH_FOR_TEST, "--no-tags", projectRoot, root]);
+    if (runGit(root, ["rev-parse", "HEAD"]) !== sourceBranchHead ||
+        runGit(projectRoot, ["rev-parse", "HEAD"]) !== sourceHead ||
+        runGit(projectRoot, ["rev-parse", `refs/heads/${PR85_BRANCH_FOR_TEST}`]) !== sourceBranchHead) throw new Error();
+    runGit(root, ["fetch", "-q", "--no-tags", "--no-write-fetch-head", projectRoot, `${retirementSha}:${retirementRef}`]);
+    const sensitiveObject = spawnSync("git", ["cat-file", "-e", sensitiveSha], { cwd: root, encoding: "utf8", env: { ...process.env, GIT_NO_LAZY_FETCH: "1" } });
+    const remoteRefs = runGit(root, ["for-each-ref", "--format=%(refname)", "refs/remotes/"]).split("\n");
+    if (sensitiveObject.status !== 1 || remoteRefs.some((ref) => !["refs/remotes/origin/HEAD", `refs/remotes/origin/${PR85_BRANCH_FOR_TEST}`, retirementRef].includes(ref))) throw new Error();
+  } catch {
+    // Even transport/read failures may leave unverified objects: hold the exact directory.
+    const cleanupIndex = tempRoots.indexOf(fixtureRoot);
+    if (cleanupIndex >= 0) tempRoots.splice(cleanupIndex, 1);
+    throw new Error(`PR85 clone isolation failed; retained metadata-only review target: ${fixtureRoot}`);
+  }
+}
+
+async function createPr85IntegrationFixture() {
+  const fixtureRoot = temporaryRoot("pr85-integration");
+  const root = join(fixtureRoot, "repo");
+  safePr85BranchClone(fixtureRoot, root);
+  if (runGit(root, ["rev-parse", "HEAD"]) !== PR85_PREDECESSOR_FOR_TEST) {
+    runGit(root, ["checkout", "-q", "--detach", PR85_PREDECESSOR_FOR_TEST]);
+  }
+  runGit(root, ["config", "user.name", "SENA PR85 test"]);
+  runGit(root, ["config", "user.email", "sena-pr85@example.invalid"]);
+  const registry = pr85IntegrationRegistryForTest();
+  for (const path of POST_PR83_PATHS_FOR_TEST.slice(1)) copyFileSync(join(projectRoot, path), join(root, path));
+  writeFileSync(join(root, POST_PR83_PATHS_FOR_TEST[0]), `${JSON.stringify(registry, null, 2)}\n`);
+  runGit(root, ["add", ...POST_PR83_PATHS_FOR_TEST]);
+  runGit(root, ["commit", "-q", "-m", "ordinary PR85 integration"]);
+  const firstHead = runGit(root, ["rev-parse", "HEAD"]);
+  const item = registry.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST);
+  const branch = registry.branches.find((entry: any) => entry.name === PR85_BRANCH_FOR_TEST);
+  item.headSha = firstHead;
+  item.aheadBehind.ahead = 5;
+  branch.headSha = firstHead;
+  branch.lastCommitAt = runGit(root, ["show", "-s", "--format=%cI", firstHead]);
+  writeFileSync(join(root, POST_PR83_PATHS_FOR_TEST[0]), `${JSON.stringify(registry, null, 2)}\n`);
+  runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  runGit(root, ["commit", "-q", "-m", "ordinary PR85 observation"]);
+  const headSha = runGit(root, ["rev-parse", "HEAD"]);
+  const treeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+  const mergeSha = runGit(root, ["commit-tree", treeSha, "-p", POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST, "-p", headSha, "-m", "PR85 protected merge"]);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", mergeSha]);
+  const previousTarget = process.env.SENA_GOVERNANCE_TARGET_ROOT;
+  process.env.SENA_GOVERNANCE_TARGET_ROOT = root;
+  let governance: any;
+  try {
+    governance = await import(`${pathToFileURL(governanceScript).href}?pr85=${Date.now()}-${Math.random()}`);
+  } finally {
+    if (previousTarget === undefined) delete process.env.SENA_GOVERNANCE_TARGET_ROOT;
+    else process.env.SENA_GOVERNANCE_TARGET_ROOT = previousTarget;
+  }
+  const descriptor = {
+    mergeTimeRegistry: registry, currentObservationRegistry: registry,
+    mergeCommitSha: mergeSha, orderedParentShas: [POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST, headSha],
+    secondParentSha: headSha, mergeTreeSha: treeSha,
+    registryBlobSha: runGit(root, ["rev-parse", `${headSha}:${POST_PR83_PATHS_FOR_TEST[0]}`])
+  };
+  return { root, governance, registry, firstHead, headSha, treeSha, mergeSha, descriptor };
+}
+
+function pr85GitHubTransportForTest(fixture: any) {
+  const calls: string[] = [];
+  const responses: Record<string, any> = {};
+  let runId = 85000;
+  for (const [sha, branch, workflows] of [
+    [fixture.headSha, PR85_BRANCH_FOR_TEST, [["build-gate", "pull_request"], ["repo-security-gate", "push"], ["repo-security-gate", "pull_request"]]],
+    [fixture.mergeSha, "main", [["build-gate", "push"], ["repo-security-gate", "push"]]]
+  ] as Array<[string, string, string[][]]>) {
+    const workflowRuns = workflows.map(([name, event]) => ({
+      id: ++runId, name, event, head_sha: sha, head_branch: branch,
+      head_repository: { full_name: "HUDongpin/SENA" }, status: "completed",
+      conclusion: "success", created_at: "2026-09-05T09:35:43Z", run_number: runId,
+      run_attempt: 2
+    }));
+    responses[`repos/HUDongpin/SENA/actions/runs?head_sha=${sha}&per_page=100&page=1`] = { workflow_runs: [
+      ...workflowRuns,
+      ...workflowRuns.map((run) => ({ ...run, id: run.id - 10000, run_number: run.run_number - 10000, run_attempt: 1, created_at: "2026-09-05T09:30:00Z" }))
+    ] };
+    for (const run of workflowRuns) {
+      responses[`repos/HUDongpin/SENA/actions/runs/${run.id}/attempts/2/jobs`] = { jobs: [{
+        id: run.id + 100, run_id: run.id, run_attempt: 2,
+        name: run.name === "build-gate" ? "build" : "repository-security",
+        head_sha: sha, status: "completed", conclusion: "success"
+      }] };
+      responses[`repos/HUDongpin/SENA/check-runs/${run.id + 100}/annotations`] = [];
+    }
+  }
+  responses["repos/HUDongpin/SENA/pulls/85"] = {
+    number: 85, state: "closed", draft: false, merged: true,
+    merge_commit_sha: fixture.mergeSha,
+    head: { sha: fixture.headSha, ref: PR85_BRANCH_FOR_TEST, repo: { full_name: "HUDongpin/SENA" } },
+    base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+  };
+  responses[`repos/HUDongpin/SENA/git/ref/heads/${PR85_BRANCH_FOR_TEST}`] = {
+    ref: `refs/heads/${PR85_BRANCH_FOR_TEST}`, object: { sha: fixture.headSha }
+  };
+  const suite = {
+    id: 85800, actor_name: "HUDongpin", before_sha: POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST,
+    after_sha: fixture.mergeSha, repository_name: "SENA", result: "pass",
+    rule_evaluations: ["deletion", "non_fast_forward", "pull_request", "required_status_checks"].map((rule_type) => ({
+      rule_type, enforcement: "active", result: "pass",
+      rule_source: { id: 21232887, name: "main-minimum-safety", type: "ruleset" }
+    }))
+  };
+  responses["repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1"] = [suite];
+  responses["repos/HUDongpin/SENA/rulesets/rule-suites/85800"] = suite;
+  return { calls, responses, transport(path: string) {
+    calls.push(path);
+    if (!Object.hasOwn(responses, path)) throw new Error(`unexpected PR85 provider request: ${path}`);
+    return structuredClone(responses[path]);
+  } };
+}
+
+describe("PR85 protected integration successor", () => {
+  it("accepts the typed successor while preserving historical bootstrap and all other owners", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?pr85-shape=${Date.now()}`);
+    const source = pr85PredecessorRegistryForTest();
+    const candidate = pr85IntegrationRegistryForTest();
+    expect(governance.validatePostPr83CurrentnessForwardSnapshot(source)).toBe(true);
+    expect(typeof governance.validatePr85IntegrationSnapshot).toBe("function");
+    expect(governance.validatePr85IntegrationSnapshot(candidate)).toEqual(
+      candidate.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST)[PR85_LIFECYCLE_FOR_TEST]
+    );
+    expect(() => governance.validatePostPr83CurrentnessCorrectionSnapshot(candidate)).not.toThrow();
+    for (const item of source.workItems.filter((entry: any) => ![PR85_TASK_FOR_TEST, POST_PR83_TASK_FOR_TEST].includes(entry.taskId))) {
+      expect(candidate.workItems.find((entry: any) => entry.taskId === item.taskId)).toEqual(item);
+    }
+    const pr46 = candidate.workItems.find((entry: any) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829");
+    expect(governance.postPr83ProtectedLaneShapeAllowed(pr46, candidate)).toBe(true);
+    expect(() => governance.validatePostPr83CurrentnessForwardSnapshot(candidate)).toThrow();
+  });
+
+  it("rejects changed custody, scope, permission, protected records and caller-authored approvals", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?pr85-mutations=${Date.now()}`);
+    expect(typeof governance.validatePr85IntegrationSnapshot).toBe("function");
+    const candidate = pr85IntegrationRegistryForTest();
+    const mutations: Array<(registry: any, item: any, branch: any) => void> = [
+      ...["predecessorHeadSha", "predecessorTreeSha", "protectedBaseSha"].map((field) => (_r: any, item: any) => { item[PR85_LIFECYCLE_FOR_TEST][field] = "f".repeat(40); }),
+      (_r, item) => { item[PR85_LIFECYCLE_FOR_TEST].pullRequestNumber = 46; },
+      (_r, item) => { item[PR85_LIFECYCLE_FOR_TEST].branch = "other"; },
+      (_r, item) => { item.ownerKey = "other"; },
+      (_r, item) => { item.worktreePath = "/tmp/other"; },
+      (_r, item) => { item.allowedPaths.push("sena-hk-template/components/**"); },
+      (_r, item) => { item[PR85_LIFECYCLE_FOR_TEST].productLane.implementationOnIntegrationBranchAuthorized = true; },
+      (_r, item) => { item[PR85_LIFECYCLE_FOR_TEST].success = true; },
+      (_r, item) => { item.independentApproval = { approved: true }; },
+      (_r, item) => { item.evidenceState.receipt = { validated: true }; },
+      (_r, item) => { item.dirtyState = "clean-but-staged"; },
+      (_r, item) => { item.mergeAuthorized = "true"; },
+      (_r, _item, branch) => { branch.remoteHeadSha = "27ef2ace08150b10de0228ccb351309c82bcd78a"; },
+      (_r, _item, branch) => { branch.prStateObservationMode = "arbitrary"; },
+      (r) => { r.workItems.find((entry: any) => entry.taskId === "SENA-BRANCH-RETIREMENT-20260829").lastHeartbeatAt = r.updatedAt; },
+      (r) => { r.workItems.find((entry: any) => entry.taskId === POST_PR83_TASK_FOR_TEST).lastHeartbeatAt = r.updatedAt; },
+      (r) => { r.workItems.find((entry: any) => entry.taskId === POST_PR83_TASK_FOR_TEST).lastMergedPullRequest.number = 85; },
+      (r) => { r.workItems.at(-1).allowedPaths.push("other"); },
+      (r) => { r.releaseReceipts.push({ success: true }); },
+      (r) => { r.incident.credentialExposure.status = "resolved"; }
+    ];
+    for (const [field, permitted] of Object.entries(candidate.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST).authorizationBoundary)) {
+      mutations.push((_r, item) => { item.authorizationBoundary[field] = !permitted; });
+    }
+    for (const mutate of mutations) {
+      const copy = structuredClone(candidate);
+      mutate(copy, copy.workItems.find((entry: any) => entry.taskId === PR85_TASK_FOR_TEST), copy.branches.find((entry: any) => entry.name === PR85_BRANCH_FOR_TEST));
+      expect(() => governance.validatePr85IntegrationSnapshot(copy)).toThrow("rule=pr85-integration-snapshot-invalid");
+    }
+  });
+
+  it("recognizes ordinary multi-commit PR85 descendants and the exact PR84 to PR85 merge chain", async () => {
+    const fixture = await createPr85IntegrationFixture();
+    expect(typeof fixture.governance.validatePr85ProtectedMainMergeDescriptor).toBe("function");
+    expect(fixture.governance.validatePr85IntegrationSnapshot(fixture.registry)).toBeTruthy();
+    expect(fixture.governance.protectedMainMergeTimeCandidateResolution(fixture.descriptor)?.kind).toBe("pr85-protected-integration");
+    const provider = pr85GitHubTransportForTest(fixture);
+    const options = { exactHistoricalProtectedMainObservation: true, githubTransport: provider.transport };
+    const chain = fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, POST_PR83_SOURCE_SHA_FOR_TEST, fixture.mergeSha, options);
+    expect(chain, JSON.stringify(chain)).toMatchObject({ allowed: true, mergeCommitShas: [POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST, fixture.mergeSha] });
+    const rootItem = fixture.registry.workItems.find((entry: any) => entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828");
+    const rootChain = fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, rootItem.headSha, fixture.mergeSha, options);
+    expect(rootChain, JSON.stringify(rootChain)).toMatchObject({ allowed: true });
+    const fixtureRootItem = { ...rootItem, repo: fixture.root, cwd: fixture.root, worktreePath: fixture.root };
+    expect(fixture.governance.integratedReadOnlyRootRegistryAdvanceAllowedForAudit(fixtureRootItem, fixture.mergeSha, fixture.registry, { githubTransport: provider.transport })).toBe(true);
+    for (const changes of [
+      { orderedParentShas: [...fixture.descriptor.orderedParentShas].reverse() },
+      { secondParentSha: fixture.firstHead },
+      { mergeTreeSha: "f".repeat(40) },
+      { registryBlobSha: "f".repeat(40) }
+    ]) expect(fixture.governance.validatePr85ProtectedMainMergeDescriptor({ ...fixture.descriptor, ...changes }, { mergeTimeOnly: true })).toBe(false);
+    for (const kind of ["squash", "unknown", "wrong-tree", "extra-path", "reverted-path"] as const) {
+      let tree = fixture.treeSha;
+      let head = fixture.headSha;
+      if (kind === "extra-path" || kind === "reverted-path") {
+        tree = treeFromCommitWithPathChanges(fixture.root, head, head, [], [{ kind: "content", path: "unexpected.txt", content: "unexpected\n" }]);
+        head = runGit(fixture.root, ["commit-tree", tree, "-p", head, "-m", "outside integration scope"]);
+        if (kind === "reverted-path") {
+          tree = fixture.treeSha;
+          head = runGit(fixture.root, ["commit-tree", tree, "-p", head, "-m", "revert outside path"]);
+        }
+      }
+      if (kind === "unknown") head = PR85_PREDECESSOR_FOR_TEST;
+      if (kind === "wrong-tree") tree = runGit(fixture.root, ["rev-parse", `${POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST}^{tree}`]);
+      const parents = kind === "squash" ? ["-p", POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST] : ["-p", POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST, "-p", head];
+      const merge = runGit(fixture.root, ["commit-tree", tree, ...parents, "-m", kind]);
+      runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", merge]);
+      expect(fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, POST_PR83_SOURCE_SHA_FOR_TEST, merge, options).allowed, kind).toBe(false);
+    }
+  }, 120_000);
+
+  it("requires latest-attempt final-head and actual post-main checks plus direct protected provider evidence", async () => {
+    const fixture = await createPr85IntegrationFixture();
+    expect(typeof fixture.governance.validatePr85FinalHeadLiveGitHubEvidence).toBe("function");
+    const valid = pr85GitHubTransportForTest(fixture);
+    const evidence = fixture.governance.validatePr85FinalHeadLiveGitHubEvidence(fixture.descriptor, { githubTransport: valid.transport });
+    expect(evidence.validated).toBe(true);
+    expect(evidence.ruleSuiteReceipt.payload.schema).toBe("sena-pr85-post-main-rule-suite/v1");
+    for (const sha of [fixture.headSha, fixture.mergeSha]) {
+      expect(valid.calls).toContain(`repos/HUDongpin/SENA/actions/runs?head_sha=${sha}&per_page=100&page=1`);
+    }
+    const finalRuns = `repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.headSha}&per_page=100&page=1`;
+    const postRuns = `repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.mergeSha}&per_page=100&page=1`;
+    const variants: Array<[string, (responses: Record<string, any>) => void]> = [
+      ["final failure", (r) => { r[finalRuns].workflow_runs[0].conclusion = "failure"; }],
+      ["final pending", (r) => { r[finalRuns].workflow_runs[0].status = "in_progress"; }],
+      ["wrong final head", (r) => { r[finalRuns].workflow_runs[0].head_sha = fixture.mergeSha; }],
+      ["post-main failure", (r) => { r[postRuns].workflow_runs[0].conclusion = "failure"; }],
+      ["post-main pending", (r) => { r[postRuns].workflow_runs[1].status = "queued"; }],
+      ["wrong post-main head", (r) => { r[postRuns].workflow_runs[0].head_sha = fixture.headSha; }],
+      ["old job attempt", (r) => { r["repos/HUDongpin/SENA/actions/runs/85001/attempts/2/jobs"].jobs[0].run_attempt = 1; }],
+      ["final annotations", (r) => { r["repos/HUDongpin/SENA/check-runs/85101/annotations"] = [{ message: "warning" }]; }],
+      ["post-main annotations", (r) => { r["repos/HUDongpin/SENA/check-runs/85105/annotations"] = [{ message: "warning" }]; }],
+      ["unmerged PR", (r) => { r["repos/HUDongpin/SENA/pulls/85"].merged = false; }],
+      ["wrong PR", (r) => { r["repos/HUDongpin/SENA/pulls/85"].number = 46; }],
+      ["changed retained head", (r) => { r[`repos/HUDongpin/SENA/git/ref/heads/${PR85_BRANCH_FOR_TEST}`].object.sha = fixture.firstHead; }],
+      ["rule bypass", (r) => { r["repos/HUDongpin/SENA/rulesets/rule-suites/85800"].rule_evaluations[3].result = "bypass"; }],
+      ["inactive rule", (r) => { r["repos/HUDongpin/SENA/rulesets/rule-suites/85800"].rule_evaluations[3].enforcement = "evaluate"; }],
+      ["wrong rule base", (r) => { r["repos/HUDongpin/SENA/rulesets/rule-suites/85800"].before_sha = POST_PR83_SOURCE_SHA_FOR_TEST; }],
+      ["wrong rule merge", (r) => { r["repos/HUDongpin/SENA/rulesets/rule-suites/85800"].after_sha = fixture.headSha; }]
+    ];
+    for (const [name, mutate] of variants) {
+      const provider = pr85GitHubTransportForTest(fixture);
+      mutate(provider.responses);
+      expect(() => fixture.governance.validatePr85FinalHeadLiveGitHubEvidence(fixture.descriptor, {
+        githubTransport: provider.transport, ruleSuiteReceipt: evidence.ruleSuiteReceipt,
+        requiredChecksPassed: true, postMainChecksPassed: true, independentlyApproved: true
+      }), name).toThrow();
+    }
+    const replay = pr85GitHubTransportForTest(fixture);
+    expect(fixture.governance.validatePr85FinalHeadLiveGitHubEvidence(fixture.descriptor, {
+      githubTransport: replay.transport, ruleSuiteReceipt: evidence.ruleSuiteReceipt
+    }).validated).toBe(true);
+    expect(replay.calls).toContain("repos/HUDongpin/SENA/rulesets/rule-suites/85800");
+    expect(() => fixture.governance.validatePr85FinalHeadLiveGitHubEvidence(fixture.descriptor, {
+      ruleSuiteReceipt: evidence.ruleSuiteReceipt,
+      githubTransport: () => { throw new Error("provider unavailable"); }
+    })).toThrow();
+    const historicalOnly = { ...fixture.descriptor, mergeCommitSha: POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST };
+    expect(fixture.governance.validatePostPr83ProtectedMainMergeDescriptor(historicalOnly, { exactHistoricalProtectedMainObservation: true })).toBe(false);
+  }, 120_000);
+
+  it("does not let a replaced global clone erase protected-record drift", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?pr85-clone=${Date.now()}`);
+    const candidate = pr85IntegrationRegistryForTest();
+    const forged = structuredClone(candidate);
+    forged.incident.credentialExposure.status = "forged-resolved";
+    const nativeClone = globalThis.structuredClone;
+    vi.spyOn(globalThis, "structuredClone").mockImplementation((value) => nativeClone(value === forged ? candidate : value));
+    expect(() => governance.validatePr85IntegrationSnapshot(forged)).toThrow("rule=pr85-integration-snapshot-invalid");
+  });
+
+  it("rejects hidden or accessor authority fields before projecting protected JSON records", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?pr85-json=${Date.now()}`);
+    for (const hiddenKey of ["hiddenAuthority", Symbol("hiddenAuthority")]) {
+      const registry = pr85IntegrationRegistryForTest();
+      Object.defineProperty(registry.incident, hiddenKey, { value: true });
+      expect(() => governance.validatePr85IntegrationSnapshot(registry)).toThrow("rule=pr85-integration-snapshot-invalid");
+    }
+    const registry = pr85IntegrationRegistryForTest();
+    const value = registry.incident.credentialExposure.status;
+    Object.defineProperty(registry.incident.credentialExposure, "status", { enumerable: true, get: () => value });
+    expect(() => governance.validatePr85IntegrationSnapshot(registry)).toThrow("rule=pr85-integration-snapshot-invalid");
+  });
+
+  it("cannot downgrade chain acceptance to structural-only checks through caller options", async () => {
+    const fixture = await createPr85IntegrationFixture();
+    let reads = 0;
+    const result = fixture.governance.protectedMainAdvanceChainResolution(
+      fixture.registry, POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST, fixture.mergeSha,
+      { mergeTimeOnly: true, live: false, mode: "structural-only", requiredChecksPassed: true,
+        exactHistoricalProtectedMainObservation: true,
+        githubTransport: () => { reads += 1; throw new Error("provider unavailable"); } }
+    );
+    expect(result.allowed).toBe(false);
+    expect(reads).toBeGreaterThan(0);
+  }, 120_000);
+
+  it("retains the exact fixture root when clone fails before isolation can be established", () => {
+    const fixtureRoot = temporaryRoot("pr85-clone-retention");
+    const root = join(fixtureRoot, "repo");
+    writeFileSync(root, "test-owned clone refusal sentinel\n");
+    try {
+      expect(() => safePr85BranchClone(fixtureRoot, root)).toThrow(`retained metadata-only review target: ${fixtureRoot}`);
+      expect(tempRoots).not.toContain(fixtureRoot);
+      expect(readFileSync(root, "utf8")).toBe("test-owned clone refusal sentinel\n");
+    } finally {
+      // Clone could never enter this test-owned regular file; the exact sentinel is safe fixture cleanup.
+      if (!tempRoots.includes(fixtureRoot)) tempRoots.push(fixtureRoot);
+    }
+  });
+});
+
 const POST_PR83_SOURCE_SHA_FOR_TEST =
   "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3";
 const POST_PR83_REJECTED_INITIAL_SHA_FOR_TEST =
@@ -12894,6 +13417,10 @@ const POST_PR83_OBSERVER_OVERDUE_TEST_SOURCE_SHA_FOR_TEST =
   "f93fd2d3e2c0e326086fcc71838bca34e9d563ee";
 const POST_PR83_STDIN_HANG_TEST_SOURCE_SHA_FOR_TEST =
   "b5620311d00ed50e4dfc7ea05b43ae801847bcf4";
+const POST_PR83_INITIAL_COMPLETION_SHA_FOR_TEST =
+  "159bad37af9a44f2e906ad32209585c237aae3d4";
+const POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST =
+  "b2d07177c23192cb6d9b730b330ae79cc2165525";
 const POST_PR83_BRANCH_FOR_TEST =
   "codex/sena-post-pr83-currentness-correction-20260903";
 const POST_PR83_TASK_FOR_TEST =
@@ -12915,10 +13442,10 @@ function postPr83SourceRegistryForTest() {
 
 function postPr83InitialRegistryForTest() {
   return JSON.parse(
-    readFileSync(
-      join(projectRoot, "coordination/repo-governance/active-work.json"),
-      "utf8"
-    )
+    runGit(projectRoot, [
+      "show",
+      `${POST_PR83_INITIAL_COMPLETION_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
   );
 }
 
@@ -13154,30 +13681,16 @@ async function createPostPr83LifecycleFixture(
 ) {
   const fixtureRoot = temporaryRoot(label);
   const root = join(fixtureRoot, "repo");
-  runGit(fixtureRoot, ["clone", "-q", "--no-local", projectRoot, root]);
+  safePr85BranchClone(fixtureRoot, root);
   runGit(root, [
     "checkout",
     "-q",
     "-B",
     POST_PR83_BRANCH_FOR_TEST,
-    runGit(projectRoot, ["rev-parse", "HEAD"])
+    POST_PR83_INITIAL_COMPLETION_SHA_FOR_TEST
   ]);
   runGit(root, ["config", "user.name", "SENA post-PR83 test"]);
   runGit(root, ["config", "user.email", "sena-post-pr83@example.invalid"]);
-  const workingCandidateDiffersFromHead = POST_PR83_PATHS_FOR_TEST.some(
-    (path) =>
-      runGit(projectRoot, ["hash-object", "--no-filters", path]) !==
-      runGit(projectRoot, ["rev-parse", `HEAD:${path}`])
-  );
-  if (workingCandidateDiffersFromHead) {
-    for (const path of POST_PR83_PATHS_FOR_TEST) {
-      const target = join(root, path);
-      mkdirSync(dirname(target), { recursive: true });
-      copyFileSync(join(projectRoot, path), target);
-    }
-    runGit(root, ["add", ...POST_PR83_PATHS_FOR_TEST]);
-    runGit(root, ["commit", "-q", "-m", "post-PR83 compatibility fix candidate"]);
-  }
   const initialHeadSha = runGit(root, ["rev-parse", "HEAD"]);
   const evidence = postPr83CompletionEvidenceForTest(root, initialHeadSha);
   const initialRegistry = postPr83InitialRegistryForTest();
@@ -13809,11 +14322,18 @@ describe("post-PR83 protected currentness correction", () => {
     expect(
       typeof governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes
     ).toBe("function");
+    const stdinHangCandidateRegistryBytes = spawnSync(
+      "git",
+      [
+        "show",
+        `${POST_PR83_INITIAL_COMPLETION_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ],
+      { cwd: projectRoot, encoding: null, env: process.env }
+    );
+    expect(stdinHangCandidateRegistryBytes.status).toBe(0);
     expect(
       governance.validatePostPr83CurrentnessCorrectionStdinHangTestFixRegistryBytes(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json")
-        )
+        stdinHangCandidateRegistryBytes.stdout
       )
     ).toBe(true);
     expect(
@@ -14065,7 +14585,421 @@ describe("post-PR83 protected currentness correction", () => {
     );
   });
 
+  it("preserves the exact PR84 snapshot while allowing only the authorized recovery bootstrap", async () => {
+    const governance = await import(`${pathToFileURL(governanceScript).href}?post-pr83-forward-snapshot=${Date.now()}`);
+    const protectedRegistry = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        `${POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+      ])
+    );
+    const candidateRegistry = pr85PredecessorRegistryForTest();
+
+    expect(
+      typeof governance.validatePostPr83CurrentnessForwardSnapshot
+    ).toBe("function");
+    expect(
+      governance.validatePostPr83CurrentnessForwardSnapshot(candidateRegistry)
+    ).toBe(true);
+    const expectedProtectedWorkItems = structuredClone(protectedRegistry.workItems);
+    const expectedRetirementItem = expectedProtectedWorkItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+    );
+    expectedRetirementItem.aheadBehind = {
+      baseRef: "origin/main",
+      ahead: 8,
+      behind: 40
+    };
+    expectedRetirementItem.lastObservedAt = "2026-09-04T14:33:23Z";
+    expectedRetirementItem.nextReviewAt = "2026-09-05T14:33:23Z";
+    expectedRetirementItem.dirtyState =
+      "clean-local-pr46-head-e24c635-live-pr-conflicting-dirty-current-main-b2d07177-observer-refresh-no-mutation-authorized";
+    expectedRetirementItem.evidenceState = {
+      local: "PR46 local, cached named remote, live named remote, and live Draft PR head are exact clean e24c635 with tree 56be367; relative to live protected main b2d07177 it is ahead 8 and behind 40",
+      ci: expectedRetirementItem.evidenceState.ci,
+      merged: "PR84 is merged as protected main b2d07177. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen",
+      deployed: expectedRetirementItem.evidenceState.deployed,
+      live: "live and cached main are exact b2d07177; local, cached/live remote, and PR46 head are exact e24c635. This observer refresh changes no owner heartbeat and grants no PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation authority"
+    };
+    const expectedProtectedBranches = structuredClone(protectedRegistry.branches);
+    const expectedRetirementBranch = expectedProtectedBranches.find(
+      (entry: { name?: string }) =>
+        entry.name === "codex/sena-branch-retirement-20260829"
+    );
+    expectedRetirementBranch.remoteObservedAt = "2026-09-04T14:33:23Z";
+    expectedRetirementBranch.lastObservedAt = "2026-09-04T14:33:23Z";
+    expectedRetirementBranch.nextReviewAt = "2026-09-05T14:33:23Z";
+    expectedRetirementBranch.closeout =
+      "local, cached named remote, live named remote, and live Draft PR46 head remain exact clean e24c635; against live protected main b2d07177 it is ahead 8/behind 40 and CONFLICTING/DIRTY. Observer timestamps do not change owner heartbeats or authorize PR46, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation";
+    expect(candidateRegistry.workItems.slice(0, protectedRegistry.workItems.length))
+      .toEqual(expectedProtectedWorkItems);
+    expect(candidateRegistry.branches.slice(0, protectedRegistry.branches.length))
+      .toEqual(expectedProtectedBranches);
+    expect(candidateRegistry.workItems).toHaveLength(
+      protectedRegistry.workItems.length + 3
+    );
+    expect(candidateRegistry.branches).toHaveLength(
+      protectedRegistry.branches.length + 2
+    );
+    expect(candidateRegistry.updatedAt).toBe("2026-09-05T04:22:26.268Z");
+    const releaseItem = candidateRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
+    );
+    expect(releaseItem).toMatchObject({
+      owner: "Codex SENA branch-worktree convergence bootstrap writer",
+      ownerLane: "SENA-A01 repository currentness and branch-worktree convergence bootstrap",
+      laneType: "governance-bootstrap",
+      allowedPaths: [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      headSha: "b19aa3ea629f2de863838937e05555c2ea0dbae4",
+      prNumber: 85,
+      prIsDraft: true,
+      prReadyForReview: false,
+      mergeAuthorized: false,
+      lastHeartbeatAt: "2026-09-05T04:22:26.268Z",
+      lastObservedAt: "2026-09-05T04:22:26.268Z",
+      nextReviewAt: "2026-09-07T04:22:26.269Z"
+    });
+    const releaseBranch = candidateRegistry.branches.find(
+      (entry: { name?: string }) =>
+        entry.name === "codex/sena-main-gap-mobile-release-20260904"
+    );
+    expect(releaseBranch).toMatchObject({
+      upstream: "origin/codex/sena-main-gap-mobile-release-20260904",
+      remotePresent: true,
+      remoteHeadSha: "27ef2ace08150b10de0228ccb351309c82bcd78a",
+      pr: 85,
+      prState: "OPEN",
+      remoteObservedAt: "2026-09-05T04:22:26.268Z",
+      lastOwnerHeartbeatAt: "2026-09-05T04:22:26.268Z",
+      lastObservedAt: "2026-09-05T04:22:26.268Z",
+      nextReviewAt: "2026-09-07T04:22:26.269Z"
+    });
+    expect(releaseItem.convergenceOnlyRewriteAuthorization).toEqual({
+      mode: "explicit-owner-conversation-authorization",
+      status: "consumed-by-exact-convergence-only-local-rewrite",
+      exactSentenceSha256:
+        "b36aefdbc96994250dd6c0f63991c6fbad39b21c03c7712fb6a294f526692101",
+      sourceHeadSha: "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      sourceTreeSha: "b786c44ab440d7d59e6dc5ee2a7b32faf52928cf",
+      sourceStagedTreeSha: "32dbed4bf512a2b3cf5500911b344be89b7a043c",
+      sourceStagedBlobs: {
+        "coordination/repo-governance/active-work.json":
+          "e1285e739b23279612416a1f587c1a0a30cd99f2",
+        "scripts/verify-sena-repo-governance.mjs":
+          "1f6520ce87575752fd91dd1c7979d49a4fb33775",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts":
+          "7800e18ee6e10eb48bebe4d55dab45131e27a239"
+      },
+      sourceCanonicalDiffSha256:
+        "1ddc8e4c88e75515a6d3ea292652876040fed013138ed98bc53b2e31706c6301",
+      sourceFullIndexDiffSha256:
+        "c3f0841e51a5786ba90b475d75416f0319d86018b95a8a134d088d6c532f9221",
+      recoveryPackagePath:
+        "/Volumes/Starship/SENA-backups/20260904-convergence-recovery/d-lane-pre-minimal-bootstrap-20260904T140628Z",
+      recoveryManifestSha256:
+        "20b8c64150007f188f729e10c41b4b19f5c60622d9de404c0c96d3491d909e81"
+    });
+    expect(releaseItem.authorizationBoundary).toEqual({
+      localThreePathRewriteAuthorized: true,
+      commitAuthorized: true,
+      pushAuthorized: true,
+      pullRequestAuthorized: true,
+      ciAuthorized: true,
+      rootFastForwardAuthorized: false,
+      githubSupportSubmissionAuthorized: false,
+      secretProtectionEnablementAuthorized: false,
+      credentialOrProviderMutationAuthorized: false,
+      historyRemovalAuthorized: false,
+      productAndReleaseLaneAuthorized: false,
+      readyAuthorized: false,
+      protectedMergeAuthorized: false,
+      historyRewriteAuthorized: false,
+      forceAuthorized: false,
+      productionDeploymentAuthorized: false,
+      refMutationAuthorized: false,
+      tagMutationAuthorized: false,
+      branchDeletionAuthorized: false,
+      worktreeRemovalAuthorized: false,
+      orphanMutationAuthorized: false,
+      quarantineMutationAuthorized: false,
+      resetAuthorized: false,
+      rebaseAuthorized: false,
+      stashAuthorized: false,
+      cleanAuthorized: false
+    });
+    const protectedRootItem = candidateRegistry.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+    );
+    let unexpectedGithubCalls = 0;
+    expect(
+      governance.integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
+        protectedRootItem,
+        POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST,
+        candidateRegistry,
+        {
+          live: false,
+          githubTransport: () => {
+            unexpectedGithubCalls += 1;
+            throw new Error("ordinary audit must not perform live GitHub I/O");
+          }
+        }
+      )
+    ).toBe(true);
+    expect(unexpectedGithubCalls).toBe(0);
+    expect(
+      governance.integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
+        protectedRootItem,
+        POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST,
+        candidateRegistry,
+        {
+          live: true,
+          githubTransport: () => {
+            unexpectedGithubCalls += 1;
+            throw new Error("expected injected live read failure");
+          }
+        }
+      )
+    ).toBe(false);
+    expect(unexpectedGithubCalls).toBe(1);
+    const widenedRootAuthority = structuredClone(candidateRegistry);
+    widenedRootAuthority.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
+    ).authorizationBoundary.rootFastForwardAuthorized = true;
+    expect(() =>
+      governance.validatePostPr83CurrentnessForwardSnapshot(
+        widenedRootAuthority
+      )
+    ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+
+    const extraReceipt = structuredClone(candidateRegistry);
+    extraReceipt.releaseReceipts.push({
+      schemaVersion: "sena-registry-reconciliation-receipt/v1",
+      receiptKind: "unauthorized-forward-receipt",
+      status: "must-be-rejected"
+    });
+    expect(() =>
+      governance.validatePostPr83CurrentnessForwardSnapshot(extraReceipt)
+    ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+
+    const extraAppend = structuredClone(candidateRegistry);
+    extraAppend.workItems.push({
+      ...structuredClone(releaseItem),
+      taskId: "SENA-UNAUTHORIZED-EXTRA-WRITER",
+      ownerKey: "unauthorized-extra-writer",
+      branch: "codex/unauthorized-extra-writer"
+    });
+    extraAppend.branches.push({
+      ...structuredClone(
+        candidateRegistry.branches.find(
+          (entry: { name?: string }) =>
+            entry.name === "codex/sena-main-gap-mobile-release-20260904"
+        )
+      ),
+      name: "codex/unauthorized-extra-writer",
+      ownerKey: "unauthorized-extra-writer"
+    });
+    expect(() =>
+      governance.validatePostPr83CurrentnessForwardSnapshot(extraAppend)
+    ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+
+    for (const [field, invalid] of [
+      ["localThreePathRewriteAuthorized", false],
+      ["commitAuthorized", false],
+      ["pushAuthorized", false],
+      ["pullRequestAuthorized", false],
+      ["ciAuthorized", false],
+      ["rootFastForwardAuthorized", true],
+      ["githubSupportSubmissionAuthorized", true],
+      ["secretProtectionEnablementAuthorized", true],
+      ["credentialOrProviderMutationAuthorized", true],
+      ["historyRemovalAuthorized", true],
+      ["productAndReleaseLaneAuthorized", true],
+      ["readyAuthorized", true],
+      ["protectedMergeAuthorized", true],
+      ["historyRewriteAuthorized", true],
+      ["forceAuthorized", true],
+      ["productionDeploymentAuthorized", true],
+      ["refMutationAuthorized", true],
+      ["tagMutationAuthorized", true],
+      ["branchDeletionAuthorized", true],
+      ["worktreeRemovalAuthorized", true],
+      ["orphanMutationAuthorized", true],
+      ["quarantineMutationAuthorized", true],
+      ["resetAuthorized", true],
+      ["rebaseAuthorized", true],
+      ["stashAuthorized", true],
+      ["cleanAuthorized", true]
+    ] as const) {
+      const drifted = structuredClone(candidateRegistry);
+      drifted.workItems.find(
+        (entry: { taskId?: string }) =>
+          entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
+      ).authorizationBoundary[field] = invalid;
+      expect(() =>
+        governance.validatePostPr83CurrentnessForwardSnapshot(drifted)
+      ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+    }
+
+    const retiredRelease = structuredClone(candidateRegistry);
+    retiredRelease.workItems.find(
+      (entry: { taskId?: string }) =>
+        entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
+    ).disposition = "retired";
+    expect(() =>
+      governance.validatePostPr83CurrentnessForwardSnapshot(retiredRelease)
+    ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+
+    const retiredBranch = structuredClone(candidateRegistry);
+    retiredBranch.branches.find(
+      (entry: { name?: string }) =>
+        entry.name === "codex/sena-main-gap-mobile-release-20260904"
+    ).disposition = "retired";
+    expect(() =>
+      governance.validatePostPr83CurrentnessForwardSnapshot(retiredBranch)
+    ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+
+    for (const mutate of [
+      (value: any) => {
+        value.policy.maxWriteWorktrees = 4;
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === POST_PR83_TASK_FOR_TEST
+        ).ownerKey = "mutated-owner";
+      },
+      (value: any) => {
+        value.branches.find(
+          (entry: { name?: string }) =>
+            entry.name === POST_PR83_BRANCH_FOR_TEST
+        ).headSha = "f".repeat(40);
+      },
+      (value: any) => {
+        value.releaseReceipts[0].receiptKind = "mutated-receipt";
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-A01-ROOT-CONTROL-PLANE-20260828"
+        ).evidenceState.local = "forged root evidence";
+      },
+      (value: any) => {
+        value.branches.find(
+          (entry: { name?: string }) => entry.name === "main"
+        ).closeout = "forged main closeout";
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).aheadBehind.behind = 39;
+      },
+      (value: any) => {
+        value.workItems.find(
+          (entry: { taskId?: string }) =>
+            entry.taskId === "SENA-BRANCH-RETIREMENT-20260829"
+        ).lastHeartbeatAt = "2026-09-04T14:33:23Z";
+      },
+      (value: any) => {
+        value.branches.find(
+          (entry: { name?: string }) =>
+            entry.name === "codex/sena-branch-retirement-20260829"
+        ).lastOwnerHeartbeatAt = "2026-09-04T14:33:23Z";
+      },
+      (value: any) => {
+        value.workItems.splice(0, 1);
+      }
+    ]) {
+      const drifted = structuredClone(candidateRegistry);
+      mutate(drifted);
+      expect(() =>
+        governance.validatePostPr83CurrentnessForwardSnapshot(drifted)
+      ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
+    }
+  });
+
+  it("recognizes the exact historical PR83 protected merge without candidate self-authorization", async () => {
+    const governance = await import(`${pathToFileURL(governanceScript).href}?post-pr83-historical-merge=${Date.now()}`);
+    const mergeCommitSha = POST_PR83_SOURCE_SHA_FOR_TEST;
+    const orderedParentShas = runGit(projectRoot, [
+      "show",
+      "-s",
+      "--format=%P",
+      mergeCommitSha
+    ]).split(" ");
+    const secondParentSha = orderedParentShas[1];
+    const descriptor = {
+      mergeTimeRegistry: JSON.parse(
+        runGit(projectRoot, [
+          "show",
+          `${secondParentSha}:coordination/repo-governance/active-work.json`
+        ])
+      ),
+      currentObservationRegistry: JSON.parse(
+        runGit(projectRoot, [
+          "show",
+          `${POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST}:coordination/repo-governance/active-work.json`
+        ])
+      ),
+      mergeCommitSha,
+      orderedParentShas,
+      secondParentSha,
+      mergeTreeSha: runGit(projectRoot, [
+        "rev-parse",
+        `${mergeCommitSha}^{tree}`
+      ]),
+      registryBlobSha: runGit(projectRoot, [
+        "rev-parse",
+        `${mergeCommitSha}:coordination/repo-governance/active-work.json`
+      ])
+    };
+
+    expect(
+      typeof governance.validatePr83HistoricalProtectedMainMergeDescriptor
+    ).toBe("function");
+    expect(
+      governance.validatePr83HistoricalProtectedMainMergeDescriptor(
+        descriptor
+      )
+    ).toBe(true);
+    expect(
+      governance.protectedMainMergeTimeCandidateResolution(descriptor)?.kind
+    ).toBe("pr83-historical-governance");
+
+    for (const drifted of [
+      { ...descriptor, mergeCommitSha: POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST },
+      {
+        ...descriptor,
+        orderedParentShas: [...descriptor.orderedParentShas].reverse()
+      },
+      { ...descriptor, secondParentSha: descriptor.orderedParentShas[0] },
+      {
+        ...descriptor,
+        mergeTreeSha: runGit(projectRoot, [
+          "rev-parse",
+          `${descriptor.orderedParentShas[0]}^{tree}`
+        ])
+      },
+      { ...descriptor, registryBlobSha: "f".repeat(40) }
+    ]) {
+      expect(
+        governance.validatePr83HistoricalProtectedMainMergeDescriptor(
+          drifted
+        )
+      ).toBe(false);
+    }
+  });
+
   it("authorizes push and Draft readiness only for a clean exact head with three detached custody receipts", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-04T06:00:00Z"));
     const fixture = await createPostPr83LifecycleFixture(
       "post-pr83-push-draft-readiness",
       { stageFinal: false }
@@ -14096,7 +15030,8 @@ describe("post-PR83 protected currentness correction", () => {
       ["post-pr83-push-draft-readiness"],
       {
         cwd: fixture.root,
-        env: {
+        env: withHistoricalDateNow(dirname(fixture.root), {
+          ...process.env,
           SENA_GOVERNANCE_TARGET_ROOT: fixture.root,
           SENA_POST_PR83_PUSH_DRAFT_SPEC_REVIEW_JSON: JSON.stringify(
             receipts.specReview
@@ -14105,7 +15040,7 @@ describe("post-PR83 protected currentness correction", () => {
             JSON.stringify(receipts.qualitySecurityReview),
           SENA_POST_PR83_PUSH_DRAFT_ROOT_CUSTODY_ATTESTATION_JSON:
             JSON.stringify(receipts.rootCustodyAttestation)
-        }
+        }, "2026-09-04T06:00:00Z")
       }
     );
     expect(readinessCommand.status, readinessCommand.stderr).toBe(0);
@@ -14240,22 +15175,14 @@ describe("post-PR83 protected currentness correction", () => {
       isolatedEnvironment
     );
     for (const path of POST_PR83_PATHS_FOR_TEST) {
-      const mode = runGitWithEnvironment(
-        projectRoot,
-        ["--no-optional-locks", "ls-files", "-s", path],
-        isolatedEnvironment
-      ).split(/\s+/, 1)[0];
-      const blobSha = runGitWithEnvironment(
-        projectRoot,
-        [
-          "--no-optional-locks",
-          "hash-object",
-          "-w",
-          "--no-filters",
-          join(projectRoot, path)
-        ],
-        isolatedEnvironment
-      );
+      const record = runGit(projectRoot, [
+        "ls-tree",
+        POST_PR83_INITIAL_COMPLETION_SHA_FOR_TEST,
+        "--",
+        path
+      ]);
+      const match = record.match(/^(\d+)\s+blob\s+([0-9a-f]{40})\t/);
+      if (!match) throw new Error(`missing exact initial candidate blob for ${path}`);
       runGitWithEnvironment(
         projectRoot,
         [
@@ -14263,7 +15190,7 @@ describe("post-PR83 protected currentness correction", () => {
           "update-index",
           "--add",
           "--cacheinfo",
-          `${mode},${blobSha},${path}`
+          `${match[1]},${match[2]},${path}`
         ],
         isolatedEnvironment
       );
@@ -14455,10 +15382,15 @@ describe("post-PR83 protected currentness correction", () => {
       initialHeadSha
     );
     expect(environment).not.toHaveProperty("SENA_POST_PR82_BOOTSTRAP_HEAD");
+    const historicalRegistryEnvironment = withHistoricalDateNow(
+      isolatedRoot,
+      environment,
+      "2026-09-03T09:00:00Z"
+    );
     const registryCheck = runNode(
       governanceScript,
       ["registry", "--registry-from-index"],
-      { cwd: projectRoot, env: environment }
+      { cwd: projectRoot, env: historicalRegistryEnvironment }
     );
     expect(registryCheck.status, registryCheck.stderr).toBe(0);
     const previousEnvironment = Object.fromEntries(
@@ -15017,6 +15949,7 @@ describe("post-PR83 protected currentness correction", () => {
   });
 
   it("requires ordered independent reviews plus detached root custody before authorizing push readiness", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-04T06:00:00Z"));
     const fixture = await createPostPr83LifecycleFixture(
       "post-pr83-root-review-custody",
       { stageFinal: false }

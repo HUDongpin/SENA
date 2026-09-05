@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-04T05:24:04Z",
+  "updatedAt": "2026-09-05T09:35:43Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -2208,43 +2208,41 @@
       "owner": "Codex post-PR83 currentness correction writer",
       "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
       "ownerLane": "SENA-A01/A10/A11 post-PR83 currentness correction",
-      "laneType": "feature",
+      "laneType": "read-only",
       "branch": "codex/sena-post-pr83-currentness-correction-20260903",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
       "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
-      "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "headSha": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 10,
-        "behind": 0
+        "ahead": 0,
+        "behind": 1
       },
       "allowedPaths": [
-        "coordination/repo-governance/active-work.json",
-        "scripts/verify-sena-repo-governance.mjs",
-        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        "<read-only-retained-pr84>"
       ],
       "createdAt": "2026-09-03T06:15:00Z",
       "lastHeartbeatAt": "2026-09-04T05:24:04Z",
-      "lastObservedAt": "2026-09-04T05:24:04Z",
-      "nextReviewAt": "2026-09-05T05:24:04Z",
+      "lastObservedAt": "2026-09-05T09:35:43Z",
+      "nextReviewAt": "2026-09-12T09:35:43Z",
       "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
       "prNumber": 84,
       "noPrReason": null,
-      "prState": "OPEN",
-      "prIsDraft": true,
+      "prState": "MERGED",
+      "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
-      "dirtyState": "clean-registry-only-post-pr83-currentness-correction-final-candidate",
+      "prHeadSha": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
+      "dirtyState": "clean-retained-pr84-protected-merge",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "exact initial correction 159bad37 is clean and fully verified; only the registry-only final heartbeat is staged",
-        "ci": "exact initial head 159bad37 build run 33839930586, push-security run 33839928118, and PR-security run 33839930584 passed with zero annotations",
-        "merged": "Draft PR #84 remains OPEN and unmerged at exact initial head 159bad37; Ready and protected merge remain false pending final-head checks",
+        "local": "Retained PR84 head 03e24b66 is clean; the lane is now read-only.",
+        "ci": "Protected main b2d07177 build 33842051950 and security 33842051943 passed with zero annotations.",
+        "merged": "PR84 merged as b2d07177 on 2026-09-04T05:51:23Z.",
         "deployed": "not in scope and not authorized",
-        "live": "live and cached main remain exact c1a7eb3e; named remote and Draft PR #84 both bind exact initial head 159bad37"
+        "live": "PR84 and retained local/remote branch are exact 03e24b66; no further implementation is active."
       },
-      "disposition": "active",
+      "disposition": "integrated",
       "freezeException": "governance-preservation",
       "postPr83CurrentnessCorrectionLifecycle": {
         "status": "registry-only-post-pr83-currentness-correction-final-candidate",
@@ -2699,6 +2697,19 @@
             "receiptSha256": "01fb827fc95659bfb2466531a256a49c95b77dda4fe5e86194975b0ff81d5a7f"
           }
         }
+      },
+      "aheadBehindObservationMode": "integrated-monotonic-behind",
+      "lastMergedPullRequest": {
+        "number": 84,
+        "headSha": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
+        "mergeCommitSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+        "mergedAt": "2026-09-04T05:51:23Z",
+        "postMainBuildRunId": 33842051950,
+        "postMainBuildJobId": 100926173927,
+        "postMainRepositorySecurityRunId": 33842051943,
+        "postMainRepositorySecurityJobId": 100926173915,
+        "postMainChecksPassed": true,
+        "annotationsEmpty": true
       }
     },
     {
@@ -4380,7 +4391,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 8,
-        "behind": 28
+        "behind": 40
       },
       "aheadBehindObservationMode": "protected-main-merge-chain",
       "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
@@ -4391,15 +4402,15 @@
       ],
       "createdAt": "2026-08-28T16:51:55Z",
       "lastHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-03T06:15:00Z",
-      "nextReviewAt": "2026-09-04T06:15:00Z",
+      "lastObservedAt": "2026-09-04T14:33:23Z",
+      "nextReviewAt": "2026-09-05T14:33:23Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "clean-local-pr46-head-e24c635-live-pr-conflicting-dirty-post-pr82-no-mutation-authorized",
+      "dirtyState": "clean-local-pr46-head-e24c635-live-pr-conflicting-dirty-current-main-b2d07177-observer-refresh-no-mutation-authorized",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
@@ -5289,11 +5300,11 @@
         "docxOrCredentialContentsMayBeOpened": false
       },
       "evidenceState": {
-        "local": "PR46 local, named remote, and live Draft PR head are exact clean e24c635 with tree 56be367 and ordered parents 5101ee2/ca7d464; relative to protected main c1a7eb3e it is ahead 8 and behind 28",
+        "local": "PR46 local, cached named remote, live named remote, and live Draft PR head are exact clean e24c635 with tree 56be367; relative to live protected main b2d07177 it is ahead 8 and behind 40",
         "ci": "Exact PR46 e24c635 passed 97/97, immutable spec and quality review, build 33458602803, PR repository-security 33458602756, push repository-security 33458598644, and zero annotations. PR80 has since completed its exact final-head and post-main checks, but no PR46 mutation is authorized by this currentness refresh",
-        "merged": "PR83 is merged as protected main c1a7eb3e. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen pending separate authorization",
+        "merged": "PR84 is merged as protected main b2d07177. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen",
         "deployed": "not in scope and not authorized",
-        "live": "live main is exact c1a7eb3e, root remains clean a8da142, and live PR46 remains e24c635 OPEN/Draft/CONFLICTING/DIRTY. Only accepted protected-main merge-chain advances may increase behind; no PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation is authorized"
+        "live": "live and cached main are exact b2d07177; local, cached/live remote, and PR46 head are exact e24c635. This observer refresh changes no owner heartbeat and grants no PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation authority"
       },
       "currentCustodyHeartbeat": {
         "recordedAt": "2026-09-01T02:50:50Z",
@@ -6281,6 +6292,229 @@
       },
       "disposition": "frozen-recovery",
       "freezeException": null
+    },
+    {
+      "taskId": "SENA-MAIN-GAP-MOBILE-RELEASE-20260904",
+      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/Volumes/Starship/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
+      "owner": "Codex SENA branch-worktree convergence bootstrap writer",
+      "ownerKey": "Codex-sena-main-gap-mobile-release-20260904",
+      "ownerLane": "SENA-A01 repository currentness and branch-worktree convergence bootstrap",
+      "laneType": "governance-bootstrap",
+      "branch": "codex/sena-main-gap-mobile-release-20260904",
+      "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
+      "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "headSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 4,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "createdAt": "2026-09-04T06:58:35Z",
+      "lastHeartbeatAt": "2026-09-05T09:35:43Z",
+      "lastObservedAt": "2026-09-05T09:35:43Z",
+      "nextReviewAt": "2026-09-07T09:35:43Z",
+      "expectedCloseAt": "owner-gated:PR85-protected-integration-and-post-main-audit",
+      "prNumber": 85,
+      "noPrReason": null,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": true,
+      "dirtyState": "staged-pr85-protected-integration-candidate",
+      "sensitivePaths": [],
+      "evidenceState": {
+        "local": "PR85 integration successor is being implemented from exact ed09ff9.",
+        "ci": "Predecessor CI passed; the integration candidate requires its own checks.",
+        "merged": "PR85 is OPEN/Draft; owner authorized Ready and protected merge after independent review.",
+        "deployed": "No deployment is authorized.",
+        "live": "Observed main b2d07177 and retained remote/PR85 head ed09ff9."
+      },
+      "disposition": "active",
+      "freezeException": null,
+      "convergenceOnlyRewriteAuthorization": {
+        "mode": "explicit-owner-conversation-authorization",
+        "status": "consumed-by-exact-convergence-only-local-rewrite",
+        "exactSentenceSha256": "b36aefdbc96994250dd6c0f63991c6fbad39b21c03c7712fb6a294f526692101",
+        "sourceHeadSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+        "sourceTreeSha": "b786c44ab440d7d59e6dc5ee2a7b32faf52928cf",
+        "sourceStagedTreeSha": "32dbed4bf512a2b3cf5500911b344be89b7a043c",
+        "sourceStagedBlobs": {
+          "coordination/repo-governance/active-work.json": "e1285e739b23279612416a1f587c1a0a30cd99f2",
+          "scripts/verify-sena-repo-governance.mjs": "1f6520ce87575752fd91dd1c7979d49a4fb33775",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts": "7800e18ee6e10eb48bebe4d55dab45131e27a239"
+        },
+        "sourceCanonicalDiffSha256": "1ddc8e4c88e75515a6d3ea292652876040fed013138ed98bc53b2e31706c6301",
+        "sourceFullIndexDiffSha256": "c3f0841e51a5786ba90b475d75416f0319d86018b95a8a134d088d6c532f9221",
+        "recoveryPackagePath": "/Volumes/Starship/SENA-backups/20260904-convergence-recovery/d-lane-pre-minimal-bootstrap-20260904T140628Z",
+        "recoveryManifestSha256": "20b8c64150007f188f729e10c41b4b19f5c60622d9de404c0c96d3491d909e81"
+      },
+      "authorizationBoundary": {
+        "localThreePathRewriteAuthorized": true,
+        "commitAuthorized": true,
+        "pushAuthorized": true,
+        "pullRequestAuthorized": true,
+        "ciAuthorized": true,
+        "rootFastForwardAuthorized": true,
+        "githubSupportSubmissionAuthorized": false,
+        "secretProtectionEnablementAuthorized": false,
+        "credentialOrProviderMutationAuthorized": false,
+        "historyRemovalAuthorized": false,
+        "productAndReleaseLaneAuthorized": true,
+        "readyAuthorized": true,
+        "protectedMergeAuthorized": true,
+        "historyRewriteAuthorized": false,
+        "forceAuthorized": false,
+        "productionDeploymentAuthorized": false,
+        "refMutationAuthorized": false,
+        "tagMutationAuthorized": false,
+        "branchDeletionAuthorized": false,
+        "worktreeRemovalAuthorized": false,
+        "orphanMutationAuthorized": false,
+        "quarantineMutationAuthorized": false,
+        "resetAuthorized": false,
+        "rebaseAuthorized": false,
+        "stashAuthorized": false,
+        "cleanAuthorized": false
+      },
+      "sharedTopologyRecovery": {
+        "authorizedAt": "2026-09-05T03:33:55.602Z",
+        "sourceStagedTreeSha": "ce61d12dd1ba05abd09d185efde9711f83d3f56f",
+        "recoveryManifestPath": "/Volumes/Starship/SENA-backups/shared-topology-recovery-20260905.3wf5mt/MANIFEST.json",
+        "recoveryManifestSha256": "935b13914b2a856f42c7da99d8c84c8a65ff5ee44eb990a65189634b710c6119",
+        "rootRestoredSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+        "rootWorktree": "main-clean",
+        "sourceWorkRetained": true,
+        "existingBranchesRetained": true,
+        "existingWorktreesRetained": true,
+        "mergeReadyDeploymentDeletionAuthorized": false
+      },
+      "pr85ProtectedIntegrationLifecycle": {
+        "schemaVersion": "sena-pr85-protected-integration/v1",
+        "status": "authorized",
+        "predecessorHeadSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+        "predecessorTreeSha": "d3d2d32c8b8c37fc5a54fc8f19b3de1fbab93375",
+        "protectedBaseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+        "pullRequestNumber": 85,
+        "branch": "codex/sena-main-gap-mobile-release-20260904",
+        "ownerKey": "Codex-sena-main-gap-mobile-release-20260904",
+        "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
+        "integrationPaths": [
+          "coordination/repo-governance/active-work.json",
+          "scripts/verify-sena-repo-governance.mjs",
+          "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+        ],
+        "postMainAuditAuthorized": true,
+        "productLane": {
+          "status": "deferred-until-pr85-post-main-audit",
+          "implementationOnIntegrationBranchAuthorized": false
+        }
+      }
+    },
+    {
+      "taskId": "SENA-SHARED-RECOVERY-MUTWT2-20260905",
+      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/private/tmp/claude-501/-Volumes-Starship-SENA-sena-hk-template/d261c5ea-5399-422c-a583-66a8d0f9bb47/scratchpad/mutwt2",
+      "owner": "Codex shared-topology preservation custodian",
+      "ownerKey": "SENA-shared-recovery-mutwt2",
+      "ownerLane": "SENA-A01 source preservation; no implementation or push",
+      "laneType": "read-only",
+      "branch": "(detached)",
+      "worktreePath": "/private/tmp/claude-501/-Volumes-Starship-SENA-sena-hk-template/d261c5ea-5399-422c-a583-66a8d0f9bb47/scratchpad/mutwt2",
+      "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "headSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 0,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "sena-hk-template/lib/sena/__tests__/ops-metrics-configured-gauges.test.ts"
+      ],
+      "createdAt": "2026-09-05T03:33:55.602Z",
+      "lastHeartbeatAt": null,
+      "lastObservedAt": "2026-09-05T03:33:55.602Z",
+      "nextReviewAt": "2026-09-07T03:33:55.602Z",
+      "expectedCloseAt": "owner-gated:source-review-and-retained-worktree-disposition",
+      "prNumber": null,
+      "noPrReason": "Preservation only; worktree retained, no commit/push/PR authorized for this source lane.",
+      "dirtyState": "preserved-source-wip-hash-bound",
+      "sensitivePaths": [],
+      "evidenceState": {
+        "local": "Exact source files preserved in place and in owner-only recovery package.",
+        "ci": "No CI claimed for preserved source.",
+        "merged": "No source integration claimed.",
+        "deployed": "No deployment.",
+        "live": "No remote ref mutation."
+      },
+      "disposition": "frozen-recovery",
+      "freezeException": null,
+      "preservation": {
+        "commonDirectory": "/Volumes/Starship/SENA/.git",
+        "gitDirectory": "/Volumes/Starship/SENA/.git/worktrees/mutwt2",
+        "fileSha256": {
+          "sena-hk-template/lib/sena/__tests__/ops-metrics-configured-gauges.test.ts": "733b49fbf478ba4e95f2eeb571fbb8c7f16ad2a797abc684ea1e0a568c7c4abb"
+        },
+        "recoveryManifestSha256": "935b13914b2a856f42c7da99d8c84c8a65ff5ee44eb990a65189634b710c6119"
+      }
+    },
+    {
+      "taskId": "SENA-SHARED-RECOVERY-WT-20260905",
+      "threadId": "01a0414a-a4a5-7051-ba59-34b7b4d1aee3",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/private/tmp/claude-501/-Volumes-Starship-SENA-sena-hk-template/d261c5ea-5399-422c-a583-66a8d0f9bb47/scratchpad/wt",
+      "owner": "Codex shared-topology preservation custodian",
+      "ownerKey": "SENA-shared-recovery-wt",
+      "ownerLane": "SENA-A01 source preservation; no implementation or push",
+      "laneType": "read-only",
+      "branch": "fix/ops-metrics-configured-gauge-pins",
+      "worktreePath": "/private/tmp/claude-501/-Volumes-Starship-SENA-sena-hk-template/d261c5ea-5399-422c-a583-66a8d0f9bb47/scratchpad/wt",
+      "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "headSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 0,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "20260802_SENA_Functional Coverage Ledger.md",
+        "20260803_SENA_Test Suite Ledger.md",
+        "sena-hk-template/lib/sena/__tests__/ops-metrics-configured-gauges.test.ts"
+      ],
+      "createdAt": "2026-09-05T03:33:55.602Z",
+      "lastHeartbeatAt": null,
+      "lastObservedAt": "2026-09-05T03:33:55.602Z",
+      "nextReviewAt": "2026-09-07T03:33:55.602Z",
+      "expectedCloseAt": "owner-gated:source-review-and-retained-worktree-disposition",
+      "prNumber": null,
+      "noPrReason": "Preservation only; worktree retained, no commit/push/PR authorized for this source lane.",
+      "dirtyState": "preserved-source-wip-hash-bound",
+      "sensitivePaths": [],
+      "evidenceState": {
+        "local": "Exact source files preserved in place and in owner-only recovery package.",
+        "ci": "No CI claimed for preserved source.",
+        "merged": "No source integration claimed.",
+        "deployed": "No deployment.",
+        "live": "No remote ref mutation."
+      },
+      "disposition": "frozen-recovery",
+      "freezeException": null,
+      "preservation": {
+        "commonDirectory": "/Volumes/Starship/SENA/.git",
+        "gitDirectory": "/Volumes/Starship/SENA/.git/worktrees/wt",
+        "fileSha256": {
+          "20260802_SENA_Functional Coverage Ledger.md": "a007ef84eff8c4b3ec907e8046c794d4bc312f59c58aa94d98f496098e8d3ece",
+          "20260803_SENA_Test Suite Ledger.md": "6323dc458d002246344912a56d9c92c7aa0efb077bf511b4ae732b5c5c58d3fb",
+          "sena-hk-template/lib/sena/__tests__/ops-metrics-configured-gauges.test.ts": "733b49fbf478ba4e95f2eeb571fbb8c7f16ad2a797abc684ea1e0a568c7c4abb"
+        },
+        "recoveryManifestSha256": "935b13914b2a856f42c7da99d8c84c8a65ff5ee44eb990a65189634b710c6119"
+      }
     }
   ],
   "branches": [
@@ -7112,29 +7346,29 @@
       "owner": "Codex post-PR83 currentness correction writer",
       "ownerKey": "Codex-post-pr83-currentness-correction-20260903",
       "baseSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
-      "headSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "headSha": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
       "upstream": "origin/codex/sena-post-pr83-currentness-correction-20260903",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
-      "remoteObservedAt": "2026-09-04T05:24:04Z",
+      "remoteHeadSha": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
+      "remoteObservedAt": "2026-09-05T09:35:43Z",
       "pr": 84,
-      "prState": "OPEN",
-      "prIsDraft": true,
+      "prState": "MERGED",
+      "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "159bad37af9a44f2e906ad32209585c237aae3d4",
+      "prHeadSha": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
       "prBase": "main",
       "prStateObservationMode": "monotonic",
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-04T05:24:04Z",
-      "lastObservedAt": "2026-09-04T05:24:04Z",
-      "lastCommitAt": "2026-09-04T12:54:27+08:00",
-      "nextReviewAt": "2026-09-05T05:24:04Z",
+      "lastObservedAt": "2026-09-05T09:35:43Z",
+      "lastCommitAt": "2026-09-04T13:41:34+08:00",
+      "nextReviewAt": "2026-09-12T09:35:43Z",
       "expectedCloseAt": "owner-gated:post-pr83-currentness-correction-protected-closeout",
-      "disposition": "active",
-      "closeout": "registry-only final heartbeat awaiting exact-final-head checks; Ready and protected merge remain false",
+      "disposition": "integrated",
+      "closeout": "PR84 protected merge b2d07177 and post-main checks verified; exact 03e24b66 branch/worktree retained read-only.",
       "mergeable": "MERGEABLE",
       "mergeStateStatus": "CLEAN"
     },
@@ -7178,7 +7412,7 @@
       "upstreamCacheState": "present",
       "remotePresent": true,
       "remoteHeadSha": "e24c635d1f53fccb2264c6be002aec2775de127c",
-      "remoteObservedAt": "2026-09-03T06:15:00Z",
+      "remoteObservedAt": "2026-09-04T14:33:23Z",
       "pr": 46,
       "prState": "OPEN",
       "prIsDraft": true,
@@ -7188,12 +7422,12 @@
       "prBase": "main",
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "lastObservedAt": "2026-09-04T14:33:23Z",
       "lastCommitAt": "2026-09-01T09:23:34+08:00",
-      "nextReviewAt": "2026-09-04T06:15:00Z",
+      "nextReviewAt": "2026-09-05T14:33:23Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "frozen-recovery",
-      "closeout": "local, named remote, and live Draft PR46 head remain exact clean e24c635; against protected main c1a7eb3e it is ahead 8/behind 28 and CONFLICTING/DIRTY. Only accepted protected-main merge-chain advances may increase behind; no PR46 merge, Ready, repair, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation is authorized",
+      "closeout": "local, cached named remote, live named remote, and live Draft PR46 head remain exact clean e24c635; against live protected main b2d07177 it is ahead 8/behind 40 and CONFLICTING/DIRTY. Observer timestamps do not change owner heartbeats or authorize PR46, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation",
       "mergeable": "CONFLICTING",
       "mergeStateStatus": "DIRTY",
       "prStateObservationMode": "monotonic"
@@ -7351,6 +7585,54 @@
       "expectedCloseAt": "owner-gated:protected-heartbeat-then-forward-fix-pr",
       "disposition": "frozen-recovery",
       "closeout": "Exact frozen head 0f74b592 is ahead 0/behind 7 from protected main c1a7eb3e, with a preserved two-path staged candidate rejected by independent review. Only accepted protected-main merge-chain advances may increase behind; no commit, push, PR, Ready, merge, PR46, cleanup, deletion, deployment, or history mutation is authorized"
+    },
+    {
+      "name": "codex/sena-main-gap-mobile-release-20260904",
+      "owner": "Codex SENA branch-worktree convergence bootstrap writer",
+      "ownerKey": "Codex-sena-main-gap-mobile-release-20260904",
+      "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "headSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+      "upstream": "origin/codex/sena-main-gap-mobile-release-20260904",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": true,
+      "remoteHeadSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+      "remoteObservedAt": "2026-09-05T09:35:43Z",
+      "pr": 85,
+      "noPrReason": null,
+      "lastOwnerHeartbeatAt": "2026-09-05T09:35:43Z",
+      "lastObservedAt": "2026-09-05T09:35:43Z",
+      "lastCommitAt": "2026-09-05T12:32:25+08:00",
+      "nextReviewAt": "2026-09-07T09:35:43Z",
+      "expectedCloseAt": "owner-gated:PR85-protected-integration-and-post-main-audit",
+      "disposition": "active",
+      "closeout": "PR85 authorized for protected integration; product work awaits a separate lane after post-main audit.",
+      "prHeadSha": "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+      "prState": "OPEN",
+      "prBase": "main",
+      "prStateObservationMode": "monotonic"
+    },
+    {
+      "name": "fix/ops-metrics-configured-gauge-pins",
+      "owner": "Codex shared-topology preservation custodian",
+      "ownerKey": "SENA-shared-recovery-wt",
+      "baseSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "headSha": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "upstream": null,
+      "upstreamState": "not-applicable",
+      "upstreamCacheState": "not-applicable",
+      "remotePresent": false,
+      "remoteHeadSha": null,
+      "remoteObservedAt": "2026-09-05T03:33:55.602Z",
+      "pr": null,
+      "noPrReason": "Preservation only; worktree retained, no commit/push/PR authorized for this source lane.",
+      "lastOwnerHeartbeatAt": null,
+      "lastObservedAt": "2026-09-05T03:33:55.602Z",
+      "lastCommitAt": "2026-09-04T13:51:23+08:00",
+      "nextReviewAt": "2026-09-07T03:33:55.602Z",
+      "expectedCloseAt": "owner-gated:source-review-and-retained-worktree-disposition",
+      "disposition": "frozen-recovery",
+      "closeout": "Retained on existing scratchpad/wt with both root ledger changes and the untracked test; no deletion or integration authorized."
     }
   ],
   "orphanWorktrees": [
