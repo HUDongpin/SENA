@@ -8478,11 +8478,11 @@ const POST_PR83_FORWARD_RELEASE_TASK_ID =
 const POST_PR83_FORWARD_RELEASE_BRANCH =
   "codex/sena-main-gap-mobile-release-20260904";
 const POST_PR83_FORWARD_REGISTRY_CANONICAL_SHA256 =
-  "0821ed4c217794591ac49fa20b2a71bd376588911c8aea887b9f01a2de825dea";
+  "1005a963feecde92b4fa5baadaf2557ced6be7d7f3a21c62880de0acaacc45aa";
 const POST_PR83_FORWARD_RELEASE_ITEM_CANONICAL_SHA256 =
-  "350a6606b76b41901b9e516f113b8be2e0e9a325e6b4326679a434a50c89ecae";
+  "cc8fc2b70531042c92ece2e388530442ee28fcb7fd0f7f42f0fcb7eff2b2becc";
 const POST_PR83_FORWARD_RELEASE_BRANCH_CANONICAL_SHA256 =
-  "e029679b6f20d868b826f7ed5fad9e4d0af88ec91f655fb046da67342977ab68";
+  "6d5529b7046771bd72ecfe6c1f32dabdd41d0ea3ea123e7fc9c2cf3b493c425a";
 const POST_PR83_FORWARD_CONVERGENCE_REWRITE_AUTHORIZATION = {
   mode: "explicit-owner-conversation-authorization",
   status: "consumed-by-exact-convergence-only-local-rewrite",

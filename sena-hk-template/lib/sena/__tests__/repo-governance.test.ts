@@ -14218,7 +14218,7 @@ describe("post-PR83 protected currentness correction", () => {
     expect(candidateRegistry.branches).toHaveLength(
       protectedRegistry.branches.length + 2
     );
-    expect(candidateRegistry.updatedAt).toBe("2026-09-05T03:51:02.705Z");
+    expect(candidateRegistry.updatedAt).toBe("2026-09-05T04:22:26.268Z");
     const releaseItem = candidateRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-MAIN-GAP-MOBILE-RELEASE-20260904"
@@ -14232,14 +14232,14 @@ describe("post-PR83 protected currentness correction", () => {
         "scripts/verify-sena-repo-governance.mjs",
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
-      headSha: "50fbbcc664ac94feb59341f40806e6a5f4084a44",
+      headSha: "b19aa3ea629f2de863838937e05555c2ea0dbae4",
       prNumber: 85,
       prIsDraft: true,
       prReadyForReview: false,
       mergeAuthorized: false,
-      lastHeartbeatAt: "2026-09-05T03:51:02.705Z",
-      lastObservedAt: "2026-09-05T03:51:02.705Z",
-      nextReviewAt: "2026-09-07T03:51:02.705Z"
+      lastHeartbeatAt: "2026-09-05T04:22:26.268Z",
+      lastObservedAt: "2026-09-05T04:22:26.268Z",
+      nextReviewAt: "2026-09-07T04:22:26.269Z"
     });
     const releaseBranch = candidateRegistry.branches.find(
       (entry: { name?: string }) =>
@@ -14248,13 +14248,13 @@ describe("post-PR83 protected currentness correction", () => {
     expect(releaseBranch).toMatchObject({
       upstream: "origin/codex/sena-main-gap-mobile-release-20260904",
       remotePresent: true,
-      remoteHeadSha: "50fbbcc664ac94feb59341f40806e6a5f4084a44",
+      remoteHeadSha: "27ef2ace08150b10de0228ccb351309c82bcd78a",
       pr: 85,
       prState: "OPEN",
-      remoteObservedAt: "2026-09-05T03:51:02.705Z",
-      lastOwnerHeartbeatAt: "2026-09-05T03:51:02.705Z",
-      lastObservedAt: "2026-09-05T03:51:02.705Z",
-      nextReviewAt: "2026-09-07T03:51:02.705Z"
+      remoteObservedAt: "2026-09-05T04:22:26.268Z",
+      lastOwnerHeartbeatAt: "2026-09-05T04:22:26.268Z",
+      lastObservedAt: "2026-09-05T04:22:26.268Z",
+      nextReviewAt: "2026-09-07T04:22:26.269Z"
     });
     expect(releaseItem.convergenceOnlyRewriteAuthorization).toEqual({
       mode: "explicit-owner-conversation-authorization",
