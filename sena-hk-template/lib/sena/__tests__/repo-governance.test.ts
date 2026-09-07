@@ -12,6 +12,7 @@ import {
   chmodSync,
   existsSync,
   realpathSync,
+  lstatSync,
   statSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2656,12 +2657,11 @@ describe("SENA repository governance", () => {
     const governance = await import(pathToFileURL(governanceScript).href);
     expect(typeof governance.protectedMainAdvanceChainResolution).toBe("function");
 
-    const currentObservationRegistry = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
-    );
+    // Exercise the historical API with its exact protected PR86 observation.
+    // The separate closeout observer deliberately refuses older endpoints.
+    const currentObservationRegistry = JSON.parse(runGit(projectRoot, [
+      "show", `${PR86_PROTECTED_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ]));
     const mergeTimeRegistry = JSON.parse(
       runGit(projectRoot, [
         "show",
@@ -6135,10 +6135,13 @@ describe("SENA repository governance", () => {
   }, 420_000);
 
   it.each([
-    { name: "a newly forbidden path", paths: ["allowed.ts", "forbidden.ts"], rule: "staged-path-outside-commit-registry-allowlist" },
-    { name: "an index emptied during proof", paths: [], rule: "empty-staged-index-not-authorized" },
-    { name: "an unchanged allowed set", paths: ["allowed.ts"], rule: null }
-  ])("rechecks staged paths after proof: $name", ({ paths, rule }) => {
+    { phase: "source", name: "a newly forbidden path", paths: ["allowed.ts", "forbidden.ts"], rule: "staged-path-outside-commit-registry-allowlist" },
+    { phase: "source", name: "an index emptied during proof", paths: [], rule: "empty-staged-index-not-authorized" },
+    { phase: "source", name: "an unchanged allowed set", paths: ["allowed.ts"], rule: null },
+    { phase: "main", name: "own source main read adding a forbidden path", paths: ["allowed.ts", "forbidden.ts"], rule: "staged-path-outside-commit-registry-allowlist" },
+    { phase: "main", name: "own source main read emptying the index", paths: [], rule: "empty-staged-index-not-authorized" },
+    { phase: "main", name: "own source main read retaining the allowed set", paths: ["allowed.ts"], rule: null }
+  ])("rechecks staged paths after proof: $name", ({ paths, rule, phase }) => {
     // Exercise the real decision function with controlled successful proof and
     // changing Git observations. Native-hook tests remain integration evidence.
     const source = readFileSync(governanceScript, "utf8");
@@ -6148,6 +6151,7 @@ describe("SENA repository governance", () => {
     expect(end).toBeGreaterThan(start);
     let staged = ["allowed.ts"];
     let proofCalls = 0;
+    let mainReadCalls = 0;
     let stdout = "";
     let stderr = "";
     const childProcess = {
@@ -6155,20 +6159,24 @@ describe("SENA repository governance", () => {
       stdout: { write: (value: string) => { stdout += value; } },
       stderr: { write: (value: string) => { stderr += value; } }
     };
-    const item = { worktreePath: "/fixture", branch: "codex/fixture", disposition: "active", ownerKey: "fixture-owner", allowedPaths: ["allowed.ts"] };
-    const registry = { workItems: [item], branches: [{ name: item.branch, disposition: item.disposition, ownerKey: item.ownerKey }] };
+    const item = { taskId: phase === "main" ? "SENA-PR86-DELIVERY-CLOSEOUT-20260907" : "fixture", worktreePath: "/fixture", branch: phase === "main" ? PR86_CLOSEOUT_BRANCH_FOR_TEST : "codex/fixture", disposition: "active", ownerKey: "fixture-owner", allowedPaths: ["allowed.ts"] };
+    const registry = { workItems: [item], branches: [{ name: item.branch, disposition: item.disposition, ownerKey: item.ownerKey }], ...(phase === "main" ? { pr86DeliveryCloseout: {} } : {}) };
     runInNewContext(`${source.slice(start, end)}\nrunWritePolicy(flags);`, {
       flags: new Set(["registry-from-index", "staged"]),
       process: childProcess,
       REPO_ROOT: "/fixture",
+      PR86_DELIVERY_TASK: "SENA-PR86-DELIVERY-CLOSEOUT-20260907",
       ACTIVE_WRITE_DISPOSITIONS: new Set(["active"]),
       stagedChangedPaths: () => [...staged],
       mobilePilotCurrentCheckoutMerge: () => null,
+      pr86DeliveryCurrentCheckoutMerged: () => null,
       loadRegistryForFlags: () => ({ parsed: registry }),
       validateRegistry: () => ({ errors: [] }),
       appendHostPhysicalCustodyErrors: () => {},
       mobilePilotItem: () => item,
-      validateMobilePilotSourceEvidence: () => { proofCalls += 1; staged = [...paths]; },
+      validateMobilePilotSourceEvidence: () => { proofCalls += 1; if (phase === "source") staged = [...paths]; },
+      pr86DeliveryItem: () => item,
+      validatePr86DeliveryWriterCurrentness: () => { mainReadCalls += 1; staged = [...paths]; return true; },
       validatePr80RepairIndexTransition: () => false,
       validateEvidenceFlowCurrentnessIndexTransition: () => false,
       validateProtectedCurrentnessRepairIndexTransition: () => false,
@@ -6182,6 +6190,7 @@ describe("SENA repository governance", () => {
       safeSourceForLog: (value: string) => value
     });
     expect(proofCalls).toBe(1);
+    expect(mainReadCalls).toBe(phase === "main" ? 1 : 0);
     expect(childProcess.exitCode).toBe(rule ? 1 : 0);
     if (rule) expect(stderr).toContain(`rule=${rule}`);
     else expect(stdout).toContain("SENA_WRITE_POLICY pass staged=1");
@@ -6230,10 +6239,23 @@ require("node:module").syncBuiltinESMExports();
       }
     });
     expect(result.status, result.stderr).toBe(1);
+    // A checkout already admitted to a read-only post-merge role is denied
+    // before inspecting its copied index. Still require exactly that denial,
+    // bound to the actual branch/Git merge, and no attempted provider access.
+    const checkoutBranch = runGit(projectRoot, ["symbolic-ref", "--short", "HEAD"]);
+    let expectedDenial = "rule=empty-staged-index-not-authorized";
+    if (checkoutBranch === MOBILE_BRANCH_FOR_TEST && spawnSync("git", ["merge-base", "--is-ancestor", PR86_PROTECTED_FOR_TEST, "HEAD"],
+      { cwd: projectRoot, encoding: "utf8" }).status === 0) {
+      expectedDenial = "rule=mobile-pilot-release-source-write-denied";
+    } else if (checkoutBranch === PR86_CLOSEOUT_BRANCH_FOR_TEST) {
+      const firstAdvance = runGit(projectRoot, ["rev-list", "--first-parent", "--reverse", `${PR86_PROTECTED_FOR_TEST}..origin/main`]).split("\n")[0];
+      const parents = firstAdvance ? runGit(projectRoot, ["show", "-s", "--format=%P", firstAdvance]).split(" ") : [];
+      if (parents.length === 2 && parents[0] === PR86_PROTECTED_FOR_TEST) expectedDenial = "rule=pr86-delivery-closeout-source-write-denied";
+    }
     expect({
-      emptyIndexRejected: result.stderr.includes("rule=empty-staged-index-not-authorized"),
+      expectedDenialObserved: result.stderr.includes(expectedDenial),
       providerAttempted: existsSync(providerAttempt)
-    }).toEqual({ emptyIndexRejected: true, providerAttempted: false });
+    }).toEqual({ expectedDenialObserved: true, providerAttempted: false });
     expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
 
     const realGitDirectory = runGit(projectRoot, [
@@ -16836,5 +16858,535 @@ describe("post-PR83 protected currentness correction", () => {
         )
       );
     }
+  });
+});
+
+
+const PR86_PROTECTED_FOR_TEST = "b9c25385453ee4da26e261c945dd125b0cd856ab";
+const PR86_CLOSEOUT_BRANCH_FOR_TEST = "codex/sena-pr86-delivery-closeout-20260907";
+
+describe("PR86 retained test fixture custody", () => {
+  it("recognizes only the exact preserved test fixture without granting writer authority", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.pr86DeliveryPreservedTestFixtureAllowed).toBe("function");
+    const registry = JSON.parse(readFileSync(join(projectRoot, POST_PR83_PATHS_FOR_TEST[0]), "utf8"));
+    const binding = registry.pr86DeliveryCloseout.preservedTestFixtureObservation;
+    expect(binding).toMatchObject({ sourceWritesAuthorized: false, pushAuthorized: false, mergeAuthorized: false, cleanupAuthorized: false });
+    const marker = { path: binding.repoPath, markerPath: `${binding.repoPath}/.git`, kind: "directory", valid: true };
+    expect(governance.pr86DeliveryPreservedTestFixtureAllowed(registry, marker)).toBe(true);
+    for (const fields of [{ path: `${binding.repoPath}-foreign` }, { kind: "gitdir-file" }, { valid: false }, { markerPath: `${binding.repoPath}/other` }]) {
+      expect(governance.pr86DeliveryPreservedTestFixtureAllowed(registry, { ...marker, ...fields })).toBe(false);
+    }
+    for (const key of ["manifestSha256", "manifestPath", "rootPath", "sourceOwnerTaskId"]) {
+      const altered = structuredClone(registry); altered.pr86DeliveryCloseout.preservedTestFixtureObservation[key] = "foreign";
+      expect(governance.pr86DeliveryPreservedTestFixtureAllowed(altered, marker)).toBe(false);
+    }
+  }, 30_000);
+
+  it("rejects actual fixture byte, unlisted-path, type and root-alias drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.pr86PreservedTestFixtureInventoryMatches).toBe("function");
+    const root = temporaryRoot("preserved-fixture-custody");
+    mkdirSync(join(root, ".git")); writeFileSync(join(root, "payload.txt"), "AAAA");
+    const identity = (path: string) => {
+      const info = lstatSync(path, { bigint: true });
+      return { mode: Number(info.mode), inode: String(info.ino), mtimeNs: String(info.mtimeNs) };
+    };
+    const record = (name: string, kind: string) => ({ path: name, ...identity(join(root, name)), size: Number(lstatSync(join(root, name), { bigint: true }).size), kind,
+      ...(kind === "file" ? { sha256: createHash("sha256").update("AAAA").digest("hex") } : {}) });
+    const expected = { schemaVersion: "sena-pr86-retained-test-fixture-inventory/v1", root, rootIdentity: identity(root), entryCount: 2,
+      entries: [record(".git", "directory"), record("payload.txt", "file")] };
+    const check = () => governance.pr86PreservedTestFixtureInventoryMatches(expected);
+    expect(check()).toBe(true);
+    writeFileSync(join(root, "payload.txt"), "BBBB");
+    Object.assign(expected.entries[1], identity(join(root, "payload.txt")));
+    expect(check()).toBe(false); // Metadata matches; content digest must still reject.
+    writeFileSync(join(root, "payload.txt"), "AAAA");
+    Object.assign(expected.entries[1], identity(join(root, "payload.txt")));
+    expect(check()).toBe(true);
+    writeFileSync(join(root, "unmanifested.txt"), "new"); expected.rootIdentity = identity(root);
+    expect(check()).toBe(false);
+    rmSync(join(root, "unmanifested.txt")); expected.rootIdentity = identity(root);
+    expect(check()).toBe(true);
+    rmSync(join(root, "payload.txt")); symlinkSync("missing-target", join(root, "payload.txt")); expected.rootIdentity = identity(root);
+    expect(check()).toBe(false);
+    rmSync(join(root, "payload.txt")); writeFileSync(join(root, "payload.txt"), "AAAA");
+    expected.entries[1] = record("payload.txt", "file"); expected.rootIdentity = identity(root);
+    expect(check()).toBe(true);
+    const alias = `${root}-alias`; symlinkSync(root, alias); tempRoots.push(alias);
+    expect(governance.pr86PreservedTestFixtureInventoryMatches({ ...expected, root: alias })).toBe(false);
+  });
+});
+
+async function createPr86DeliveryCloseoutFixture() {
+  const fixtureRoot = temporaryRoot("pr86-delivery-closeout");
+  const root = join(fixtureRoot, "repo");
+  safePr85BranchClone(fixtureRoot, root);
+  // Transfer only the independently inspected clean PR86 history, never all refs.
+  expect(runGit(projectRoot, ["rev-list", "--objects", PR86_PROTECTED_FOR_TEST])).not.toContain("15a131415d0206782265902b0af612a80e16bae2");
+  runGit(root, ["fetch", "-q", "--no-tags", "--no-write-fetch-head", projectRoot, `${PR86_PROTECTED_FOR_TEST}:refs/remotes/origin/main`]);
+  runGit(root, ["checkout", "-q", "-b", PR86_CLOSEOUT_BRANCH_FOR_TEST, PR86_PROTECTED_FOR_TEST]);
+  runGit(root, ["config", "user.name", "SENA closeout fixture"]);
+  runGit(root, ["config", "user.email", "closeout@example.invalid"]);
+  const registry = JSON.parse(readFileSync(join(projectRoot, POST_PR83_PATHS_FOR_TEST[0]), "utf8"));
+  for (const path of POST_PR83_PATHS_FOR_TEST.slice(1)) copyFileSync(join(projectRoot, path), join(root, path));
+  const save = () => writeFileSync(join(root, POST_PR83_PATHS_FOR_TEST[0]), `${JSON.stringify(registry, null, 2)}\n`);
+  save(); runGit(root, ["add", ...POST_PR83_PATHS_FOR_TEST]);
+  runGit(root, ["commit", "-q", "-m", "register exact closeout observation"]);
+  const firstHead = runGit(root, ["rev-parse", "HEAD"]);
+  const item = registry.workItems.at(-1); const branch = registry.branches.at(-1);
+  Object.assign(item, { headSha: firstHead, aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 },
+    prNumber: 87, noPrReason: null, prState: "OPEN", prIsDraft: false, prReadyForReview: true, prHeadSha: firstHead });
+  Object.assign(branch, { headSha: firstHead, upstream: `origin/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, upstreamState: "live", upstreamCacheState: "present",
+    remotePresent: true, remoteHeadSha: firstHead, pr: 87, noPrReason: null, prState: "OPEN", prIsDraft: false, prReadyForReview: true,
+    prHeadSha: firstHead, lastCommitAt: runGit(root, ["show", "-s", "--format=%cI", firstHead]) });
+  save(); runGit(root, ["add", POST_PR83_PATHS_FOR_TEST[0]]);
+  runGit(root, ["commit", "-q", "-m", "observe reviewed closeout PR"]);
+  const headSha = runGit(root, ["rev-parse", "HEAD"]); const treeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+  const mergeSha = runGit(root, ["commit-tree", treeSha, "-p", PR86_PROTECTED_FOR_TEST, "-p", headSha, "-m", "protected closeout merge"]);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", mergeSha]);
+  runGit(root, ["update-ref", `refs/remotes/origin/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, headSha]);
+  runGit(root, ["update-ref", `refs/remotes/origin/${MOBILE_BRANCH_FOR_TEST}`, "2d4226cd81e05c2175732513972fdaf2d3f1efb2"]);
+  const oldTarget = process.env.SENA_GOVERNANCE_TARGET_ROOT; process.env.SENA_GOVERNANCE_TARGET_ROOT = root;
+  let governance: any;
+  try { governance = await import(`${pathToFileURL(governanceScript).href}?pr86-closeout=${Date.now()}-${Math.random()}`); }
+  finally { if (oldTarget === undefined) delete process.env.SENA_GOVERNANCE_TARGET_ROOT; else process.env.SENA_GOVERNANCE_TARGET_ROOT = oldTarget; }
+  const descriptor = { mergeTimeRegistry: registry, currentObservationRegistry: registry, mergeCommitSha: mergeSha,
+    orderedParentShas: [PR86_PROTECTED_FOR_TEST, headSha], secondParentSha: headSha, mergeTreeSha: treeSha,
+    registryBlobSha: runGit(root, ["rev-parse", `${headSha}:${POST_PR83_PATHS_FOR_TEST[0]}`]) };
+  return { root, governance, registry, firstHead, headSha, treeSha, mergeSha, descriptor };
+}
+
+function pr86DeliveryGitHubTransportForTest(fixture: any) {
+  const historical = mobileGitHubTransportForTest({ root: fixture.root, headSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", mergeSha: PR86_PROTECTED_FOR_TEST });
+  const successor = pr85GitHubTransportForTest(fixture);
+  const responses: Record<string, any> = { ...historical.responses };
+  for (const [key, value] of Object.entries(successor.responses)) {
+    if (key.includes("/pulls/85") || key.includes(`/heads/${PR85_BRANCH_FOR_TEST}`) || key.includes("rulesets/")) continue;
+    const transform = (input: string) => input.replaceAll(PR85_BRANCH_FOR_TEST, PR86_CLOSEOUT_BRANCH_FOR_TEST)
+      .replace(/8500([1-5])/g, "8700$1").replace(/8510([1-5])/g, "8710$1");
+    responses[transform(key)] = JSON.parse(transform(JSON.stringify(value)));
+  }
+  const closeoutPrNumber = fixture.registry?.workItems.at(-1)?.prNumber ?? 87;
+  responses[`repos/HUDongpin/SENA/pulls/${closeoutPrNumber}`] = { ...successor.responses["repos/HUDongpin/SENA/pulls/85"], number: closeoutPrNumber,
+    head: { sha: fixture.headSha, ref: PR86_CLOSEOUT_BRANCH_FOR_TEST, repo: { full_name: "HUDongpin/SENA" } } };
+  responses[`repos/HUDongpin/SENA/git/ref/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`] = { ref: `refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, object: { sha: fixture.headSha } };
+  responses["repos/HUDongpin/SENA/git/ref/heads/main"] = { ref: "refs/heads/main", object: { sha: fixture.mergeSha } };
+  const suite = { ...successor.responses["repos/HUDongpin/SENA/rulesets/rule-suites/85800"], id: 87800, before_sha: PR86_PROTECTED_FOR_TEST };
+  responses["repos/HUDongpin/SENA/rulesets/rule-suites/87800"] = suite;
+  responses["repos/HUDongpin/SENA/rulesets/rule-suites?ref=refs/heads/main&time_period=month&per_page=100&page=1"].push(suite);
+  const calls: string[] = [];
+  return { responses, calls, transport(key: string) { calls.push(key); if (!Object.hasOwn(responses, key)) throw new Error(`unexpected closeout request: ${key}`); return structuredClone(responses[key]); } };
+}
+
+async function pr86DeliveryCurrentHostForTest() {
+  const governance: any = await import(pathToFileURL(governanceScript).href);
+  const registry = JSON.parse(readFileSync(join(projectRoot, POST_PR83_PATHS_FOR_TEST[0]), "utf8"));
+  const main = runGit(projectRoot, ["rev-parse", "origin/main"]);
+  const provider = main === PR86_PROTECTED_FOR_TEST
+    ? mobileGitHubTransportForTest({ root: projectRoot, headSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", mergeSha: main })
+    : pr86DeliveryGitHubTransportForTest({ root: projectRoot, headSha: runGit(projectRoot, ["rev-parse", `${main}^2`]), mergeSha: main, registry });
+  // Read the real host without mutating it; only provider responses are controlled.
+  const proof = governance.resolveMobilePilotReleaseVerification(registry, PR86_PROTECTED_FOR_TEST, { githubTransport: provider.transport });
+  expect(proof).not.toBeNull();
+  return { governance, registry, provider, proof };
+}
+
+describe("PR86 delivery closeout observation successor", () => {
+  it("rechecks outgoing ref custody after the new writer's final live-main read", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("function runPushPolicy(flags) {");
+    const end = source.indexOf("\nfunction loadRegistry(", start);
+    const head = "a".repeat(40); let actualHead = head; let mainReadCalls = 0;
+    const update = { localRef: `refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, localSha: head,
+      remoteRef: `refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, remoteSha: "0".repeat(40) };
+    const registry = { pr86DeliveryCloseout: {} };
+    let stdout = ""; let stderr = "";
+    const child = { exitCode: 0, env: {}, stdout: { write: (value: string) => { stdout += value; } }, stderr: { write: (value: string) => { stderr += value; } } };
+    runInNewContext(`${source.slice(start, end)}\nrunPushPolicy(flags);`, {
+      flags: new Set(), process: child, ZERO_SHA: "0".repeat(40), PR86_DELIVERY_BRANCH: PR86_CLOSEOUT_BRANCH_FOR_TEST,
+      mobilePilotCurrentCheckoutMerge: () => null, pr86DeliveryCurrentCheckoutMerged: () => null,
+      readFileSync: () => "controlled pre-push input", flagValues: () => [], parsePrePushUpdates: () => [update],
+      isSha: (value: string) => /^[0-9a-f]{40}$/.test(value), gitObjectExists: () => true,
+      loadRegistryFromCommit: () => ({ parsed: registry }), validateRegistry: () => ({ errors: [] }),
+      appendHostPhysicalCustodyErrors: () => {}, mobilePilotItem: () => ({}), validateMobilePilotSourceEvidence: () => {},
+      validatePr86DeliveryWriterCurrentness: () => { mainReadCalls += 1; actualHead = "b".repeat(40); return true; },
+      addPrePushPolicyFindings: (_updates: unknown, _remote: unknown, _location: unknown, _registry: unknown, findings: any[]) => {
+        if (actualHead !== update.localSha) findings.push({ path: update.localRef, rule: "local-ref-sha-mismatch", source: "final-local-ref" });
+      },
+      commitsForPrePush: () => [], addFinding: (findings: any[], finding: any) => findings.push(finding),
+      safePathForLog: (value: string) => value, safeSourceForLog: (value: string) => value
+    });
+    expect(mainReadCalls).toBe(1);
+    expect(child.exitCode).toBe(1);
+    expect(stderr).toContain("rule=local-ref-sha-mismatch");
+    expect(stdout).not.toContain("SENA_PUSH_POLICY pass");
+  });
+
+  it("requires fresh live main P before any closeout writer grant despite a stale P cache", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    expect(typeof fixture.governance.validatePr86DeliveryWriterCurrentness).toBe("function");
+    const provider = pr86DeliveryGitHubTransportForTest(fixture);
+    expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: provider.transport })).toBe(false);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", PR86_PROTECTED_FOR_TEST]);
+    expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: provider.transport })).toBe(false);
+    provider.responses["repos/HUDongpin/SENA/git/ref/heads/main"].object.sha = PR86_PROTECTED_FOR_TEST;
+    expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: provider.transport })).toBe(true);
+    for (const value of [fixture.mergeSha, "a".repeat(40), null]) {
+      provider.responses["repos/HUDongpin/SENA/git/ref/heads/main"].object.sha = value;
+      expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: provider.transport })).toBe(false);
+    }
+    expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: () => { throw new Error("unavailable"); } })).toBe(false);
+    expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: () => {
+      runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", fixture.mergeSha]);
+      return { ref: "refs/heads/main", object: { sha: PR86_PROTECTED_FOR_TEST } };
+    } })).toBe(false);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", PR86_PROTECTED_FOR_TEST]);
+    const outsidePath = join(fixture.root, "sena-hk-template/README.md");
+    const original = readFileSync(outsidePath, "utf8");
+    writeFileSync(outsidePath, original + "\nOut-of-scope HEAD fixture.\n");
+    runGit(fixture.root, ["add", "sena-hk-template/README.md"]);
+    const outsideTree = runGit(fixture.root, ["write-tree"]);
+    const outsideHead = runGit(fixture.root, ["commit-tree", outsideTree, "-p", fixture.headSha, "-m", "outside-scope HEAD"]);
+    writeFileSync(outsidePath, original); runGit(fixture.root, ["add", "sena-hk-template/README.md"]);
+    expect(fixture.governance.validatePr86DeliveryWriterCurrentness(fixture.registry, { githubTransport: () => {
+      runGit(fixture.root, ["update-ref", `refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, outsideHead]);
+      return { ref: "refs/heads/main", object: { sha: PR86_PROTECTED_FOR_TEST } };
+    } })).toBe(false);
+  }, 120_000);
+
+  it("confines audit proof reuse to an active context with the exact opaque host proof", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.pr86DeliveryAuditObservationProofAllowed).toBe("function");
+    const { registry, provider, proof } = await pr86DeliveryCurrentHostForTest();
+    const context = { active: true, proof };
+    expect(Object.isFrozen(proof.hostObservation)).toBe(true);
+    expect(governance.pr86DeliveryAuditObservationProofAllowed(registry, proof.mergeCommitSha, context)).toBe(true);
+    const commitOnly = governance.resolvePr86DeliveryCurrentnessCommit(registry, proof.mergeCommitSha, { githubTransport: provider.transport });
+    for (const invalid of [null, { active: true }, { active: false, proof }, { active: true, proof: { ...proof } }, { active: true, proof: commitOnly }]) {
+      expect(governance.pr86DeliveryAuditObservationProofAllowed(registry, proof.mergeCommitSha, invalid)).toBe(false);
+    }
+    const altered = structuredClone(registry); altered.updatedAt = "2026-09-01T00:00:00Z";
+    expect(governance.pr86DeliveryAuditObservationProofAllowed(altered, proof.mergeCommitSha, context)).toBe(false);
+    expect(governance.pr86DeliveryAuditObservationProofAllowed(registry, "a".repeat(40), context)).toBe(false);
+    // Plain caller fields are not the private internal audit-context carrier.
+    expect(governance.protectedMainAdvanceChainResolution(registry, PR86_PROTECTED_FOR_TEST, proof.mergeCommitSha,
+      { auditProof: proof, auditContext: context, githubTransport: () => { throw new Error("no fresh provider"); } }).allowed).toBe(false);
+    context.active = false;
+    expect(governance.pr86DeliveryAuditObservationProofAllowed(registry, proof.mergeCommitSha, context)).toBe(false);
+  }, 120_000);
+
+  it("refreshes final provider and physical custody and rejects late named-head or PR drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.resolvePr86DeliveryFinalAuditVerification).toBe("function");
+    const { registry, provider, proof } = await pr86DeliveryCurrentHostForTest();
+    expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, proof, { githubTransport: provider.transport })).not.toBeNull();
+    expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, { ...proof }, { githubTransport: provider.transport })).toBeNull();
+    const source = structuredClone(provider.responses);
+    const runsKey = `repos/HUDongpin/SENA/actions/runs?head_sha=${PR86_PROTECTED_FOR_TEST}&per_page=100&page=1`;
+    source[runsKey].workflow_runs[0].conclusion = "failure";
+    expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, proof, { githubTransport: (path: string) => structuredClone(source[path]) })).toBeNull();
+    const readOnlyPaths = [`repos/HUDongpin/SENA/git/ref/heads/${MOBILE_BRANCH_FOR_TEST}`, "repos/HUDongpin/SENA/pulls/86", "repos/HUDongpin/SENA/git/ref/heads/main"];
+    if (proof.closeoutReviewedHeadSha) readOnlyPaths.push(`repos/HUDongpin/SENA/git/ref/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, `repos/HUDongpin/SENA/pulls/${registry.workItems.at(-1).prNumber}`);
+    for (const path of readOnlyPaths) {
+      let count = 0;
+      expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, proof, { githubTransport: (key: string) => {
+        const response = provider.transport(key);
+        if (key === path && ++count === 2) {
+          if (key.includes("/pulls/")) response.head.sha = "a".repeat(40); else response.object.sha = "a".repeat(40);
+        }
+        return response;
+      } })).toBeNull();
+      expect(count).toBe(2);
+    }
+  }, 120_000);
+
+  it("rejects late read-only lane head drift despite the historical active forward rule", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    expect(typeof fixture.governance.pr86DeliveryReadOnlyHeadObservationAllowed).toBe("function");
+    const provider = pr86DeliveryGitHubTransportForTest(fixture);
+    const proof = fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport });
+    for (const [branch, expected] of [[MOBILE_BRANCH_FOR_TEST, "2d4226cd81e05c2175732513972fdaf2d3f1efb2"], [PR86_CLOSEOUT_BRANCH_FOR_TEST, fixture.headSha]]) {
+      expect(fixture.governance.pr86DeliveryReadOnlyHeadObservationAllowed(fixture.registry, proof, branch, expected)).toBe(true);
+      for (const wrong of [null, fixture.firstHead, "a".repeat(40)]) expect(fixture.governance.pr86DeliveryReadOnlyHeadObservationAllowed(fixture.registry, proof, branch, wrong)).toBe(false);
+      runGit(fixture.root, ["update-ref", `refs/remotes/origin/${branch}`, fixture.firstHead]);
+      expect(fixture.governance.pr86DeliveryReadOnlyHeadObservationAllowed(fixture.registry, proof, branch, expected)).toBe(false);
+      runGit(fixture.root, ["update-ref", `refs/remotes/origin/${branch}`, expected]);
+    }
+    expect(fixture.governance.pr86DeliveryReadOnlyHeadObservationAllowed(fixture.registry, { ...proof }, MOBILE_BRANCH_FOR_TEST, "2d4226cd81e05c2175732513972fdaf2d3f1efb2")).toBe(false);
+    expect(fixture.governance.pr86DeliveryReadOnlyHeadObservationAllowed(fixture.registry, proof, "foreign", fixture.headSha)).toBe(false);
+  }, 120_000);
+
+  it("keeps post-merge closeout deadlines historical only behind host-verified custody", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    const provider = pr86DeliveryGitHubTransportForTest(fixture);
+    const proof = fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport });
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-12T15:00:00Z"));
+    const observation = fixture.governance.mobilePilotReleaseDeadlineObservations(fixture.registry, proof);
+    expect(observation).toMatchObject({ closeout: { taskId: "SENA-PR86-DELIVERY-CLOSEOUT-20260907", branch: PR86_CLOSEOUT_BRANCH_FOR_TEST,
+      ownerHeartbeatExpired: true, workItemReviewExpired: true, branchReviewExpired: true } });
+    // Commit-level diagnostics do not suppress any plain registry validation gate.
+    expect(fixture.governance.validateRegistry(fixture.registry).errors.some((value: string) => value.includes("SENA-PR86-DELIVERY-CLOSEOUT-20260907") && value.includes("heartbeat"))).toBe(true);
+    expect(fixture.governance.mobilePilotReleaseDeadlineObservations(fixture.registry, { ...proof })).toBeNull();
+  }, 120_000);
+
+  it("observes only the exact user-audited orphan instruction delta while retaining the original manifest", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const registry = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    expect(typeof governance.pr86DeliveryOrphanInstructionObservationAllowed).toBe("function");
+    const orphanPath = "/Volumes/Starship/SENA/.worktrees/sena-human-ai-research-docs";
+    const before = { relativePath: "sena-hk-template/vendor/sna-js/AGENTS.md", type: "file", size: 1689,
+      sha256: "e7bf18778461f2e72f40c71cff02516f91040389d215166aa1753a47cb826511" };
+    const after = { ...before, size: 1960, sha256: "3e221c7fbd48c9332182c77071a887b7878ca42bf2b1ead46f386d091e2c3786" };
+    expect(governance.pr86DeliveryOrphanInstructionObservationAllowed(registry, orphanPath, before, after)).toBe(true);
+    for (const field of Object.keys(before)) {
+      for (const index of [0, 1]) {
+        const pair = [structuredClone(before), structuredClone(after)] as any[];
+        pair[index][field] = typeof pair[index][field] === "number" ? 0 : "wrong";
+        expect(governance.pr86DeliveryOrphanInstructionObservationAllowed(registry, orphanPath, ...pair), field).toBe(false);
+      }
+    }
+    expect(governance.pr86DeliveryOrphanInstructionObservationAllowed(registry, orphanPath + "/foreign", before, after)).toBe(false);
+    const hostile = structuredClone(registry); hostile.pr86DeliveryCloseout.orphanInstructionObservation.afterSha256 = before.sha256;
+    expect(governance.pr86DeliveryOrphanInstructionObservationAllowed(hostile, orphanPath, before, after)).toBe(false);
+    const frozen = JSON.parse(runGit(projectRoot, ["show", `${PR86_PROTECTED_FOR_TEST}:coordination/repo-governance/active-work.json`]));
+    expect(registry.rescue).toEqual(frozen.rescue);
+    expect(registry.orphanWorktrees).toEqual(frozen.orphanWorktrees);
+  });
+
+  it("denies any further closeout source write or push after its one protected merge", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    for (const [command, args, input, rule] of [
+      ["write-policy", ["--registry-from-index", "--staged"], "", "rule=pr86-delivery-closeout-source-write-denied"],
+      ["push-policy", ["--remote-name", "origin"], `refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST} ${fixture.headSha} refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST} ${fixture.firstHead}\n`, "rule=pr86-delivery-closeout-push-denied"]
+    ] as Array<[string, string[], string, string]>) {
+      const result = runNode(governanceScript, [command, ...args], { cwd: fixture.root, input,
+        env: { SENA_GOVERNANCE_TARGET_ROOT: fixture.root } });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain(rule);
+      expect(result.stderr).not.toContain("github");
+    }
+  }, 120_000);
+
+  it("binds retained main progress and the completed closeout checkout to an opaque currentness proof", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    const provider = pr86DeliveryGitHubTransportForTest(fixture);
+    const proof = fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport });
+    expect(proof).not.toBeNull();
+    expect(typeof fixture.governance.pr86DeliveryRetainedMainAdvanceAllowed).toBe("function");
+    for (const item of fixture.registry.workItems.slice(-3, -1)) {
+      const count = Number(runGit(fixture.root, ["rev-list", "--count", `${item.headSha}..${fixture.mergeSha}`]));
+      const observed = { baseRef: "origin/main", ahead: 0, behind: count };
+      expect(fixture.governance.pr86DeliveryRetainedMainAdvanceAllowed(fixture.registry, item.taskId, item.headSha, observed, proof)).toBe(true);
+      for (const invalid of [null, { ...proof }, { ...proof, sourceWritesAuthorized: true }]) {
+        expect(fixture.governance.pr86DeliveryRetainedMainAdvanceAllowed(fixture.registry, item.taskId, item.headSha, observed, invalid)).toBe(false);
+      }
+      expect(fixture.governance.pr86DeliveryRetainedMainAdvanceAllowed(fixture.registry, item.taskId, item.headSha, { ...observed, behind: count + 1 }, proof)).toBe(false);
+      expect(fixture.governance.pr86DeliveryRetainedMainAdvanceAllowed(fixture.registry, item.taskId, fixture.headSha, observed, proof)).toBe(false);
+    }
+    const item = fixture.registry.workItems.at(-1);
+    const facts = {
+      repo: fixture.registry.repo, worktreePath: item.worktreePath,
+      gitDirectory: join(fixture.registry.repo, ".git", "worktrees", item.worktreePath.split("/").at(-1)),
+      gitCommonDirectory: join(fixture.registry.repo, ".git"), markerKind: "gitdir-file", markerValid: true, markerIsSymlink: false,
+      registeredWorktreePath: item.worktreePath, registeredBranch: item.branch, registeredHeadSha: fixture.mergeSha,
+      branch: item.branch, headSha: fixture.mergeSha, headTreeSha: fixture.treeSha, indexTreeSha: fixture.treeSha,
+      sourceClean: true, cachedNamedRemoteSha: fixture.headSha
+    };
+    expect(typeof fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed).toBe("function");
+    expect(fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed(fixture.registry, proof, facts)).toBe(true);
+    for (const key of Object.keys(facts)) {
+      const value = facts[key as keyof typeof facts];
+      const missing: any = { ...facts }; delete missing[key];
+      expect(fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed(fixture.registry, proof, missing), key).toBe(false);
+      expect(fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed(fixture.registry, proof,
+        { ...facts, [key]: typeof value === "boolean" ? !value : "wrong" }), key).toBe(false);
+    }
+    expect(fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed(fixture.registry, { ...proof }, facts)).toBe(false);
+    const mobileFacts = {
+      repo: fixture.registry.repo, worktreePath: `${fixture.registry.repo}/.worktrees/sena-mobile-research-pilot-20260905`,
+      gitDirectory: `${fixture.registry.repo}/.git/worktrees/sena-mobile-research-pilot-20260905`, gitCommonDirectory: `${fixture.registry.repo}/.git`,
+      branch: MOBILE_BRANCH_FOR_TEST, localHeadSha: PR86_PROTECTED_FOR_TEST, registeredHeadSha: PR86_PROTECTED_FOR_TEST,
+      rootMainSha: fixture.mergeSha, rootBranch: "main", rootHeadSha: fixture.mergeSha, rootSourceClean: true,
+      cachedMainSha: fixture.mergeSha, liveMainSha: fixture.mergeSha, mergeCommitSha: fixture.mergeSha,
+      headTreeSha: "9427be2e80ce03f4438b84914a4c32f6ebbcb513", indexTreeSha: "9427be2e80ce03f4438b84914a4c32f6ebbcb513",
+      reviewedHeadSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", cachedNamedRemoteSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", sourceClean: true
+    };
+    expect(typeof fixture.governance.pr86DeliveryMobileRetainedHostObservationAllowed).toBe("function");
+    expect(fixture.governance.pr86DeliveryMobileRetainedHostObservationAllowed(fixture.registry, proof, mobileFacts)).toBe(true);
+    expect(fixture.governance.mobilePilotReleaseHostObservationAllowed(mobileFacts)).toBe(false);
+    expect(fixture.governance.pr86DeliveryMobileRetainedHostObservationAllowed(fixture.registry, proof,
+      { ...mobileFacts, localHeadSha: fixture.mergeSha, registeredHeadSha: fixture.mergeSha, headTreeSha: fixture.treeSha, indexTreeSha: fixture.treeSha })).toBe(false);
+    for (const key of Object.keys(mobileFacts)) {
+      const value = mobileFacts[key as keyof typeof mobileFacts];
+      const missing: any = { ...mobileFacts }; delete missing[key];
+      expect(fixture.governance.pr86DeliveryMobileRetainedHostObservationAllowed(fixture.registry, proof, missing), key).toBe(false);
+      expect(fixture.governance.pr86DeliveryMobileRetainedHostObservationAllowed(fixture.registry, proof,
+        { ...mobileFacts, [key]: typeof value === "boolean" ? !value : "wrong" }), key).toBe(false);
+    }
+    const altered = structuredClone(fixture.registry); altered.workItems[0].lastHeartbeatAt = altered.updatedAt;
+    expect(fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed(altered, proof, facts)).toBe(false);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", PR86_PROTECTED_FOR_TEST]);
+    expect(fixture.governance.pr86DeliveryCloseoutRetainedHostObservationAllowed(fixture.registry, proof, facts)).toBe(false);
+  }, 120_000);
+
+  it("rejects reverted foreign paths, merge replay, tree substitution and protected historical blob tampering", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    expect(fixture.governance.validatePr86DeliveryProtectedMergeDescriptor(fixture.descriptor, { mergeTimeOnly: true })).toBe(true);
+    for (const fields of [
+      { orderedParentShas: [...fixture.descriptor.orderedParentShas].reverse() },
+      { secondParentSha: fixture.firstHead },
+      { registryBlobSha: "a".repeat(40) }, { mergeTreeSha: "a".repeat(40) },
+      { mergeCommitSha: PR86_PROTECTED_FOR_TEST },
+    ]) expect(fixture.governance.validatePr86DeliveryProtectedMergeDescriptor({ ...fixture.descriptor, ...fields }, { mergeTimeOnly: true })).toBe(false);
+    const foreignPath = join(fixture.root, "sena-hk-template/README.md");
+    const original = readFileSync(foreignPath, "utf8"); writeFileSync(foreignPath, original + "\nForeign fixture change.\n");
+    runGit(fixture.root, ["add", "sena-hk-template/README.md"]); runGit(fixture.root, ["commit", "-q", "-m", "foreign scope fixture"]);
+    writeFileSync(foreignPath, original); runGit(fixture.root, ["add", "sena-hk-template/README.md"]); runGit(fixture.root, ["commit", "-q", "-m", "restore bytes without erasing history"]);
+    const reverted = runGit(fixture.root, ["rev-parse", "HEAD"]);
+    const replay = runGit(fixture.root, ["commit-tree", fixture.treeSha, "-p", PR86_PROTECTED_FOR_TEST, "-p", reverted, "-m", "reverted foreign merge"]);
+    expect(fixture.governance.validatePr86DeliveryProtectedMergeDescriptor({ ...fixture.descriptor,
+      mergeCommitSha: replay, secondParentSha: reverted, orderedParentShas: [PR86_PROTECTED_FOR_TEST, reverted] }, { mergeTimeOnly: true })).toBe(false);
+    // A loose object at the expected historical OID must still match its frozen
+    // content digest. This corruption is confined to the disposable test clone.
+    const blob = "3b1349a17c11957d41d5bc80982abd45b8c81807";
+    const objectDirectory = join(fixture.root, ".git", "objects", blob.slice(0, 2)); mkdirSync(objectDirectory, { recursive: true });
+    const bytes = Buffer.from("foreign historical verifier bytes\n");
+    const { deflateSync } = await import("node:zlib");
+    if (existsSync(join(objectDirectory, blob.slice(2)))) chmodSync(join(objectDirectory, blob.slice(2)), 0o600);
+    writeFileSync(join(objectDirectory, blob.slice(2)), deflateSync(Buffer.concat([Buffer.from(`blob ${bytes.length}\0`), bytes])));
+    const previous = process.env.SENA_GOVERNANCE_TARGET_ROOT; process.env.SENA_GOVERNANCE_TARGET_ROOT = fixture.root;
+    let fresh: any;
+    try { fresh = await import(`${pathToFileURL(governanceScript).href}?corrupt-protected-blob=${Date.now()}`); }
+    finally { if (previous === undefined) delete process.env.SENA_GOVERNANCE_TARGET_ROOT; else process.env.SENA_GOVERNANCE_TARGET_ROOT = previous; }
+    expect(() => fresh.validatePr86DeliveryCloseoutSnapshot(fixture.registry)).toThrow("rule=pr86-delivery-closeout-snapshot-invalid");
+  }, 120_000);
+
+  it("binds currentness to exactly PR86 or its one protected governance successor", async () => {
+    const fixture = await createPr86DeliveryCloseoutFixture();
+    expect(typeof fixture.governance.resolvePr86DeliveryCurrentnessCommit).toBe("function");
+    const provider = pr86DeliveryGitHubTransportForTest(fixture);
+    expect(fixture.governance.resolveMobilePilotReleaseCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport })).toBeNull();
+    expect(fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport })).toMatchObject({
+      mergeCommitSha: fixture.mergeSha, sourceMergeCommitSha: PR86_PROTECTED_FOR_TEST,
+      reviewedHeadSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", sourceWritesAuthorized: false, pushAuthorized: false,
+      effectiveRole: "read-only-pr86-delivery-currentness"
+    });
+    expect(fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, PR86_PROTECTED_FOR_TEST, fixture.mergeSha,
+      { githubTransport: provider.transport }).allowed).toBe(true);
+    const rootObservation = fixture.registry.workItems[0];
+    expect(fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, rootObservation.headSha, fixture.mergeSha,
+      { githubTransport: provider.transport })).toMatchObject({ allowed: true, protectedSourceAnchor: PR86_PROTECTED_FOR_TEST });
+    const preservedPr82 = fixture.registry.workItems.find((entry: any) => entry.taskId === "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902");
+    const preservedBehind = Number(runGit(fixture.root, ["rev-list", "--count", `${preservedPr82.headSha}..${fixture.mergeSha}`]));
+    expect(fixture.governance.protectedLaneMainAdvanceObservationAllowed(preservedPr82, preservedPr82.headSha,
+      { baseRef: "origin/main", ahead: 0, behind: preservedBehind }, fixture.registry, { githubTransport: provider.transport })).toBe(true);
+    expect(provider.calls).not.toContain("repos/HUDongpin/SENA/pulls/85");
+    expect(fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, rootObservation.headSha,
+      "969a206b798c159e15ae0b6e5c76d0c94cca92ea", { githubTransport: provider.transport })).toMatchObject({
+      allowed: false, rule: "pr86-delivery-currentness-evidence-invalid"
+    });
+    expect(fixture.governance.protectedMainAdvanceChainResolution(fixture.registry,
+      "2d4226cd81e05c2175732513972fdaf2d3f1efb2", fixture.mergeSha, { githubTransport: provider.transport })).toMatchObject({
+      allowed: false, rule: "pr86-delivery-unknown-historical-origin"
+    });
+    expect(fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.headSha, { githubTransport: provider.transport })).toBeNull();
+    for (const mutate of [
+      (responses: any) => responses["repos/HUDongpin/SENA/pulls/87"].head.sha = "a".repeat(40),
+      (responses: any) => responses["repos/HUDongpin/SENA/pulls/87"].base.repo.full_name = "foreign/SENA",
+      (responses: any) => responses["repos/HUDongpin/SENA/pulls/87"].merged = false,
+      (responses: any) => responses["repos/HUDongpin/SENA/rulesets/rule-suites/87800"].result = "bypass",
+      (responses: any) => responses[`repos/HUDongpin/SENA/actions/runs?head_sha=${fixture.mergeSha}&per_page=100&page=1`].workflow_runs[0].conclusion = "failure",
+      (responses: any) => responses["repos/HUDongpin/SENA/git/ref/heads/main"].object.sha = PR86_PROTECTED_FOR_TEST,
+      (responses: any) => responses[`repos/HUDongpin/SENA/git/ref/heads/${MOBILE_BRANCH_FOR_TEST}`].object.sha = fixture.headSha,
+    ]) {
+      const invalid = pr86DeliveryGitHubTransportForTest(fixture); mutate(invalid.responses);
+      expect(fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.mergeSha, { githubTransport: invalid.transport })).toBeNull();
+    }
+    expect(fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, fixture.mergeSha,
+      { githubTransport: () => { throw new Error("unavailable"); }, approved: true })).toBeNull();
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", PR86_PROTECTED_FOR_TEST]);
+    const historical = mobileGitHubTransportForTest({ root: fixture.root, headSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", mergeSha: PR86_PROTECTED_FOR_TEST });
+    expect(fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, PR86_PROTECTED_FOR_TEST, { githubTransport: historical.transport })).toMatchObject({
+      mergeCommitSha: PR86_PROTECTED_FOR_TEST, sourceMergeCommitSha: PR86_PROTECTED_FOR_TEST, sourceWritesAuthorized: false, pushAuthorized: false
+    });
+    const unrelated = runGit(fixture.root, ["commit-tree", fixture.treeSha, "-p", fixture.mergeSha, "-m", "unrelated newer main"]);
+    runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", unrelated]);
+    expect(fixture.governance.resolvePr86DeliveryCurrentnessCommit(fixture.registry, unrelated, { githubTransport: provider.transport })).toBeNull();
+  }, 120_000);
+
+  it("requires exact retained host identities, dirty names, stage entries and no unstaged source drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const registry = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    expect(typeof governance.pr86DeliveryRetainedHostObservationAllowed).toBe("function");
+    for (const item of registry.workItems.slice(-3, -1)) {
+      const facts = {
+        repo: registry.repo, worktreePath: item.worktreePath,
+        gitDirectory: join(registry.repo, ".git", "worktrees", item.worktreePath.split("/").at(-1)),
+        gitCommonDirectory: join(registry.repo, ".git"), markerKind: "gitdir-file", markerValid: true, markerIsSymlink: false,
+        registeredWorktreePath: item.worktreePath, registeredBranch: item.branch, registeredHeadSha: item.headSha,
+        branch: item.branch, headSha: item.headSha, indexEntriesSha256: item.preservationObservation.indexEntriesSha256,
+        dirtyStatusSha256: item.preservationObservation.dirtyStatusSha256, unstagedClean: true,
+      };
+      expect(governance.pr86DeliveryRetainedHostObservationAllowed(registry, item.taskId, facts)).toBe(true);
+      for (const key of Object.keys(facts)) {
+        const missing: any = { ...facts }; delete missing[key];
+        expect(governance.pr86DeliveryRetainedHostObservationAllowed(registry, item.taskId, missing), key).toBe(false);
+        const original = facts[key as keyof typeof facts];
+        expect(governance.pr86DeliveryRetainedHostObservationAllowed(registry, item.taskId,
+          { ...facts, [key]: typeof original === "boolean" ? !original : "wrong" }), key).toBe(false);
+      }
+      expect(governance.pr86DeliveryRetainedHostObservationAllowed(registry, "FOREIGN", facts)).toBe(false);
+      expect(governance.pr86DeliveryRetainedHostObservationAllowed(registry, item.taskId, { ...facts, permitted: true })).toBe(false);
+    }
+  });
+
+  it("rejects historical rewrites, authority additions, foreign records and retained custody drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const original = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    const mutations = [
+      (r: any) => r.workItems[0].lastHeartbeatAt = r.updatedAt,
+      (r: any) => r.workItems[0].headSha = r.pr86DeliveryCloseout.sourceCommitSha,
+      (r: any) => r.policy.maxWriteWorktrees++,
+      (r: any) => r.releaseReceipts.pop(),
+      (r: any) => r.incident.credentialExposure.status = "closed-for-delivery",
+      (r: any) => r.orphanWorktrees[0].cleanupApproved = true,
+      (r: any) => r.workItems.pop(),
+      (r: any) => r.branches.pop(),
+      (r: any) => r.workItems.push(structuredClone(r.workItems.at(-1))),
+      (r: any) => r.workItems.at(-1).taskId = "FOREIGN",
+      (r: any) => r.workItems.at(-1).allowedPaths.push("**"),
+      (r: any) => r.workItems.at(-1).sourceWritesAuthorized = true,
+      (r: any) => r.workItems.at(-1).laneType = "governance-bootstrap",
+      (r: any) => r.workItems.at(-2).lastHeartbeatAt = r.updatedAt,
+      (r: any) => r.workItems.at(-2).headSha = "a".repeat(40),
+      (r: any) => r.workItems.at(-2).allowedPaths.pop(),
+      (r: any) => r.workItems.at(-2).preservationObservation.indexTreeSha = "a".repeat(40),
+      (r: any) => r.workItems.at(-2).preservationObservation.sourceWritesAuthorized = true,
+      (r: any) => r.branches.at(-2).remotePresent = true,
+      (r: any) => r.pr86DeliveryCloseout.sourceCommitSha = "a".repeat(40),
+      (r: any) => r.pr86DeliveryCloseout.bootstrapAuthorized = true,
+      (r: any) => r.pr86DeliveryCloseout.retainedTaskIds.reverse(),
+      (r: any) => r.updatedAt = "2026-09-01T00:00:00Z",
+      (r: any) => r.extra = true,
+    ];
+    expect(typeof governance.validatePr86DeliveryCloseoutSnapshot).toBe("function");
+    for (const mutate of mutations) {
+      const candidate = structuredClone(original); mutate(candidate);
+      expect(() => governance.validatePr86DeliveryCloseoutSnapshot(candidate)).toThrow("rule=pr86-delivery-closeout-snapshot-invalid");
+    }
+    const protectedRegistry = JSON.parse(runGit(projectRoot, ["show", "b9c25385453ee4da26e261c945dd125b0cd856ab:coordination/repo-governance/active-work.json"]));
+    expect(() => governance.validatePr86DeliveryCloseoutSnapshot(protectedRegistry)).toThrow("rule=pr86-delivery-closeout-snapshot-invalid");
+  });
+
+  it("accepts the exact protected-source observation without granting bootstrap authority", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.validatePr86DeliveryCloseoutSnapshot).toBe("function");
+    const registry = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    const proof = governance.validatePr86DeliveryCloseoutSnapshot(registry);
+    expect(proof).toMatchObject({ sourceCommitSha: "b9c25385453ee4da26e261c945dd125b0cd856ab", bootstrapAuthorized: false });
+    expect(proof.historicalRegistry).toEqual(JSON.parse(runGit(projectRoot, ["show", "b9c25385453ee4da26e261c945dd125b0cd856ab:coordination/repo-governance/active-work.json"])));
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(registry)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    expect(governance.validateRegistry(registry).errors).toEqual([]);
   });
 });

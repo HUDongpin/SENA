@@ -1032,6 +1032,9 @@ function addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry,
     addFinding(findings, { path: expectedRef, rule: "mobile-pilot-release-push-denied", source: "committed-merge-policy" });
   }
 
+  if (pr86DeliveryCommittedCloseout(branchName)) {
+    addFinding(findings, { path: expectedRef, rule: "pr86-delivery-closeout-push-denied", source: "committed-merge-policy" });
+  }
   addRemoteIdentityFindings(remoteName, remoteLocation, registry, findings);
   if (!branchName || !currentItem || !branchRecord) {
     addFinding(findings, {
@@ -1606,6 +1609,7 @@ function runPostPr83PushDraftReadiness() {
 
 function runPushPolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-push-denied");
+  if (pr86DeliveryCurrentCheckoutMerged()) throw new Error("rule=pr86-delivery-closeout-push-denied");
   const findings = [];
   const input = readFileSync(0, "utf8");
   const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
@@ -1663,6 +1667,11 @@ function runPushPolicy(flags) {
     throw new Error("push-policy outgoing-commit registry snapshot is invalid");
   }
   if (mobilePilotItem(registry)) validateMobilePilotSourceEvidence(registry);
+  if (registry.pr86DeliveryCloseout && updates[0].localRef === `refs/heads/${PR86_DELIVERY_BRANCH}` &&
+      !validatePr86DeliveryWriterCurrentness(registry)) {
+    addFinding(findings, { path: updates[0].localRef, rule: "pr86-delivery-writer-current-main-not-source", source: "fresh-main-readback" });
+  }
+  // Reobserve the actual outgoing ref only after every provider decision.
   addPrePushPolicyFindings(updates, remoteName, remoteLocation, registry, findings);
   commitsForPrePush(updates, remoteName, findings, registry);
   const cleaned = findings
@@ -1807,6 +1816,7 @@ function runWritePolicy(flags) {
     throw new Error("write-policy requires --registry-from-index --staged");
   }
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
+  if (pr86DeliveryCurrentCheckoutMerged()) throw new Error("rule=pr86-delivery-closeout-source-write-denied");
   // An empty index can never authorize a write. Reject locally before registry
   // and provider proof; the Git-only release denial above keeps precedence.
   if (stagedChangedPaths().length === 0) {
@@ -1828,6 +1838,12 @@ function runWritePolicy(flags) {
   );
 
   const findings = [];
+  if (registry.pr86DeliveryCloseout && sameExistingPath(pr86DeliveryItem(registry).worktreePath, REPO_ROOT) &&
+      !validatePr86DeliveryWriterCurrentness(registry)) {
+    addFinding(findings, { path: `refs/heads/${PR86_DELIVERY_BRANCH}`, rule: "pr86-delivery-writer-current-main-not-source", source: "fresh-main-readback" });
+  }
+  // All provider decisions, including the closeout's fresh-main read, precede
+  // the original final staged-path, branch and index observation below.
   // Proof may take time. Preserve the original final observation point rather
   // than authorizing from the early empty-index preflight's stale path list.
   const stagedPaths = stagedChangedPaths();
@@ -1941,6 +1957,13 @@ function physicalWorkItemCustodyError(registryRepoResolution, item) {
 }
 
 function appendHostPhysicalCustodyErrors(registry, errors) {
+  appendPr86DeliveryRetainedCustodyErrors(registry, errors);
+  if (registry?.pr86DeliveryCloseout?.preservedTestFixtureObservation &&
+      canonicalExistingPath(CONTROL_ROOT) === registry.repo &&
+      !pr86DeliveryPreservedTestFixtureAllowed(registry, {
+        path: registry.pr86DeliveryCloseout.preservedTestFixtureObservation.repoPath,
+        ...markerInfo(registry.pr86DeliveryCloseout.preservedTestFixtureObservation.repoPath)
+      })) errors.push("rule=pr86-delivery-preserved-test-fixture-custody-invalid");
   const controlRootResolution = existingPathResolution(CONTROL_ROOT);
   const registryRepoResolution = existingPathResolution(registry.repo);
   if (!controlRootResolution.ok || !registryRepoResolution.ok) {
@@ -11246,6 +11269,14 @@ const PR85_GITHUB_BINDING = Object.freeze({
   receiptSchema: "sena-pr85-post-main-rule-suite/v1",
   requirePostMain: true
 });
+// These literals version repository control-plane contracts, an external
+// boundary to the application SENA_SCHEMA_VERSIONS export/API registry.
+const PR86_DELIVERY_GITHUB_BINDING = Object.freeze({
+  branch: "codex/sena-pr86-delivery-closeout-20260907",
+  beforeSha: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  receiptSchema: "sena-pr86-delivery-post-main-rule-suite/v1",
+  requirePostMain: true
+});
 const MOBILE_PILOT_GITHUB_BINDING = Object.freeze({
   branch: "codex/sena-mobile-research-pilot-20260905",
   beforeSha: "c782aa03940028a2c19db18dfddec55370c797b1",
@@ -11362,8 +11393,9 @@ function validateProtectedFinalHeadLiveGitHubEvidence(
   const mergeCommitSha = descriptor?.mergeCommitSha;
   const githubTransport = options.githubTransport ?? null;
   if (
-    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING, MOBILE_PILOT_GITHUB_BINDING].includes(binding) ||
+    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING, MOBILE_PILOT_GITHUB_BINDING, PR86_DELIVERY_GITHUB_BINDING].includes(binding) ||
     (binding === PR85_GITHUB_BINDING && pullRequestNumber !== 85) ||
+    (binding === PR86_DELIVERY_GITHUB_BINDING && pullRequestNumber !== pr86DeliveryItem(descriptor?.mergeTimeRegistry)?.prNumber) ||
     (binding === MOBILE_PILOT_GITHUB_BINDING && pullRequestNumber !== mobilePilotItem(descriptor?.mergeTimeRegistry)?.prNumber) ||
     !isSha(finalHeadSha) ||
     !isSha(mergeCommitSha) ||
@@ -11839,6 +11871,9 @@ export function validatePr85IntegrationSnapshot(registry) {
 }
 
 function pr85IntegrationSnapshotAllowed(registry) {
+  if (registry?.pr86DeliveryCloseout) {
+    try { validatePr86DeliveryCloseoutSnapshot(registry); return true; } catch { return false; }
+  }
   if (mobilePilotItem(registry)) {
     try { validateMobilePilotSuccessorSnapshot(registry); return true; } catch { return false; }
   }
@@ -12091,7 +12126,305 @@ export function validateMobilePilotSuccessorSnapshot(registry) {
   } catch (cause) { throw new Error("rule=mobile-pilot-snapshot-invalid", { cause }); }
 }
 
+
+// This one-shot observation transition does not bootstrap its own authority.
+// Native hooks validate the candidate; the frozen protected-source and exact
+// candidate review must be independently bound before the owner integrates it.
+const PR86_DELIVERY_SOURCE = "b9c25385453ee4da26e261c945dd125b0cd856ab";
+const PR86_DELIVERY_SOURCE_TREE = "9427be2e80ce03f4438b84914a4c32f6ebbcb513";
+const PR86_DELIVERY_REVIEWED_MOBILE = "2d4226cd81e05c2175732513972fdaf2d3f1efb2";
+const PR86_DELIVERY_TASK = "SENA-PR86-DELIVERY-CLOSEOUT-20260907";
+const PR86_DELIVERY_AUDIT_CONTEXT = Symbol("pr86-delivery-internal-audit-context");
+const PR86_DELIVERY_BRANCH = "codex/sena-pr86-delivery-closeout-20260907";
+const PR86_DELIVERY_PATHS = [REGISTRY_REPO_PATH, "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"];
+const PR86_DELIVERY_SOURCE_BLOBS = ["c3200543a986fe480eb1ea3d764c9747f4f5525d",
+  "3b1349a17c11957d41d5bc80982abd45b8c81807", "e204bd822d1ccb8cb41a341c375f0b2ac469644d"];
+const PR86_DELIVERY_SOURCE_SHA256 = ["83e0f1ec34b63a94c70e26c256190902cddd88a29d0d3704ba74d98956be9354",
+  "aed3c974361fd159df69eda58153ab8ffd64c7662b78c5fdf0dfc9a945312aa1", "e492b35530977c2ae8915bccb3c2f6ac0c6f63841645618abe8f8fb5815e6f3e"];
+const PR86_DELIVERY_OBSERVATION = {
+  "schemaVersion": "sena-pr86-delivery-closeout/v1",
+  "sourceCommitSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  "sourceTreeSha": "9427be2e80ce03f4438b84914a4c32f6ebbcb513",
+  "taskId": "SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+  "threadId": "01a07c1e-5127-7a20-ad15-c2558ce5a5f2",
+  "branch": "codex/sena-pr86-delivery-closeout-20260907",
+  "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
+  "observedAt": "2026-09-07T14:25:43Z",
+  "rootHeadSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  "mobileHeadSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  "mobileReviewedHeadSha": "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+  "historicalRecords": "immutable-protected-pr86",
+  "bootstrapAuthority": "independent-external-exact-candidate-review-required",
+  "allowedPaths": [
+    "coordination/repo-governance/active-work.json",
+    "scripts/verify-sena-repo-governance.mjs",
+    "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+  ],
+  "retainedTaskIds": [
+    "SENA-CONVERGENCE-INTEGRATION-20260906",
+    "SENA-CONVERGENCE-CURRENTNESS-20260907"
+  ],
+  "orphanInstructionObservation": {
+    "orphanPath": "/Volumes/Starship/SENA/.worktrees/sena-human-ai-research-docs",
+    "relativePath": "sena-hk-template/vendor/sna-js/AGENTS.md",
+    "beforeSha256": "e7bf18778461f2e72f40c71cff02516f91040389d215166aa1753a47cb826511",
+    "beforeSize": 1689,
+    "afterSha256": "3e221c7fbd48c9332182c77071a887b7878ca42bf2b1ead46f386d091e2c3786",
+    "afterSize": 1960,
+    "patchRecordPath": "/Volumes/Starship/SENA-backups/pr86-delivery-closeout-20260907-ah0cjhrp/root-instruction-patches-originals/applied-files.json",
+    "patchRecordSha256": "729817700441c9ff7f265541ffd1dc04a29da70f5fbaaa2a77477e8233125aea"
+  },
+  "preservedTestFixtureObservation": {
+    "schemaVersion": "sena-pr86-retained-test-fixture-observation/v1",
+    "rootPath": "/Volumes/Starship/SENA/.tmp/sena-pr85-integration-BENPrB",
+    "repoPath": "/Volumes/Starship/SENA/.tmp/sena-pr85-integration-BENPrB/repo",
+    "sourceOwnerTaskId": "01a05865-c301-7223-b74d-96e228b8a435",
+    "sourceOriginPath": "/Volumes/Starship/SENA/.worktrees/sena-convergence-currentness-20260907",
+    "fixtureHeadSha": "fcaba4cb6f2c27df79dce38259c3bc766e104dae",
+    "manifestPath": "/Volumes/Starship/SENA-backups/pr86-delivery-closeout-20260907-ah0cjhrp/RETAINED-TEST-FIXTURE-MANIFEST-20260908.json",
+    "manifestSha256": "caed1b3d4644f335b827e5212264682ba0642071d1fa76dce8819d7e71a47c7b",
+    "sourceWritesAuthorized": false,
+    "pushAuthorized": false,
+    "mergeAuthorized": false,
+    "cleanupAuthorized": false,
+    "relocationAuthorized": false,
+    "deletionAuthorized": false,
+    "reason": "Interrupted F-owner governance test fixture; preserved in place and outside product approval."
+  }
+};
+const PR86_DELIVERY_RETAINED_RECORD_HASHES = [
+  [
+    "6f501a61910ae01cb91e4b376253a8a041d7e1c78244aa25325d9699fbc7da8b",
+    "d8ec6567280dd6ff5313cc2cc8a60b5ee0fd07fc285f5283ecb8ea7f00976193"
+  ],
+  [
+    "6caf504ed2cfad7848b932c8aed9b9a80463ddbcf6280cb1aeb9667aaba7421b",
+    "965429984d038961d557c45198e8a51f058e3b67cfe055c939ecec3cccc7ecbd"
+  ]
+];
+const PR86_DELIVERY_WRITER_FIELDS = [
+  "headSha",
+  "aheadBehind",
+  "lastHeartbeatAt",
+  "lastObservedAt",
+  "nextReviewAt",
+  "prNumber",
+  "noPrReason",
+  "prState",
+  "prIsDraft",
+  "prReadyForReview",
+  "prHeadSha",
+  "dirtyState",
+  "evidenceState"
+];
+const PR86_DELIVERY_BRANCH_FIELDS = [
+  "headSha",
+  "upstream",
+  "upstreamState",
+  "upstreamCacheState",
+  "remotePresent",
+  "remoteHeadSha",
+  "remoteObservedAt",
+  "pr",
+  "noPrReason",
+  "prHeadSha",
+  "prState",
+  "prIsDraft",
+  "prReadyForReview",
+  "lastOwnerHeartbeatAt",
+  "lastObservedAt",
+  "lastCommitAt",
+  "nextReviewAt",
+  "closeout"
+];
+const PR86_DELIVERY_WRITER_FIXED = {
+  "taskId": "SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+  "threadId": "01a07c1e-5127-7a20-ad15-c2558ce5a5f2",
+  "repo": "/Volumes/Starship/SENA",
+  "cwd": "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
+  "owner": "Codex SENA PR86 delivery closeout writer",
+  "ownerKey": "Codex-sena-pr86-delivery-closeout-20260907",
+  "ownerLane": "SENA-A01/A10/A11 delivery closeout",
+  "laneType": "feature",
+  "branch": "codex/sena-pr86-delivery-closeout-20260907",
+  "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
+  "baseSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  "allowedPaths": [
+    "coordination/repo-governance/active-work.json",
+    "scripts/verify-sena-repo-governance.mjs",
+    "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+  ],
+  "createdAt": "2026-09-07T14:25:43Z",
+  "expectedCloseAt": "owner-gated:pr86-delivery-protected-closeout",
+  "sensitivePaths": [],
+  "disposition": "active",
+  "freezeException": null
+};
+const PR86_DELIVERY_BRANCH_FIXED = {
+  "name": "codex/sena-pr86-delivery-closeout-20260907",
+  "owner": "Codex SENA PR86 delivery closeout writer",
+  "ownerKey": "Codex-sena-pr86-delivery-closeout-20260907",
+  "baseSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  "prBase": "main",
+  "prStateObservationMode": "monotonic",
+  "expectedCloseAt": "owner-gated:pr86-delivery-protected-closeout",
+  "disposition": "active"
+};
+
+let pr86DeliverySourceCache = null;
+function pr86DeliveryProtectedSource() {
+  if (!pr86DeliverySourceCache) {
+    if (protectedMainAdvanceObjectSha(`${PR86_DELIVERY_SOURCE}^{tree}`) !== PR86_DELIVERY_SOURCE_TREE ||
+        !sameJson(protectedMainAdvanceCommitParents(PR86_DELIVERY_SOURCE), [MOBILE_PILOT_SOURCE_MERGE, PR86_DELIVERY_REVIEWED_MOBILE])) {
+      throw new Error("rule=pr86-delivery-protected-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(`${PR86_DELIVERY_SOURCE}:${path}`);
+      if (blob !== PR86_DELIVERY_SOURCE_BLOBS[index] ||
+          sha256Buffer(git(["cat-file", "blob", blob]).stdout) !== PR86_DELIVERY_SOURCE_SHA256[index]) {
+        throw new Error("rule=pr86-delivery-protected-source-invalid");
+      }
+    }
+    const registry = protectedMainAdvanceRegistryFromCommit(PR86_DELIVERY_SOURCE);
+    validateMobilePilotSuccessorSnapshot(registry);
+    pr86DeliverySourceCache = registry;
+  }
+  return protectedActivationNativeStructuredClone(pr86DeliverySourceCache);
+}
+
+function pr86DeliveryItem(registry) {
+  return registry?.workItems?.find((item) => item?.taskId === PR86_DELIVERY_TASK);
+}
+
+export function validatePr86DeliveryCloseoutSnapshot(registry) {
+  try {
+    if (!pr85PlainJsonData(registry)) throw new Error();
+    const frozen = pr86DeliveryProtectedSource();
+    const observation = registry.pr86DeliveryCloseout;
+    if (!pr85ExactRecord(registry, [...Object.keys(frozen), "pr86DeliveryCloseout"]) ||
+        !isDeepStrictEqual(observation, PR86_DELIVERY_OBSERVATION) ||
+        !isIsoTimestamp(registry.updatedAt) || timestampIsInFuture(registry.updatedAt) ||
+        Date.parse(registry.updatedAt) < Date.parse(observation.observedAt) ||
+        registry.workItems.length !== frozen.workItems.length + 3 ||
+        registry.branches.length !== frozen.branches.length + 3) throw new Error();
+    const digest = (value) => sha256Buffer(Buffer.from(JSON.stringify(value)));
+    for (let index = 0; index < 2; index += 1) {
+      if (digest(registry.workItems[frozen.workItems.length + index]) !== PR86_DELIVERY_RETAINED_RECORD_HASHES[index][0] ||
+          digest(registry.branches[frozen.branches.length + index]) !== PR86_DELIVERY_RETAINED_RECORD_HASHES[index][1]) throw new Error();
+    }
+    const item = registry.workItems.at(-1);
+    const branch = registry.branches.at(-1);
+    for (const [record, fixed, fields] of [
+      [item, PR86_DELIVERY_WRITER_FIXED, PR86_DELIVERY_WRITER_FIELDS],
+      [branch, PR86_DELIVERY_BRANCH_FIXED, PR86_DELIVERY_BRANCH_FIELDS]
+    ]) {
+      if (!pr85ExactRecord(record, [...Object.keys(fixed), ...fields]) ||
+          !Object.entries(fixed).every(([key, value]) => isDeepStrictEqual(record[key], value))) throw new Error();
+    }
+    if (!mobilePilotOrdinaryDescendant(PR86_DELIVERY_SOURCE, item.headSha, PR86_DELIVERY_PATHS) ||
+        branch.headSha !== item.headSha ||
+        !sameJson(item.aheadBehind, { ...actualAheadBehind(item.headSha, PR86_DELIVERY_SOURCE), baseRef: "origin/main" }) ||
+        !pr85ExactRecord(item.evidenceState, ["local", "ci", "merged", "deployed", "live"]) ||
+        !Object.values(item.evidenceState).every((value) => typeof value === "string" && value.length > 0) ||
+        !/^(staged|active|clean)-pr86-delivery-closeout/.test(item.dirtyState) ||
+        typeof branch.closeout !== "string" || !branch.closeout ||
+        branch.lastCommitAt !== gitText(["show", "-s", "--format=%cI", item.headSha]).trim()) throw new Error();
+    for (const timestamp of [item.lastHeartbeatAt, item.lastObservedAt, branch.remoteObservedAt,
+      branch.lastOwnerHeartbeatAt, branch.lastObservedAt]) {
+      if (!isIsoTimestamp(timestamp) || timestampIsInFuture(timestamp) ||
+          Date.parse(timestamp) < Date.parse(observation.observedAt)) throw new Error();
+    }
+    if (item.lastObservedAt !== registry.updatedAt || branch.lastObservedAt !== item.lastObservedAt ||
+        branch.remoteObservedAt !== item.lastObservedAt || branch.lastOwnerHeartbeatAt !== item.lastHeartbeatAt ||
+        Date.parse(item.lastHeartbeatAt) > Date.parse(item.lastObservedAt) ||
+        !isIsoTimestamp(item.nextReviewAt) || Date.parse(item.nextReviewAt) <= Date.parse(item.lastObservedAt) ||
+        Date.parse(item.nextReviewAt) - Date.parse(item.lastObservedAt) > 72 * 60 * 60 * 1000 ||
+        branch.nextReviewAt !== item.nextReviewAt) throw new Error();
+    if (branch.remotePresent === true) {
+      if (branch.upstream !== `origin/${PR86_DELIVERY_BRANCH}` || branch.upstreamState !== "live" ||
+          branch.upstreamCacheState !== "present" ||
+          !mobilePilotOrdinaryDescendant(PR86_DELIVERY_SOURCE, branch.remoteHeadSha, PR86_DELIVERY_PATHS) ||
+          !mobilePilotOrdinaryDescendant(branch.remoteHeadSha, item.headSha, PR86_DELIVERY_PATHS)) throw new Error();
+    } else if (branch.remotePresent !== false || branch.remoteHeadSha !== null || branch.upstream !== null ||
+        branch.upstreamState !== "not-applicable" || branch.upstreamCacheState !== "not-applicable") throw new Error();
+    if (item.prNumber === null) {
+      if (typeof item.noPrReason !== "string" || !item.noPrReason || item.prState !== null || item.prHeadSha !== null ||
+          item.prIsDraft !== false || item.prReadyForReview !== false) throw new Error();
+    } else if (!Number.isInteger(item.prNumber) || item.prNumber <= 86 || !branch.remotePresent ||
+        item.noPrReason !== null || item.prHeadSha !== branch.remoteHeadSha ||
+        !["OPEN", "MERGED"].includes(item.prState) || typeof item.prIsDraft !== "boolean" ||
+        typeof item.prReadyForReview !== "boolean" ||
+        (item.prState === "OPEN" ? item.prReadyForReview !== !item.prIsDraft : item.prIsDraft || item.prReadyForReview)) throw new Error();
+    for (const [itemKey, branchKey] of [["prNumber", "pr"], ["noPrReason", "noPrReason"], ["prState", "prState"],
+      ["prHeadSha", "prHeadSha"], ["prIsDraft", "prIsDraft"], ["prReadyForReview", "prReadyForReview"]]) {
+      if (item[itemKey] !== branch[branchKey]) throw new Error();
+    }
+    // No original record, authority, owner heartbeat, rescue manifest or receipt
+    // is rewritten. The observation additions are the entire permitted delta.
+    const projected = protectedActivationNativeStructuredClone(registry);
+    projected.updatedAt = frozen.updatedAt;
+    delete projected.pr86DeliveryCloseout;
+    projected.workItems.splice(frozen.workItems.length);
+    projected.branches.splice(frozen.branches.length);
+    if (!isDeepStrictEqual(projected, frozen)) throw new Error();
+    return { sourceCommitSha: PR86_DELIVERY_SOURCE, historicalRegistry: frozen, bootstrapAuthorized: false };
+  } catch (cause) { throw new Error("rule=pr86-delivery-closeout-snapshot-invalid", { cause }); }
+}
+
+export function pr86DeliveryRetainedHostObservationAllowed(registry, taskId, facts) {
+  try {
+    validatePr86DeliveryCloseoutSnapshot(registry);
+    if (!registry.pr86DeliveryCloseout.retainedTaskIds.includes(taskId)) return false;
+    const item = registry.workItems.find((entry) => entry.taskId === taskId);
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: registry.repo, worktreePath: item.worktreePath,
+      gitDirectory: join(registry.repo, ".git", "worktrees", basename(item.worktreePath)),
+      gitCommonDirectory: join(registry.repo, ".git"), markerKind: "gitdir-file", markerValid: true, markerIsSymlink: false,
+      registeredWorktreePath: item.worktreePath, registeredBranch: item.branch, registeredHeadSha: item.headSha,
+      branch: item.branch, headSha: item.headSha,
+      indexEntriesSha256: item.preservationObservation.indexEntriesSha256,
+      dirtyStatusSha256: item.preservationObservation.dirtyStatusSha256, unstagedClean: true
+    });
+  } catch { return false; }
+}
+
+function appendPr86DeliveryRetainedCustodyErrors(registry, errors) {
+  if (!registry?.pr86DeliveryCloseout) return;
+  try { validatePr86DeliveryCloseoutSnapshot(registry); }
+  catch { errors.push("rule=pr86-delivery-closeout-snapshot-invalid"); return; }
+  for (const taskId of registry.pr86DeliveryCloseout.retainedTaskIds) {
+    try {
+      const item = registry.workItems.find((entry) => entry.taskId === taskId);
+      const marker = markerInfo(item.worktreePath);
+      const registered = parseWorktreeList().find((entry) => entry.path === item.worktreePath);
+      if (!registered || !marker.valid || lstatSync(join(item.worktreePath, ".git")).isSymbolicLink()) throw new Error();
+      const unsetEnv = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"];
+      const local = (args, allowFailure = false) => git([`--git-dir=${marker.target}`, `--work-tree=${item.worktreePath}`,
+        "-c", `core.worktree=${item.worktreePath}`, ...args], { unsetEnv, allowFailure });
+      const text = (args) => String(local(args).stdout ?? "").trim();
+      const facts = {
+        repo: realpathSync(CONTROL_ROOT), worktreePath: realpathSync(item.worktreePath),
+        gitDirectory: realpathSync(marker.target), gitCommonDirectory: text(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+        markerKind: marker.kind, markerValid: marker.valid, markerIsSymlink: false,
+        registeredWorktreePath: registered.path, registeredBranch: registered.branch, registeredHeadSha: registered.headSha,
+        branch: text(["symbolic-ref", "--quiet", "--short", "HEAD"]), headSha: text(["rev-parse", "HEAD"]),
+        indexEntriesSha256: sha256Buffer(local(["ls-files", "--stage", "-z"]).stdout),
+        dirtyStatusSha256: sha256Buffer(local(["status", "--porcelain=v1", "-z", "--untracked-files=all"]).stdout),
+        unstagedClean: local(["diff", "--quiet", "--"], true).status === 0
+      };
+      if (!pr86DeliveryRetainedHostObservationAllowed(registry, taskId, facts)) throw new Error();
+    } catch { errors.push(`rule=pr86-delivery-retained-custody-invalid task=${taskId}`); }
+  }
+}
+
+function pr86DeliveryHistoricalObservation(registry) {
+  return registry?.pr86DeliveryCloseout
+    ? validatePr86DeliveryCloseoutSnapshot(registry).historicalRegistry : registry;
+}
+
 export function validateMobilePilotSourceEvidence(registry, options = {}) {
+  if (registry?.pr86DeliveryCloseout) return validatePr86DeliverySourceEvidence(registry, options);
   // Git/provider proof only; native host activation also checks retained D physical custody.
   const { source } = validateMobilePilotSuccessorSnapshot(registry);
   if (protectedMainAdvanceObjectSha(`refs/heads/${POST_PR83_FORWARD_RELEASE_BRANCH}`) !== source.secondParentSha ||
@@ -12122,6 +12455,7 @@ export function mobilePilotRetainedSourceHostObservationAllowed(facts) {
 
 export function resolveMobilePilotRetainedSourceCustody(registry) {
   try {
+    registry = pr86DeliveryHistoricalObservation(registry);
     const { source } = validateMobilePilotSuccessorSnapshot(registry);
     if (!sameExistingPath(registry.repo, CONTROL_ROOT)) return null;
     const item = pr85IntegrationItem(source.mergeTimeRegistry);
@@ -12148,6 +12482,7 @@ export function resolveMobilePilotRetainedSourceCustody(registry) {
 }
 
 export function validatePostPr83CurrentnessCorrectionSnapshot(registry) {
+  registry = pr86DeliveryHistoricalObservation(registry);
   if (mobilePilotItem(registry)) {
     validateMobilePilotSuccessorSnapshot(registry);
     return postPr83CurrentnessLifecycle(registry);
@@ -13002,6 +13337,8 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
   };
   const branchOwners = new Map();
   for (const item of registry.workItems ?? []) {
+    const releaseDeadline = historicalReleaseDeadlines?.taskId === item.taskId ? historicalReleaseDeadlines
+      : historicalReleaseDeadlines?.closeout?.taskId === item.taskId ? historicalReleaseDeadlines.closeout : null;
     for (const key of [
       "taskId",
       "threadId",
@@ -13154,8 +13491,8 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
       branchOwners.set(item.branch, item.owner);
       const heartbeatAge = isIsoTimestamp(item.lastHeartbeatAt) ? ageHours(item.lastHeartbeatAt) : Number.POSITIVE_INFINITY;
       if (heartbeatAge > 72) {
-        if (historicalReleaseDeadlines?.taskId === item.taskId && historicalReleaseDeadlines.ownerHeartbeatExpired) {
-          warnings.push("mobile pilot owner heartbeat is historical in the verified read-only release checkout");
+        if (releaseDeadline?.ownerHeartbeatExpired) {
+          warnings.push(`${releaseDeadline.taskId === PR86_DELIVERY_TASK ? "PR86 closeout" : "mobile pilot"} owner heartbeat is historical in the verified read-only release checkout`);
         } else if (evidenceFlowObserverHeartbeatWarningAllowed(item)) {
           warnings.push(
             `active EvidenceFlow workItem observer heartbeat is older than 72 hours; owner heartbeat remains intentionally untouched`
@@ -13169,8 +13506,8 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
     }
     if (Date.parse(item.nextReviewAt) < Date.now()) {
       if (ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)) {
-        if (historicalReleaseDeadlines?.taskId === item.taskId && historicalReleaseDeadlines.workItemReviewExpired) {
-          warnings.push("mobile pilot workItem review deadline is historical in the verified read-only release checkout");
+        if (releaseDeadline?.workItemReviewExpired) {
+          warnings.push(`${releaseDeadline.taskId === PR86_DELIVERY_TASK ? "PR86 closeout" : "mobile pilot"} workItem review deadline is historical in the verified read-only release checkout`);
         } else if (evidenceFlowObserverHeartbeatWarningAllowed(item)) {
           warnings.push(
             "active EvidenceFlow workItem observer review is overdue; owner record remains intentionally untouched"
@@ -13289,6 +13626,8 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
 
   const branchNames = new Set();
   for (const branch of registry.branches ?? []) {
+    const releaseDeadline = historicalReleaseDeadlines?.branch === branch.name ? historicalReleaseDeadlines
+      : historicalReleaseDeadlines?.closeout?.branch === branch.name ? historicalReleaseDeadlines.closeout : null;
     if (
       !branch.name ||
       !branch.owner ||
@@ -13353,8 +13692,8 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
         const evidenceFlowItem = (registry.workItems ?? []).find(
           (item) => item?.branch === branch.name
         );
-        if (historicalReleaseDeadlines?.branch === branch.name && historicalReleaseDeadlines.branchReviewExpired) {
-          warnings.push("mobile pilot branch review deadline is historical in the verified read-only release checkout");
+        if (releaseDeadline?.branchReviewExpired) {
+          warnings.push(`${releaseDeadline.taskId === PR86_DELIVERY_TASK ? "PR86 closeout" : "mobile pilot"} branch review deadline is historical in the verified read-only release checkout`);
         } else if (evidenceFlowObserverHeartbeatWarningAllowed(evidenceFlowItem)) {
           warnings.push(
             "active EvidenceFlow branch observer review is overdue; owner record remains intentionally untouched"
@@ -15188,6 +15527,9 @@ function mobilePilotCurrentCheckoutMerge() {
 // Opaque proof identity, not a provider cache. No caller fields can mint a host proof.
 const MOBILE_PILOT_RELEASE_PROOF_BINDINGS = new WeakMap();
 function bindMobilePilotReleaseProof(proof, registry, level) {
+  if (proof.effectiveRole === "read-only-pr86-delivery-currentness") {
+    for (const value of Object.values(proof)) if (value && typeof value === "object") Object.freeze(value);
+  }
   const result = Object.freeze(proof);
   MOBILE_PILOT_RELEASE_PROOF_BINDINGS.set(result, {
     level, registryDigest: sha256Buffer(Buffer.from(JSON.stringify(registry)))
@@ -15204,7 +15546,15 @@ export function mobilePilotReleaseDeadlineObservations(registry, proof) {
     taskId: MOBILE_PILOT_TASK, branch: MOBILE_PILOT_BRANCH,
     ownerHeartbeatExpired: ageHours(item.lastHeartbeatAt) > 72,
     workItemReviewExpired: Date.parse(item.nextReviewAt) < Date.now(),
-    branchReviewExpired: Date.parse(branch.nextReviewAt) < Date.now()
+    branchReviewExpired: Date.parse(branch.nextReviewAt) < Date.now(),
+    ...(proof.sourceMergeCommitSha === PR86_DELIVERY_SOURCE && proof.closeoutReviewedHeadSha ? {
+      closeout: {
+        taskId: PR86_DELIVERY_TASK, branch: PR86_DELIVERY_BRANCH,
+        ownerHeartbeatExpired: ageHours(pr86DeliveryItem(registry).lastHeartbeatAt) > 72,
+        workItemReviewExpired: Date.parse(pr86DeliveryItem(registry).nextReviewAt) < Date.now(),
+        branchReviewExpired: Date.parse(registry.branches.find((entry) => entry.name === PR86_DELIVERY_BRANCH).nextReviewAt) < Date.now()
+      }
+    } : {})
   };
 }
 
@@ -15236,6 +15586,234 @@ export function resolveMobilePilotReleaseCommit(registry, headSha, options = {})
   } catch { return null; }
 }
 
+// A distinct currentness role permits P and exactly one reviewed governance-only
+// successor. The historical PR86 release resolver remains exact-P-only.
+function pr86DeliveryMergeDescriptor(mergeCommitSha) {
+  const orderedParentShas = protectedMainAdvanceCommitParents(mergeCommitSha);
+  return {
+    mergeTimeRegistry: protectedMainAdvanceRegistryFromCommit(mergeCommitSha),
+    mergeCommitSha, orderedParentShas, secondParentSha: orderedParentShas?.[1],
+    mergeTreeSha: protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`),
+    registryBlobSha: protectedMainAdvanceObjectSha(`${mergeCommitSha}:${REGISTRY_REPO_PATH}`)
+  };
+}
+
+export function validatePr86DeliveryProtectedMergeDescriptor(descriptor, options = {}) {
+  try {
+    const { mergeTimeRegistry, mergeCommitSha, orderedParentShas, secondParentSha, mergeTreeSha, registryBlobSha } = descriptor ?? {};
+    validatePr86DeliveryCloseoutSnapshot(mergeTimeRegistry);
+    const item = pr86DeliveryItem(mergeTimeRegistry);
+    if (!Number.isInteger(item.prNumber) || item.prNumber <= 86 ||
+        !sameJson(orderedParentShas, [PR86_DELIVERY_SOURCE, secondParentSha]) ||
+        !sameJson(protectedMainAdvanceCommitParents(mergeCommitSha), orderedParentShas) ||
+        secondParentSha === PR86_DELIVERY_SOURCE ||
+        !mobilePilotOrdinaryDescendant(PR86_DELIVERY_SOURCE, secondParentSha, PR86_DELIVERY_PATHS) ||
+        !mobilePilotOrdinaryDescendant(item.headSha, secondParentSha, PR86_DELIVERY_PATHS) ||
+        !sameStringSet(protectedMainAdvanceChangedPaths(PR86_DELIVERY_SOURCE, secondParentSha) ?? [], PR86_DELIVERY_PATHS) ||
+        protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !== mergeTreeSha ||
+        protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !== mergeTreeSha ||
+        protectedMainAdvanceObjectSha(`${mergeCommitSha}:${REGISTRY_REPO_PATH}`) !== registryBlobSha ||
+        protectedMainAdvanceObjectSha(`${secondParentSha}:${REGISTRY_REPO_PATH}`) !== registryBlobSha ||
+        !sameJson(protectedMainAdvanceRegistryFromCommit(secondParentSha), mergeTimeRegistry)) return false;
+    if (options.mergeTimeOnly === true) return true;
+    if (!sameJson(descriptor.currentObservationRegistry, mergeTimeRegistry) ||
+        protectedMainAdvanceObjectSha("origin/main^{commit}") !== mergeCommitSha) return false;
+    const evidence = validateProtectedFinalHeadLiveGitHubEvidence(descriptor, item.prNumber, PR86_DELIVERY_GITHUB_BINDING, options);
+    if (Array.isArray(options.ruleSuiteReceiptCollector)) options.ruleSuiteReceiptCollector.push(evidence.ruleSuiteReceipt);
+    return true;
+  } catch { return false; }
+}
+
+function protectedMainPr86DeliveryMergeTimeCandidate(descriptor, options) {
+  if (!validatePr86DeliveryProtectedMergeDescriptor(descriptor, { mergeTimeOnly: true })) return null;
+  return {
+    kind: "pr86-delivery-closeout", expectedPaths: PR86_DELIVERY_PATHS,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr86DeliveryProtectedMergeDescriptor({ ...descriptor, currentObservationRegistry }, options);
+    }
+  };
+}
+
+function validatePr86DeliverySourceEvidence(registry, options = {}) {
+  const { historicalRegistry } = validatePr86DeliveryCloseoutSnapshot(registry);
+  const source = pr86DeliveryMergeDescriptor(PR86_DELIVERY_SOURCE);
+  if (!sameJson(source.mergeTimeRegistry, historicalRegistry)) throw new Error("rule=pr86-delivery-protected-source-invalid");
+  // Exact protected P is the accepted historical authority boundary. Fresh P
+  // evidence is required; prior PR provider proofs remain unchanged in their
+  // historical APIs and are not recursively reinterpreted by this observer.
+  const evidence = validateProtectedFinalHeadLiveGitHubEvidence(source, 86, MOBILE_PILOT_GITHUB_BINDING, options);
+  if (Array.isArray(options.ruleSuiteReceiptCollector)) options.ruleSuiteReceiptCollector.push(evidence.ruleSuiteReceipt);
+  return evidence;
+}
+
+export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options = {}) {
+  try {
+    validatePr86DeliveryCloseoutSnapshot(registry);
+    if (!isSha(headSha) || protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha) return null;
+    validatePr86DeliverySourceEvidence(registry, options);
+    let treeSha = PR86_DELIVERY_SOURCE_TREE;
+    let closeoutReviewedHeadSha = null;
+    if (headSha !== PR86_DELIVERY_SOURCE) {
+      const successor = pr86DeliveryMergeDescriptor(headSha);
+      if (!validatePr86DeliveryProtectedMergeDescriptor({ ...successor, currentObservationRegistry: registry }, options)) return null;
+      treeSha = successor.mergeTreeSha;
+      closeoutReviewedHeadSha = successor.secondParentSha;
+    }
+    const liveMain = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+    if (liveMain?.ref !== "refs/heads/main" || liveMain.object?.sha !== headSha ||
+        protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha ||
+        protectedMainAdvanceObjectSha(`refs/remotes/origin/${MOBILE_PILOT_BRANCH}`) !== PR86_DELIVERY_REVIEWED_MOBILE) return null;
+    return bindMobilePilotReleaseProof({
+      taskId: MOBILE_PILOT_TASK, effectiveRole: "read-only-pr86-delivery-currentness",
+      mergeCommitSha: headSha, sourceMergeCommitSha: PR86_DELIVERY_SOURCE,
+      reviewedHeadSha: PR86_DELIVERY_REVIEWED_MOBILE, treeSha, closeoutReviewedHeadSha,
+      sourceWritesAuthorized: false, pushAuthorized: false
+    }, registry, "commit");
+  } catch { return null; }
+}
+
+function pr86DeliveryCurrentProofMatches(registry, proof) {
+  const binding = MOBILE_PILOT_RELEASE_PROOF_BINDINGS.get(proof);
+  return Boolean(binding && proof.effectiveRole === "read-only-pr86-delivery-currentness" &&
+    binding.registryDigest === sha256Buffer(Buffer.from(JSON.stringify(registry))) &&
+    protectedMainAdvanceObjectSha("origin/main^{commit}") === proof.mergeCommitSha);
+}
+
+export function validatePr86DeliveryWriterCurrentness(registry, options = {}) {
+  try {
+    validatePr86DeliveryCloseoutSnapshot(registry);
+    const localSourceCurrent = () => gitText(["symbolic-ref", "--quiet", "--short", "HEAD"]).trim() === PR86_DELIVERY_BRANCH &&
+      protectedMainAdvanceObjectSha("origin/main^{commit}") === PR86_DELIVERY_SOURCE &&
+      mobilePilotOrdinaryDescendant(PR86_DELIVERY_SOURCE, protectedMainAdvanceObjectSha("HEAD^{commit}"), PR86_DELIVERY_PATHS);
+    if (!localSourceCurrent()) return false;
+    const live = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+    return live?.ref === "refs/heads/main" && live.object?.sha === PR86_DELIVERY_SOURCE && localSourceCurrent();
+  } catch { return false; }
+}
+
+// The carrier is private to a single runAudit invocation. This predicate never
+// promotes a caller receipt or a commit-only proof into physical host evidence.
+export function pr86DeliveryAuditObservationProofAllowed(registry, toSha, context) {
+  try {
+    if (!pr85ExactRecord(context, ["active", "proof"]) || context.active !== true) return false;
+    const proof = context.proof;
+    const binding = MOBILE_PILOT_RELEASE_PROOF_BINDINGS.get(proof);
+    return Boolean(binding?.level === "host" && pr86DeliveryCurrentProofMatches(registry, proof) &&
+      proof.sourceMergeCommitSha === PR86_DELIVERY_SOURCE && proof.mergeCommitSha === toSha &&
+      proof.hostObservation && proof.retainedSourceCustody &&
+      (toSha === PR86_DELIVERY_SOURCE || proof.closeoutCustody));
+  } catch { return false; }
+}
+
+export function pr86DeliveryReadOnlyHeadObservationAllowed(registry, proof, branchName, observedHeadSha) {
+  try {
+    if (!pr86DeliveryCurrentProofMatches(registry, proof)) return false;
+    const expected = branchName === MOBILE_PILOT_BRANCH ? proof.reviewedHeadSha
+      : branchName === PR86_DELIVERY_BRANCH ? proof.closeoutReviewedHeadSha : null;
+    return isSha(expected) && observedHeadSha === expected &&
+      protectedMainAdvanceObjectSha(`refs/remotes/origin/${branchName}`) === expected;
+  } catch { return false; }
+}
+
+export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostProof, options = {}) {
+  try {
+    if (!pr86DeliveryAuditObservationProofAllowed(registry, initialHostProof?.mergeCommitSha,
+      { active: true, proof: initialHostProof })) return null;
+    // Fresh latest-attempt CI, annotations, actual merge/ruleset and physical
+    // custody are mandatory at this final barrier, independently of earlier reuse.
+    const refreshed = resolveMobilePilotReleaseVerification(registry, PR86_DELIVERY_SOURCE, options);
+    if (!pr86DeliveryAuditObservationProofAllowed(registry, initialHostProof.mergeCommitSha,
+      { active: true, proof: refreshed })) return null;
+    const lanes = [[MOBILE_PILOT_BRANCH, 86, PR86_DELIVERY_SOURCE]];
+    if (refreshed.closeoutReviewedHeadSha) lanes.push([PR86_DELIVERY_BRANCH, pr86DeliveryItem(registry).prNumber, refreshed.mergeCommitSha]);
+    for (const [branch, prNumber, mergeSha] of lanes) {
+      const remote = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${branch}`, options.githubTransport);
+      const pr = postPr83GithubApiJson(`repos/HUDongpin/SENA/pulls/${prNumber}`, options.githubTransport);
+      if (remote?.ref !== `refs/heads/${branch}` ||
+          !pr86DeliveryReadOnlyHeadObservationAllowed(registry, refreshed, branch, remote.object?.sha) ||
+          pr?.number !== prNumber || pr.state !== "closed" || pr.merged !== true || pr.draft !== false ||
+          pr.merge_commit_sha !== mergeSha || pr.head?.ref !== branch || pr.head?.repo?.full_name !== "HUDongpin/SENA" ||
+          pr.base?.ref !== "main" || pr.base?.repo?.full_name !== "HUDongpin/SENA" ||
+          !pr86DeliveryReadOnlyHeadObservationAllowed(registry, refreshed, branch, pr.head?.sha)) return null;
+    }
+    const liveMain = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+    if (liveMain?.ref !== "refs/heads/main" || liveMain.object?.sha !== refreshed.mergeCommitSha ||
+        protectedMainAdvanceObjectSha("origin/main^{commit}") !== refreshed.mergeCommitSha) return null;
+    // Reobserve physical HEAD/index/source after the final remote reads without
+    // reusing mutable provider responses or retaining a context across commands.
+    const context = { active: true, proof: refreshed };
+    try {
+      return resolveMobilePilotReleaseVerification(registry, PR86_DELIVERY_SOURCE, { [PR86_DELIVERY_AUDIT_CONTEXT]: context });
+    } finally { context.active = false; }
+  } catch { return null; }
+}
+
+export function pr86DeliveryRetainedMainAdvanceAllowed(registry, taskId, actualHeadSha, observed, proof) {
+  try {
+    if (!pr86DeliveryCurrentProofMatches(registry, proof) || !registry.pr86DeliveryCloseout.retainedTaskIds.includes(taskId)) return false;
+    const item = registry.workItems.find((entry) => entry.taskId === taskId);
+    return actualHeadSha === item.headSha && sameJson(observed, {
+      ...actualAheadBehind(actualHeadSha, proof.mergeCommitSha), baseRef: "origin/main"
+    });
+  } catch { return false; }
+}
+
+export function pr86DeliveryCloseoutRetainedHostObservationAllowed(registry, proof, facts) {
+  try {
+    if (!pr86DeliveryCurrentProofMatches(registry, proof) || !isSha(proof.closeoutReviewedHeadSha)) return false;
+    const item = pr86DeliveryItem(registry);
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: registry.repo, worktreePath: item.worktreePath,
+      gitDirectory: join(registry.repo, ".git", "worktrees", basename(item.worktreePath)),
+      gitCommonDirectory: join(registry.repo, ".git"), markerKind: "gitdir-file", markerValid: true, markerIsSymlink: false,
+      registeredWorktreePath: item.worktreePath, registeredBranch: item.branch, registeredHeadSha: proof.mergeCommitSha,
+      branch: item.branch, headSha: proof.mergeCommitSha, headTreeSha: proof.treeSha, indexTreeSha: proof.treeSha,
+      sourceClean: true, cachedNamedRemoteSha: proof.closeoutReviewedHeadSha
+    });
+  } catch { return false; }
+}
+
+function resolvePr86DeliveryCloseoutRetainedCustody(registry, proof) {
+  try {
+    const item = pr86DeliveryItem(registry);
+    const marker = markerInfo(item.worktreePath);
+    const registered = parseWorktreeList().find((entry) => entry.path === item.worktreePath);
+    if (!marker.valid || !registered || lstatSync(join(item.worktreePath, ".git")).isSymbolicLink()) return null;
+    const unsetEnv = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"];
+    const local = (args, allowFailure = false) => git([`--git-dir=${marker.target}`, `--work-tree=${item.worktreePath}`,
+      "-c", `core.worktree=${item.worktreePath}`, ...args], { unsetEnv, allowFailure });
+    const text = (args) => String(local(args).stdout ?? "").trim();
+    const facts = {
+      repo: realpathSync(CONTROL_ROOT), worktreePath: realpathSync(item.worktreePath),
+      gitDirectory: realpathSync(marker.target), gitCommonDirectory: text(["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+      markerKind: marker.kind, markerValid: marker.valid, markerIsSymlink: false,
+      registeredWorktreePath: registered.path, registeredBranch: registered.branch, registeredHeadSha: registered.headSha,
+      branch: text(["symbolic-ref", "--quiet", "--short", "HEAD"]), headSha: text(["rev-parse", "HEAD"]),
+      headTreeSha: text(["rev-parse", "HEAD^{tree}"]),
+      indexTreeSha: local(["diff-index", "--cached", "--quiet", proof.mergeCommitSha, "--"], true).status === 0 ? proof.treeSha : null,
+      sourceClean: text(["status", "--porcelain=v1", "--untracked-files=all"]) === "",
+      cachedNamedRemoteSha: protectedMainAdvanceObjectSha(`refs/remotes/origin/${PR86_DELIVERY_BRANCH}`)
+    };
+    return pr86DeliveryCloseoutRetainedHostObservationAllowed(registry, proof, facts) ? facts : null;
+  } catch { return null; }
+}
+
+// Denial is Git-derived and does not depend on provider availability or on the
+// mutable active record. A merged one-shot writer can never replay its grant.
+function pr86DeliveryCommittedCloseout(branchName) {
+  if (branchName !== PR86_DELIVERY_BRANCH) return null;
+  const main = protectedMainAdvanceObjectSha("origin/main^{commit}");
+  if (!main || !gitObjectExists(`${PR86_DELIVERY_SOURCE}^{commit}`)) return null;
+  const chain = protectedMainAdvanceGitText(["rev-list", "--first-parent", "--reverse", `${PR86_DELIVERY_SOURCE}..${main}`]);
+  const first = chain?.split("\n")[0];
+  return first && validatePr86DeliveryProtectedMergeDescriptor(pr86DeliveryMergeDescriptor(first), { mergeTimeOnly: true }) ? first : null;
+}
+
+function pr86DeliveryCurrentCheckoutMerged() {
+  const branch = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
+  return pr86DeliveryCommittedCloseout(String(branch.stdout ?? "").trim());
+}
+
 export function mobilePilotReleaseHostObservationAllowed(facts) {
   const keys = ["repo", "worktreePath", "gitDirectory", "gitCommonDirectory", "branch", "localHeadSha", "registeredHeadSha",
     "rootMainSha", "rootBranch", "rootHeadSha", "rootSourceClean", "cachedMainSha", "liveMainSha", "mergeCommitSha", "headTreeSha", "indexTreeSha", "reviewedHeadSha", "cachedNamedRemoteSha", "sourceClean"];
@@ -15249,15 +15827,38 @@ export function mobilePilotReleaseHostObservationAllowed(facts) {
     facts.indexTreeSha === facts.headTreeSha && facts.cachedNamedRemoteSha === facts.reviewedHeadSha);
 }
 
+export function pr86DeliveryMobileRetainedHostObservationAllowed(registry, proof, facts) {
+  try {
+    if (!pr86DeliveryCurrentProofMatches(registry, proof)) return false;
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: registry.repo, worktreePath: MOBILE_PILOT_WORKTREE,
+      gitDirectory: join(registry.repo, ".git", "worktrees", basename(MOBILE_PILOT_WORKTREE)),
+      gitCommonDirectory: join(registry.repo, ".git"), branch: MOBILE_PILOT_BRANCH,
+      localHeadSha: PR86_DELIVERY_SOURCE, registeredHeadSha: PR86_DELIVERY_SOURCE,
+      rootMainSha: proof.mergeCommitSha, rootBranch: "main", rootHeadSha: proof.mergeCommitSha, rootSourceClean: true,
+      cachedMainSha: proof.mergeCommitSha, liveMainSha: proof.mergeCommitSha, mergeCommitSha: proof.mergeCommitSha,
+      headTreeSha: PR86_DELIVERY_SOURCE_TREE, indexTreeSha: PR86_DELIVERY_SOURCE_TREE,
+      reviewedHeadSha: PR86_DELIVERY_REVIEWED_MOBILE, cachedNamedRemoteSha: PR86_DELIVERY_REVIEWED_MOBILE, sourceClean: true
+    });
+  } catch { return false; }
+}
+
 export function resolveMobilePilotReleaseVerification(registry, headSha, options = {}) {
   try {
     const item = mobilePilotItem(registry);
     if (!item || !sameExistingPath(registry.repo, CONTROL_ROOT) || !sameExistingPath(item.worktreePath, MOBILE_PILOT_WORKTREE)) return null;
-    const proof = resolveMobilePilotReleaseCommit(registry, headSha, options);
+    const internalContext = options[PR86_DELIVERY_AUDIT_CONTEXT];
+    const proof = registry?.pr86DeliveryCloseout
+      ? (headSha !== PR86_DELIVERY_SOURCE ? null : Object.hasOwn(options, PR86_DELIVERY_AUDIT_CONTEXT)
+          ? (pr86DeliveryAuditObservationProofAllowed(registry, protectedMainAdvanceObjectSha("origin/main^{commit}"), internalContext) ? internalContext.proof : null)
+          : resolvePr86DeliveryCurrentnessCommit(registry, protectedMainAdvanceObjectSha("origin/main^{commit}"), options))
+      : resolveMobilePilotReleaseCommit(registry, headSha, options);
     if (!proof) return null;
     // Collect all physical facts after the potentially slow provider proof.
     const retainedSourceCustody = resolveMobilePilotRetainedSourceCustody(registry);
     if (!retainedSourceCustody) return null;
+    const closeoutCustody = proof.closeoutReviewedHeadSha ? resolvePr86DeliveryCloseoutRetainedCustody(registry, proof) : null;
+    if (proof.closeoutReviewedHeadSha && !closeoutCustody) return null;
     const marker = markerInfo(item.worktreePath);
     const registered = parseWorktreeList().find((entry) => sameExistingPath(entry.path, item.worktreePath));
     if (!marker.valid || registered?.branch !== MOBILE_PILOT_BRANCH) return null;
@@ -15275,12 +15876,14 @@ export function resolveMobilePilotReleaseVerification(registry, headSha, options
       rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"), cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
       liveMainSha: proof.mergeCommitSha, mergeCommitSha: proof.mergeCommitSha,
       headTreeSha: localText(["rev-parse", "HEAD^{tree}"]),
-      indexTreeSha: local(["diff-index", "--cached", "--quiet", headSha, "--"], true).status === 0 ? proof.treeSha : null,
+      indexTreeSha: local(["diff-index", "--cached", "--quiet", headSha, "--"], true).status === 0
+        ? (proof.sourceMergeCommitSha ? PR86_DELIVERY_SOURCE_TREE : proof.treeSha) : null,
       reviewedHeadSha: proof.reviewedHeadSha, cachedNamedRemoteSha: protectedMainAdvanceObjectSha(`refs/remotes/origin/${MOBILE_PILOT_BRANCH}`),
       sourceClean: localText(["status", "--porcelain=v1", "--untracked-files=all"]) === ""
     };
-    return mobilePilotReleaseHostObservationAllowed(facts)
-      ? bindMobilePilotReleaseProof({ ...proof, hostObservation: facts, retainedSourceCustody }, registry, "host") : null;
+    return (proof.sourceMergeCommitSha ? pr86DeliveryMobileRetainedHostObservationAllowed(registry, proof, facts)
+      : mobilePilotReleaseHostObservationAllowed(facts))
+      ? bindMobilePilotReleaseProof({ ...proof, hostObservation: facts, retainedSourceCustody, ...(proof.sourceMergeCommitSha ? { closeoutCustody } : {}) }, registry, "host") : null;
   } catch { return null; }
 }
 
@@ -15295,8 +15898,37 @@ export function protectedMainMergeTimeCandidateResolution(
     protectedMainPr83HistoricalMergeTimeCandidate(descriptor),
     protectedMainPostPr83CurrentnessMergeTimeCandidate(descriptor, options),
     protectedMainPr85IntegrationMergeTimeCandidate(descriptor, options),
-    protectedMainMobilePilotMergeTimeCandidate(descriptor, options)
+    protectedMainMobilePilotMergeTimeCandidate(descriptor, options),
+    protectedMainPr86DeliveryMergeTimeCandidate(descriptor, options)
   ]);
+}
+
+function pr86DeliveryProtectedObservationAdvance(registry, fromSha, toSha, options) {
+  const rejected = (rule) => ({ allowed: false, rule, mergeCommitShas: [], failedCommitSha: isSha(toSha) ? toSha : null });
+  try {
+    const { historicalRegistry } = validatePr86DeliveryCloseoutSnapshot(registry);
+    const root = historicalRegistry.workItems.find((item) => item.branch === "main");
+    const main = historicalRegistry.branches.find((branch) => branch.name === "main");
+    // Only inherited origins explicitly present in frozen P can use this
+    // observer. Unknown older ancestors cannot borrow the protected anchor.
+    const inheritedOrigins = new Set([PR86_DELIVERY_SOURCE, root.headSha, main.remoteHeadSha,
+      ...historicalRegistry.workItems.map((item) => item.protectedMainBaselineSha).filter(isSha)]);
+    if (!inheritedOrigins.has(fromSha)) return rejected("pr86-delivery-unknown-historical-origin");
+    if (git(["merge-base", "--is-ancestor", fromSha, PR86_DELIVERY_SOURCE], { allowFailure: true }).status !== 0) {
+      return rejected("pr86-delivery-historical-origin-mismatch");
+    }
+    const receipts = [];
+    const context = options[PR86_DELIVERY_AUDIT_CONTEXT];
+    const proof = Object.hasOwn(options, PR86_DELIVERY_AUDIT_CONTEXT)
+      ? (pr86DeliveryAuditObservationProofAllowed(registry, toSha, context) ? context.proof : null)
+      : resolvePr86DeliveryCurrentnessCommit(registry, toSha, { ...options, ruleSuiteReceiptCollector: receipts });
+    if (!proof) return rejected("pr86-delivery-currentness-evidence-invalid");
+    const chain = fromSha === toSha ? [] : protectedMainAdvanceGitText([
+      "rev-list", "--first-parent", "--reverse", `${fromSha}..${toSha}`])?.split("\n").filter(Boolean);
+    if (!chain) return rejected("pr86-delivery-currentness-git-read-failed");
+    return { allowed: true, rule: null, mergeCommitShas: chain, failedCommitSha: null,
+      protectedSourceAnchor: PR86_DELIVERY_SOURCE, postPr83RuleSuiteReceipts: receipts };
+  } catch { return rejected("pr86-delivery-currentness-evidence-invalid"); }
 }
 
 export function protectedMainAdvanceChainResolution(
@@ -15305,6 +15937,9 @@ export function protectedMainAdvanceChainResolution(
   toSha,
   options = {}
 ) {
+  if (currentObservationRegistry?.pr86DeliveryCloseout) {
+    return pr86DeliveryProtectedObservationAdvance(currentObservationRegistry, fromSha, toSha, options);
+  }
   const validated = [];
   const postPr83RuleSuiteReceipts = [];
   const resolutionOptions = {
@@ -15472,15 +16107,17 @@ export function integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
   item,
   actualHeadSha,
   currentObservationRegistry,
-  { live = false, githubTransport = null } = {}
+  options = {}
 ) {
+  const { live = false, githubTransport = null } = options;
   return integratedReadOnlyRootRegistryAdvanceAllowed(
     item,
     actualHeadSha,
     currentObservationRegistry,
     {
       exactHistoricalProtectedMainObservation: live !== true,
-      githubTransport
+      githubTransport,
+      ...(Object.hasOwn(options, PR86_DELIVERY_AUDIT_CONTEXT) ? { [PR86_DELIVERY_AUDIT_CONTEXT]: options[PR86_DELIVERY_AUDIT_CONTEXT] } : {})
     }
   );
 }
@@ -15490,7 +16127,8 @@ export function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(
   actualHeadSha,
   observed,
   branchRecord,
-  currentObservationRegistry
+  currentObservationRegistry,
+  options = {}
 ) {
   const recorded = item?.aheadBehind;
   if (
@@ -15529,7 +16167,8 @@ export function integratedReadOnlyRootRemoteRegistryAdvanceAllowed(
   return protectedMainAdvanceChainResolution(
     currentObservationRegistry,
     item.headSha,
-    remoteMainSha
+    remoteMainSha,
+    options
   ).allowed;
 }
 
@@ -15539,6 +16178,81 @@ function sha256File(path) {
 
 function fileModeIsOwnerOnly(path) {
   return (statSync(path).mode & 0o077) === 0;
+}
+
+function pr86FixtureIdentity(path) {
+  const info = lstatSync(path, { bigint: true });
+  return { mode: Number(info.mode), inode: String(info.ino), mtimeNs: String(info.mtimeNs) };
+}
+
+// This inventory is repository custody evidence, separate from application schemas.
+// A matching caller inventory alone grants no role; the admission wrapper below
+// first requires the fixed registry observation and exact manifest file bytes.
+export function pr86PreservedTestFixtureInventoryMatches(manifest) {
+  try {
+    if (!pr85ExactRecord(manifest, ["schemaVersion", "root", "rootIdentity", "entryCount", "entries"]) ||
+        manifest.schemaVersion !== "sena-pr86-retained-test-fixture-inventory/v1" ||
+        typeof manifest.root !== "string" || realpathSync(manifest.root) !== manifest.root ||
+        !lstatSync(manifest.root).isDirectory() || lstatSync(manifest.root).isSymbolicLink() ||
+        !isDeepStrictEqual(pr86FixtureIdentity(manifest.root), manifest.rootIdentity) ||
+        !Array.isArray(manifest.entries) || manifest.entryCount !== manifest.entries.length) return false;
+    const observed = [];
+    const walk = (directory) => {
+      for (const name of readdirSync(directory)) {
+        const path = join(directory, name);
+        const info = lstatSync(path, { bigint: true });
+        const entry = { path: relative(manifest.root, path), ...pr86FixtureIdentity(path), size: Number(info.size) };
+        if (info.isSymbolicLink()) observed.push({ ...entry, kind: "symlink", target: readlinkSync(path) });
+        else if (info.isDirectory()) { observed.push({ ...entry, kind: "directory" }); walk(path); }
+        else if (info.isFile()) observed.push({ ...entry, kind: "file", sha256: sha256File(path) });
+        else throw new Error("unexpected retained fixture entry type");
+        if (!isDeepStrictEqual(pr86FixtureIdentity(path), {
+          mode: entry.mode, inode: entry.inode, mtimeNs: entry.mtimeNs
+        })) throw new Error("retained fixture entry changed while reading");
+      }
+    };
+    walk(manifest.root);
+    observed.sort((left, right) => Buffer.compare(Buffer.from(left.path), Buffer.from(right.path)));
+    return isDeepStrictEqual(observed, manifest.entries) &&
+      isDeepStrictEqual(pr86FixtureIdentity(manifest.root), manifest.rootIdentity);
+  } catch { return false; }
+}
+
+export function pr86DeliveryPreservedTestFixtureAllowed(registry, marker) {
+  try {
+    validatePr86DeliveryCloseoutSnapshot(registry);
+    const binding = registry.pr86DeliveryCloseout.preservedTestFixtureObservation;
+    if (!pr85ExactRecord(marker, ["path", "markerPath", "kind", "valid"]) ||
+        marker.path !== binding.repoPath || marker.markerPath !== join(binding.repoPath, ".git") ||
+        marker.kind !== "directory" || marker.valid !== true ||
+        binding.repoPath !== join(binding.rootPath, "repo") || realpathSync(binding.repoPath) !== binding.repoPath ||
+        lstatSync(marker.markerPath).isSymbolicLink() || !lstatSync(marker.markerPath).isDirectory() ||
+        existsSync(join(marker.markerPath, "commondir")) || existsSync(join(marker.markerPath, "objects/info/alternates")) ||
+        readFileSync(join(marker.markerPath, "HEAD"), "utf8").trim() !== binding.fixtureHeadSha ||
+        lstatSync(binding.manifestPath).isSymbolicLink() || !lstatSync(binding.manifestPath).isFile() ||
+        realpathSync(binding.manifestPath) !== binding.manifestPath || !fileModeIsOwnerOnly(binding.manifestPath)) return false;
+    const bytes = readFileSync(binding.manifestPath);
+    if (sha256Buffer(bytes) !== binding.manifestSha256) return false;
+    const manifest = JSON.parse(bytes.toString("utf8"));
+    return manifest.root === binding.rootPath && pr86PreservedTestFixtureInventoryMatches(manifest);
+  } catch { return false; }
+}
+
+export function pr86DeliveryOrphanInstructionObservationAllowed(registry, orphanPath, expected, observed) {
+  try {
+    validatePr86DeliveryCloseoutSnapshot(registry);
+    const binding = registry.pr86DeliveryCloseout.orphanInstructionObservation;
+    if (orphanPath !== binding.orphanPath ||
+        !isDeepStrictEqual(expected, { relativePath: binding.relativePath, type: "file", size: binding.beforeSize, sha256: binding.beforeSha256 }) ||
+        !isDeepStrictEqual(observed, { relativePath: binding.relativePath, type: "file", size: binding.afterSize, sha256: binding.afterSha256 }) ||
+        !lstatSync(binding.patchRecordPath).isFile() || lstatSync(binding.patchRecordPath).isSymbolicLink() ||
+        realpathSync(binding.patchRecordPath) !== binding.patchRecordPath || sha256File(binding.patchRecordPath) !== binding.patchRecordSha256) return false;
+    const record = JSON.parse(readFileSync(binding.patchRecordPath, "utf8"));
+    const matches = record.modified_instructions?.filter((entry) => entry.path ===
+      ".worktrees/sena-human-ai-research-docs/sena-hk-template/vendor/sna-js/AGENTS.md");
+    return record.scope === "Astra instruction audit fixes only" && matches?.length === 1 &&
+      matches[0].before_sha256 === binding.beforeSha256 && matches[0].after_sha256 === binding.afterSha256;
+  } catch { return false; }
 }
 
 function verifyOrphanInventorySnapshot(inventoryReport, registry, errors) {
@@ -15575,7 +16289,10 @@ function verifyOrphanInventorySnapshot(inventoryReport, registry, errors) {
         errors.push(`orphan path is no longer a regular file or symlink: ${safePathForLog(candidate.relativePath)}`);
         continue;
       }
-      if (observedSha !== expected.sha256 || info.size !== expected.size) {
+      if ((observedSha !== expected.sha256 || info.size !== expected.size) &&
+          !pr86DeliveryOrphanInstructionObservationAllowed(registry, orphan.path,
+            { relativePath: candidate.relativePath, type: expected.type, size: expected.size, sha256: expected.sha256 },
+            { relativePath: candidate.relativePath, type: info.isSymbolicLink() ? "symlink" : "file", size: info.size, sha256: observedSha })) {
         errors.push(`orphan path changed since inventory: ${safePathForLog(candidate.relativePath)}`);
       }
     }
@@ -15921,7 +16638,11 @@ function runAudit(flags) {
   }
   const mobileHead = protectedMainAdvanceObjectSha(`refs/heads/${MOBILE_PILOT_BRANCH}`);
   const mobileMerge = mobilePilotProtectedMergeAncestor(mobileHead, MOBILE_PILOT_BRANCH);
-  const mobileRelease = mobileMerge ? resolveMobilePilotReleaseVerification(registry, mobileHead) : null;
+  let mobileRelease = mobileMerge ? resolveMobilePilotReleaseVerification(registry, mobileHead) : null;
+  const auditContext = registry.pr86DeliveryCloseout ? { active: true, proof: mobileRelease } : null;
+  const observationOptions = auditContext ? { [PR86_DELIVERY_AUDIT_CONTEXT]: auditContext } : {};
+  const readOnlyReleaseTasks = new Set([...(mobileRelease ? [mobileRelease.taskId] : []),
+    ...(mobileRelease?.closeoutCustody ? [PR86_DELIVERY_TASK] : [])]);
   const validation = validateMobilePilotHostAuditRegistry(registry, mobileRelease);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   const registered = parseWorktreeList();
@@ -15955,7 +16676,8 @@ function runAudit(flags) {
     if (!marker.valid && !registryOrphans.has(path)) errors.push(`unregistered invalid .git pointer: ${path}`);
     if (!marker.valid && registryOrphans.has(path)) warnings.push(`preserved invalid .git pointer: ${path}`);
     if (marker.valid && !registeredPaths.has(path) && !registryOrphans.has(path)) {
-      errors.push(`valid disk worktree marker is absent from Git registry and governance registry: ${path}`);
+      if (pr86DeliveryPreservedTestFixtureAllowed(registry, marker)) warnings.push(`preserved read-only test fixture: ${path}`);
+      else errors.push(`valid disk worktree marker is absent from Git registry and governance registry: ${path}`);
     }
   }
   for (const orphan of registry.orphanWorktrees ?? []) {
@@ -15996,17 +16718,17 @@ function runAudit(flags) {
     }
     const branchItem = (registry.workItems ?? []).find((item) => item.branch === branchRecord.name);
     const activeItem =
-      branchItem && ACTIVE_WRITE_DISPOSITIONS.has(branchItem.disposition) && branchItem.taskId !== mobileRelease?.taskId ? branchItem : null;
+      branchItem && ACTIVE_WRITE_DISPOSITIONS.has(branchItem.disposition) && !readOnlyReleaseTasks.has(branchItem.taskId) ? branchItem : null;
     const integratedRootRegistryAdvance =
       branchItem?.headSha === branchRecord.headSha &&
       integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
         branchItem,
         actual.headSha,
         registry,
-        { live: flags.has("live") }
+        { live: flags.has("live"), ...observationOptions }
       );
     if (actual.headSha !== branchRecord.headSha && !activeItem && !integratedRootRegistryAdvance &&
-        !(mobileRelease && branchItem?.taskId === mobileRelease.taskId)) {
+        !readOnlyReleaseTasks.has(branchItem?.taskId)) {
       errors.push(`branch head differs from registry: ${branchRecord.name}`);
     }
     if ((actual.upstream ?? null) !== (branchRecord.upstream ?? null)) {
@@ -16020,7 +16742,8 @@ function runAudit(flags) {
 
   for (const item of registry.workItems ?? []) {
     const isMobileRelease = item.taskId === mobileRelease?.taskId;
-    const isActive = ACTIVE_WRITE_DISPOSITIONS.has(item.disposition) && !isMobileRelease;
+    const isReadOnlyRelease = readOnlyReleaseTasks.has(item.taskId);
+    const isActive = ACTIVE_WRITE_DISPOSITIONS.has(item.disposition) && !isReadOnlyRelease;
     if (externalPreservationRecordAllowed(item)) {
       const registered = registeredByPath.get(canonicalExistingPath(item.worktreePath));
       for (const reason of inspectExternalPreservation(item, registered)) {
@@ -16087,12 +16810,14 @@ function runAudit(flags) {
       item,
       actual.headSha,
       registry,
-      { live: flags.has("live") }
+      { live: flags.has("live"), ...observationOptions }
     );
     if (actual.headSha !== item.headSha) {
       const advance = scopedWorkItemAdvance(item, actual.headSha);
       const unexpected = advance.laneChangedPaths.filter((path) => !pathIsAllowed(path, item.allowedPaths));
-      if (isMobileRelease) {
+      if (isReadOnlyRelease && !isMobileRelease) {
+        warnings.push(`PR86 closeout writer is retained read-only after its one protected merge: ${item.taskId}`);
+      } else if (isMobileRelease) {
         warnings.push(`mobile pilot effective role is read-only-release-verification at its exact protected merge: ${item.taskId}`);
       } else if (integratedRootRegistryAdvance) {
         warnings.push(`integrated read-only root absorbed a protected-main registry-only advance: ${item.taskId}`);
@@ -16110,13 +16835,16 @@ function runAudit(flags) {
       actual.headSha,
       observed,
       registryBranches.get(item.branch),
-      registry
+      registry,
+      observationOptions
     );
     if (!observed) {
       errors.push(`ahead/behind base is unavailable: ${item.taskId} base=${item.aheadBehind.baseRef}`);
     } else if (observed.ahead !== item.aheadBehind.ahead || observed.behind !== item.aheadBehind.behind) {
-      if (isMobileRelease) {
-        // Exact root, cached/live main, checkout and index equality was independently derived above.
+      if (isReadOnlyRelease) {
+        // Exact release/root custody was independently derived above.
+      } else if (pr86DeliveryRetainedMainAdvanceAllowed(registry, item.taskId, actual.headSha, observed, mobileRelease)) {
+        warnings.push(`retained owner observation advanced only behind the verified PR86 closeout main: ${item.taskId}`);
       } else if (isActive) warnings.push(`active workItem ahead/behind advanced since heartbeat: ${item.taskId}`);
       else if (
         protectedLaneMainAdvanceObservationAllowed(
@@ -16125,7 +16853,8 @@ function runAudit(flags) {
           observed,
           registry,
           {
-            exactHistoricalProtectedMainObservation: !flags.has("live")
+            exactHistoricalProtectedMainObservation: !flags.has("live"),
+            ...observationOptions
           }
         )
       ) {
@@ -16161,6 +16890,7 @@ function runAudit(flags) {
 
   if (flags.has("pre-commit") || flags.has("pre-push")) {
     if (mobilePilotCurrentCheckoutMerge()) errors.push("mobile pilot release-verification checkout is read-only and cannot be pushed");
+    if (pr86DeliveryCurrentCheckoutMerged()) errors.push("PR86 closeout checkout is read-only after its one protected merge");
     const currentWorktree = registeredByPath.get(canonicalExistingPath(REPO_ROOT));
     const currentItem = workItemsByPath.get(canonicalExistingPath(REPO_ROOT));
     const currentBranchRecord = currentWorktree?.branch ? registryBranches.get(currentWorktree.branch) : null;
@@ -16212,7 +16942,8 @@ function runAudit(flags) {
         POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
         liveMainSha,
         {
-          ruleSuiteReceipt: postPr83RuleSuiteReceiptFromEnvironment()
+          ruleSuiteReceipt: postPr83RuleSuiteReceiptFromEnvironment(),
+          ...observationOptions
         }
       );
       postPr83RuleSuiteReceipts =
@@ -16232,7 +16963,8 @@ function runAudit(flags) {
                 POST_PR83_CURRENTNESS_SOURCE_HEAD_SHA,
                 liveMainSha,
                 {
-                  ruleSuiteReceipt: postPr83RuleSuiteReceiptFromEnvironment()
+                  ruleSuiteReceipt: postPr83RuleSuiteReceiptFromEnvironment(),
+                  ...observationOptions
                 }
               )).allowed
           : git(["merge-base", "--is-ancestor", recordedIncidentMainSha, liveMainSha], { allowFailure: true }).status === 0)
@@ -16265,14 +16997,18 @@ function runAudit(flags) {
     }
     for (const branchRecord of registry.branches ?? []) {
       const liveHeadSha = liveRefMap.get(`refs/heads/${branchRecord.name}`) ?? null;
+      const releaseItem = registry.workItems.find((item) => item.branch === branchRecord.name);
+      const readOnlyObservation = Boolean(registry.pr86DeliveryCloseout && readOnlyReleaseTasks.has(releaseItem?.taskId));
+      const readOnlyHeadMatches = readOnlyObservation && pr86DeliveryReadOnlyHeadObservationAllowed(registry, mobileRelease, branchRecord.name, liveHeadSha);
+      if (readOnlyObservation && !readOnlyHeadMatches) errors.push(`read-only release remote head differs from verified proof: ${branchRecord.name}`);
       const activeItem = (registry.workItems ?? []).find(
         (item) => item.branch === branchRecord.name && ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)
       );
       if (branchRecord.remotePresent) {
         if (!liveHeadSha) errors.push(`registry expects a live remote branch that is absent: ${branchRecord.name}`);
-        else if (liveHeadSha !== branchRecord.remoteHeadSha) {
+        else if (liveHeadSha !== branchRecord.remoteHeadSha && !readOnlyHeadMatches) {
           const isPermittedForwardAdvance = Boolean(
-            activeItem &&
+            !readOnlyObservation && activeItem &&
             permittedActiveAdvance(branchRecord.remoteHeadSha, liveHeadSha, activeItem)
           );
           const protectedMainLowerBound = Boolean(
@@ -16285,7 +17021,8 @@ function runAudit(flags) {
               ? protectedMainAdvanceChainResolution(
                   registry,
                   branchRecord.remoteHeadSha,
-                  liveHeadSha
+                  liveHeadSha,
+                  observationOptions
                 ).allowed
               : git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0)
           );
@@ -16322,16 +17059,20 @@ function runAudit(flags) {
         const activeItem = (registry.workItems ?? []).find(
           (item) => item.branch === branchRecord.name && ACTIVE_WRITE_DISPOSITIONS.has(item.disposition)
         );
-        const recordedHeadMatches = Boolean(
-          branchRecord.prHeadSha && pr.headRefOid === branchRecord.prHeadSha
+        const releaseItem = registry.workItems.find((item) => item.branch === branchRecord.name);
+        const readOnlyObservation = Boolean(registry.pr86DeliveryCloseout && readOnlyReleaseTasks.has(releaseItem?.taskId));
+        const readOnlyHeadMatches = readOnlyObservation && pr86DeliveryReadOnlyHeadObservationAllowed(registry, mobileRelease, branchRecord.name, pr.headRefOid);
+        if (readOnlyObservation && !readOnlyHeadMatches) errors.push(`read-only release PR head differs from verified proof: #${branchRecord.pr}`);
+        const recordedHeadMatches = Boolean(readOnlyHeadMatches ||
+          (branchRecord.prHeadSha && pr.headRefOid === branchRecord.prHeadSha)
         );
         const isPermittedForwardAdvance = Boolean(
-          branchRecord.prHeadSha &&
+          !readOnlyObservation && branchRecord.prHeadSha &&
             !recordedHeadMatches &&
             activeItem &&
             permittedActiveAdvance(branchRecord.prHeadSha, pr.headRefOid, activeItem)
         );
-        if (branchRecord.prHeadSha && pr.headRefOid !== branchRecord.prHeadSha) {
+        if (branchRecord.prHeadSha && pr.headRefOid !== branchRecord.prHeadSha && !readOnlyHeadMatches) {
           if (isPermittedForwardAdvance) {
             warnings.push(`active PR head advanced beyond its last observed SHA: #${branchRecord.pr}`);
           } else {
@@ -16365,6 +17106,20 @@ function runAudit(flags) {
     }
   }
 
+  if (auditContext) {
+    auditContext.active = false;
+    if (errors.length === 0) {
+      const finalReceipts = [];
+      const finalProof = resolvePr86DeliveryFinalAuditVerification(registry, mobileRelease, { ruleSuiteReceiptCollector: finalReceipts });
+      if (!finalProof) errors.push("rule=pr86-delivery-final-audit-currentness-invalid");
+      else {
+        mobileRelease = finalProof;
+        postPr83RuleSuiteReceipts = finalReceipts;
+        appendHostPhysicalCustodyErrors(registry, errors);
+      }
+    }
+  }
+
   const report = {
     schemaVersion: "sena-repo-governance-audit/v1",
     generatedAt: new Date().toISOString(),
@@ -16378,7 +17133,7 @@ function runAudit(flags) {
     rescueRefCount: rescueRefs.length,
     unreachableCommitCount: unreachableCommits.length,
     activeWriterCount: validation.activeWriterCount,
-    effectiveActiveWriterCount: validation.activeWriterCount - (mobileRelease ? 1 : 0),
+    effectiveActiveWriterCount: validation.activeWriterCount - readOnlyReleaseTasks.size,
     mobilePilotReleaseVerification: mobileRelease,
     postPr83RuleSuiteReceiptCustody: {
       mode: "external-task-output-not-repo-persistence",
