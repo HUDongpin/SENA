@@ -10,7 +10,8 @@ import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
 import {
   jenaRuntimeDependencySpec,
   jenaRuntimeExpectedDependencySpec,
-  senaRuntimeProvenance,
+  senaRuntimeProvenanceFor,
+  assertSenaNumericalRuntime,
   snaRuntimeDependencySpec,
   snaRuntimeExpectedDependencySpec
 } from "./runtime-constants";
@@ -158,6 +159,10 @@ export function buildSenaRuntimeConsistencyAudit({
   enaManifest: SenaEnaManifest;
   snaManifest: SenaSnaManifest;
 }): SenaRuntimeConsistencyAudit {
+  const senaRuntimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
+  assertSenaNumericalRuntime(enaManifest.options?.numericalRuntime);
+  const profileMatches = enaManifest.options?.numericalRuntime === model.options.numericalRuntime;
+  const deterministic = model.options.numericalRuntime !== undefined;
   const codedSegments = model.dataset.coded_segments;
   const expectedEnaUnits = uniqueCount(codedSegments.map((segment) => segment.personId));
   const expectedEnaConversations = uniqueCount(codedSegments.map((segment) => `${segment.unitId}::${segment.stanzaId}`));
@@ -204,11 +209,13 @@ export function buildSenaRuntimeConsistencyAudit({
     item(
       "jena-api-surface",
       "jENA JavaScript API surface",
-      sameStrings(senaRuntimeProvenance.enaRuntime.apiSurface, ["ena()"]),
-      "jena-js ena() is the ENA runtime API recorded for report manifests",
+      profileMatches && sameStrings(senaRuntimeProvenance.enaRuntime.apiSurface, deterministic
+        ? ["buildSenaDeterministicEnaSet()", "accumulateData()", "makeSet()", "projectIn()", "senaDeterministicEnaCorrelations()"]
+        : ["ena()"]),
+      deterministic ? "SENA deterministic adapter and public jena-js pipeline match the model numericalRuntime" : "jena-js ena() is the ENA runtime API recorded for report manifests",
       senaRuntimeProvenance.enaRuntime.apiSurface.join(", ") || "none",
       [
-        "import=ena from jena-js",
+        deterministic ? "adapter=lib/sena/deterministic-ena.ts; public pipeline from jena-js" : "import=ena from jena-js",
         "source=lib/sena/ena-manifest.ts",
         `runtimeRole=${senaRuntimeProvenance.enaRuntime.runtimeRole}`
       ]
@@ -225,7 +232,7 @@ export function buildSenaRuntimeConsistencyAudit({
         jenaRenaParity.coverage.includes("nodePositions") &&
         (jenaRenaParity.sample.units ?? 0) > 0 &&
         (jenaRenaParity.sample.codes ?? 0) > 0,
-      "Bundled rENA fixture parity covers line weights, connection counts, variance, unit points, and node positions for jENA development-time validation",
+      deterministic ? "Separate adapter tests reuse bundled rENA fixtures with conditional 2D variance; complete-basis variance and exact replay are checked separately" : "Bundled rENA fixture parity covers line weights, connection counts, variance, unit points, and node positions for jENA development-time validation",
       jenaRenaParity
         ? `fixture=${jenaRenaParity.fixturePath}; units=${jenaRenaParity.sample.units ?? "NA"}; codes=${jenaRenaParity.sample.codes ?? "NA"}; coverage=${jenaRenaParity.coverage.join("|")}`
         : "missing jENA rENA parity fixture evidence",

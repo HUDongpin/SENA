@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 import {
   mkdtempSync,
   mkdirSync,
@@ -6133,8 +6134,81 @@ describe("SENA repository governance", () => {
   // The 2026-09-05 successful audit took 304s with two bounded GET retries; keep a finite local margin.
   }, 420_000);
 
+  it.each([
+    { name: "a newly forbidden path", paths: ["allowed.ts", "forbidden.ts"], rule: "staged-path-outside-commit-registry-allowlist" },
+    { name: "an index emptied during proof", paths: [], rule: "empty-staged-index-not-authorized" },
+    { name: "an unchanged allowed set", paths: ["allowed.ts"], rule: null }
+  ])("rechecks staged paths after proof: $name", ({ paths, rule }) => {
+    // Exercise the real decision function with controlled successful proof and
+    // changing Git observations. Native-hook tests remain integration evidence.
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("function runWritePolicy(flags) {");
+    const end = source.indexOf("\nfunction isIsoTimestamp(", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    let staged = ["allowed.ts"];
+    let proofCalls = 0;
+    let stdout = "";
+    let stderr = "";
+    const childProcess = {
+      exitCode: 0,
+      stdout: { write: (value: string) => { stdout += value; } },
+      stderr: { write: (value: string) => { stderr += value; } }
+    };
+    const item = { worktreePath: "/fixture", branch: "codex/fixture", disposition: "active", ownerKey: "fixture-owner", allowedPaths: ["allowed.ts"] };
+    const registry = { workItems: [item], branches: [{ name: item.branch, disposition: item.disposition, ownerKey: item.ownerKey }] };
+    runInNewContext(`${source.slice(start, end)}\nrunWritePolicy(flags);`, {
+      flags: new Set(["registry-from-index", "staged"]),
+      process: childProcess,
+      REPO_ROOT: "/fixture",
+      ACTIVE_WRITE_DISPOSITIONS: new Set(["active"]),
+      stagedChangedPaths: () => [...staged],
+      mobilePilotCurrentCheckoutMerge: () => null,
+      loadRegistryForFlags: () => ({ parsed: registry }),
+      validateRegistry: () => ({ errors: [] }),
+      appendHostPhysicalCustodyErrors: () => {},
+      mobilePilotItem: () => item,
+      validateMobilePilotSourceEvidence: () => { proofCalls += 1; staged = [...paths]; },
+      validatePr80RepairIndexTransition: () => false,
+      validateEvidenceFlowCurrentnessIndexTransition: () => false,
+      validateProtectedCurrentnessRepairIndexTransition: () => false,
+      validatePostPr83CurrentnessIndexTransition: () => false,
+      git: () => ({ status: 0, stdout: item.branch }),
+      gitText: () => "",
+      sameExistingPath: (left: string, right: string) => left === right,
+      pathIsAllowed: (file: string, allowed: string[]) => allowed.includes(file),
+      addFinding: (findings: Record<string, string>[], finding: Record<string, string>) => findings.push(finding),
+      safePathForLog: (value: string) => value,
+      safeSourceForLog: (value: string) => value
+    });
+    expect(proofCalls).toBe(1);
+    expect(childProcess.exitCode).toBe(rule ? 1 : 0);
+    if (rule) expect(stderr).toContain(`rule=${rule}`);
+    else expect(stdout).toContain("SENA_WRITE_POLICY pass staged=1");
+  });
+
   it("does not let an empty copied candidate index authorize another worktree", () => {
     const root = temporaryRoot("candidate-index-isolation");
+    const providerAttempt = join(root, "provider-attempt");
+    const denyProviderPreload = join(root, "deny-provider.cjs");
+    // An unconditional empty-index rejection must not depend on live GitHub.
+    // Instrument only the external-process boundary in this isolated child.
+    writeFileSync(denyProviderPreload, `
+const cp = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+for (const method of ["spawnSync", "execFileSync"]) {
+  const original = cp[method];
+  cp[method] = function (file, ...args) {
+    if (path.basename(String(file)) === "gh") {
+      fs.writeFileSync(${JSON.stringify(providerAttempt)}, "attempted", { mode: 0o600 });
+      throw new Error("Isolated test refuses provider access for an empty index.");
+    }
+    return Reflect.apply(original, this, [file, ...args]);
+  };
+}
+require("node:module").syncBuiltinESMExports();
+`);
     const sourceIndex = runGit(projectRoot, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
     const candidateIndex = join(root, "candidate-index");
     const sourceIndexSha256 = sha256File(sourceIndex);
@@ -6149,33 +6223,17 @@ describe("SENA repository governance", () => {
       "--registry-from-index",
       "--staged"
     ], {
-      env: { GIT_INDEX_FILE: candidateIndex, GIT_OPTIONAL_LOCKS: "0" }
+      env: {
+        GIT_INDEX_FILE: candidateIndex,
+        GIT_OPTIONAL_LOCKS: "0",
+        NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${denyProviderPreload}`].filter(Boolean).join(" ")
+      }
     });
     expect(result.status, result.stderr).toBe(1);
-    const indexedLifecycleStatus = JSON.parse(runGit(projectRoot, [
-      "show",
-      "HEAD:coordination/repo-governance/active-work.json"
-    ])).workItems.find(
-      (entry: { taskId?: string }) => entry.taskId === POST_PR83_TASK_FOR_TEST
-    )?.postPr83CurrentnessCorrectionLifecycle?.status;
-    const expectedEmptyIndexFailure = [
-        "three-path-post-pr83-currentness-correction-push-draft-readiness-fix-candidate",
-        "three-path-post-pr83-currentness-correction-quality-security-fix-candidate",
-        "three-path-post-pr83-currentness-correction-clean-context-fixture-fix-candidate",
-        "three-path-post-pr83-currentness-correction-build-ci-typescript-fix-candidate",
-        "three-path-post-pr83-currentness-correction-final-heartbeat-audit-exception-fix-candidate",
-        "three-path-post-pr83-currentness-correction-observer-overdue-test-fix-candidate",
-        "three-path-post-pr83-currentness-correction-stdin-hang-test-fix-candidate",
-        "registry-only-post-pr83-currentness-correction-final-candidate"
-      ].includes(indexedLifecycleStatus);
-    expect(
-      expectedEmptyIndexFailure
-        ? [
-            "rule=empty-staged-index-not-authorized",
-            "index registry snapshot is invalid"
-          ].some((message) => result.stderr.includes(message))
-        : result.stderr.includes("index registry snapshot is invalid")
-    ).toBe(true);
+    expect({
+      emptyIndexRejected: result.stderr.includes("rule=empty-staged-index-not-authorized"),
+      providerAttempted: existsSync(providerAttempt)
+    }).toEqual({ emptyIndexRejected: true, providerAttempted: false });
     expect(sha256File(sourceIndex)).toBe(sourceIndexSha256);
 
     const realGitDirectory = runGit(projectRoot, [
@@ -7490,19 +7548,8 @@ describe("SENA repository governance", () => {
       { env: emptyBootstrapEnvironment }
     );
     expect(emptyBootstrapWritePolicy.status).toBe(1);
-    const finalSourceReviewIsOverdue = [
-      ...(finalSourceRegistry.workItems ?? []),
-      ...(finalSourceRegistry.branches ?? [])
-    ].some(
-      (entry: { nextReviewAt?: string }) =>
-        typeof entry.nextReviewAt === "string" &&
-        Date.parse(entry.nextReviewAt) < Date.now()
-    );
-    expect(emptyBootstrapWritePolicy.stderr).toContain(
-      finalSourceReviewIsOverdue
-        ? "index registry snapshot is invalid"
-        : "rule=empty-staged-index-not-authorized"
-    );
+    // Empty staged sets are rejected before historical registry freshness.
+    expect(emptyBootstrapWritePolicy.stderr).toContain("rule=empty-staged-index-not-authorized");
     const completionEvidence = {
       headSha: bootstrapHeadSha,
       treeSha: bootstrapTreeSha,
@@ -13367,6 +13414,156 @@ function mobileGitHubTransportForTest(fixture: any) {
 }
 
 describe("mobile pilot enrollment", () => {
+  it("accepts only the selected deterministic numerical runtime scope", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?deterministic-scope=${Date.now()}`);
+    const registry = mobilePilotRegistryForTest();
+    const historical = structuredClone(registry);
+    registry.workItems.at(-1).allowedPaths.push(
+      "sena-hk-template/lib/sena/snapshot.ts",
+      "sena-hk-template/lib/sena/snapshot-restore.ts",
+      "sena-hk-template/lib/sena/project-handoff.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-cross-engine-roundtrip.test.ts"
+    );
+    const snapshotScope = structuredClone(registry);
+    const numericalPaths = [
+      "sena-hk-template/lib/sena/deterministic-numerics.ts",
+      "sena-hk-template/lib/sena/deterministic-ena.ts",
+      "sena-hk-template/lib/sena/deterministic-numerics.NOTICE",
+      "sena-hk-template/lib/sena/__tests__/deterministic-numerics.test.ts",
+      "sena-hk-template/lib/sena/__tests__/deterministic-ena.test.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-runtime-compatibility.test.ts",
+      "sena-hk-template/lib/sena/model.ts",
+      "sena-hk-template/lib/sena/operators.ts",
+      "sena-hk-template/lib/sena/ena-manifest.ts",
+      "sena-hk-template/lib/sena/temporal-runtime.ts",
+      "sena-hk-template/lib/sena/report.ts",
+      "sena-hk-template/lib/sena/types.ts",
+      "sena-hk-template/lib/sena/analytical-input-validation.ts",
+      "sena-hk-template/lib/sena/runtime-constants.ts",
+      "sena-hk-template/lib/sena/method-protocol.ts",
+      "sena-hk-template/lib/sena/publication-figure.ts",
+      "sena-hk-template/components/sena/workspace/use-sena-fusion-workspace-main-shell-props.ts",
+      "sena-hk-template/components/sena/workspace/use-project-snapshot-restore-action.ts",
+      "docs/adr/0012-deterministic-numerical-runtime.md",
+      "sena-hk-template/lib/sena/runtime-consistency.ts",
+      "sena-hk-template/lib/sena/development-plan.ts",
+      "sena-hk-template/lib/sena/review-packet.ts",
+      "sena-hk-template/lib/sena/inference.ts",
+      "sena-hk-template/lib/sena/enterprise/heavy-request-admission.ts",
+      "sena-hk-template/lib/sena/data-contract-audit.ts",
+      "sena-hk-template/components/sena/workspace/use-enterprise-import-actions.ts",
+      "sena-hk-template/components/sena/workspace/enterprise-actions.ts",
+      "sena-hk-template/lib/sena/schema-registry.ts",
+      "sena-hk-template/lib/sena/__tests__/schema-registry.test.ts",
+      "sena-hk-template/next.config.mjs"
+    ];
+    registry.workItems.at(-1).allowedPaths.push(...numericalPaths);
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(historical)).not.toThrow();
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(snapshotScope)).not.toThrow();
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(registry)).not.toThrow();
+    for (const path of ["sena-hk-template/lib/sena/canonical-json.ts", "sena-hk-template/package.json", "sena-hk-template/package-lock.json", ".github/workflows/build-gate.yml"]) {
+      const copy = structuredClone(registry);
+      copy.workItems.at(-1).allowedPaths.push(path);
+      expect(() => governance.validateMobilePilotSuccessorSnapshot(copy)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    }
+    const partial = structuredClone(snapshotScope);
+    partial.workItems.at(-1).allowedPaths.push(numericalPaths[0]);
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(partial)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    const withoutRequiredConsumers = structuredClone(registry);
+    withoutRequiredConsumers.workItems.at(-1).allowedPaths = withoutRequiredConsumers.workItems.at(-1).allowedPaths.slice(0, 39);
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(withoutRequiredConsumers)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    const withoutImportTransport = structuredClone(registry);
+    withoutImportTransport.workItems.at(-1).allowedPaths = withoutImportTransport.workItems.at(-1).allowedPaths.slice(0, 45);
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(withoutImportTransport)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    for (const count of [47, 48, 49]) {
+      const withoutCompleteSchemaScope = structuredClone(registry);
+      withoutCompleteSchemaScope.workItems.at(-1).allowedPaths = withoutCompleteSchemaScope.workItems.at(-1).allowedPaths.slice(0, count);
+      expect(() => governance.validateMobilePilotSuccessorSnapshot(withoutCompleteSchemaScope)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    }
+    for (const mutation of ["reorder", "duplicate"]) {
+      const malformed = structuredClone(registry);
+      const paths = malformed.workItems.at(-1).allowedPaths;
+      if (mutation === "reorder") [paths[47], paths[48]] = [paths[48], paths[47]];
+      else paths.push(paths[48]);
+      expect(() => governance.validateMobilePilotSuccessorSnapshot(malformed)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    }
+    expect(registry.workItems.at(-1).allowedPaths).toHaveLength(50);
+  });
+  it("accepts the authorized snapshot repair scope without widening historical or unrelated lanes", async () => {
+    const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-snapshot-scope=${Date.now()}`);
+    const historical = mobilePilotRegistryForTest();
+    const registry = structuredClone(historical);
+    const extraPaths = [
+      "sena-hk-template/lib/sena/snapshot.ts",
+      "sena-hk-template/lib/sena/snapshot-restore.ts",
+      "sena-hk-template/lib/sena/project-handoff.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-cross-engine-roundtrip.test.ts"
+    ];
+    registry.workItems.at(-1).allowedPaths.push(...extraPaths);
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(historical)).not.toThrow();
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(registry)).not.toThrow();
+    for (const path of [
+      "sena-hk-template/lib/sena/model.ts", "sena-hk-template/lib/sena/canonical-json.ts",
+      "sena-hk-template/lib/sena/ena-manifest.ts", "sena-hk-template/package.json",
+      ".github/workflows/build-gate.yml"
+    ]) {
+      const widened = structuredClone(registry);
+      widened.workItems.at(-1).allowedPaths.push(path);
+      expect(() => governance.validateMobilePilotSuccessorSnapshot(widened), path).toThrow("rule=mobile-pilot-snapshot-invalid");
+    }
+    const partial = structuredClone(historical);
+    partial.workItems.at(-1).allowedPaths.push(extraPaths[0]);
+    expect(() => governance.validateMobilePilotSuccessorSnapshot(partial)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    for (const key of ["mergeAuthorized", "readyAuthorized", "deploymentAuthorized"]) {
+      const authority = structuredClone(registry);
+      authority.workItems.at(-1)[key] = true;
+      expect(() => governance.validateMobilePilotSuccessorSnapshot(authority)).toThrow("rule=mobile-pilot-snapshot-invalid");
+    }
+    const projected = structuredClone(registry);
+    projected.workItems.at(-1).allowedPaths = historical.workItems.at(-1).allowedPaths;
+    expect(projected).toEqual(historical);
+  });
+
+  it("binds snapshot repair successors to their exact scope and retains reverted path violations", async () => {
+    const fixture = await createMobilePilotFixture();
+    const item = fixture.registry.workItems.at(-1);
+    const branch = fixture.registry.branches.at(-1);
+    item.allowedPaths.push(
+      "sena-hk-template/lib/sena/snapshot.ts",
+      "sena-hk-template/lib/sena/snapshot-restore.ts",
+      "sena-hk-template/lib/sena/project-handoff.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
+      "sena-hk-template/lib/sena/__tests__/snapshot-cross-engine-roundtrip.test.ts"
+    );
+    const snapshotPath = "sena-hk-template/lib/sena/snapshot.ts";
+    writeFileSync(join(fixture.root, snapshotPath), `${readFileSync(join(fixture.root, snapshotPath), "utf8")}\n// Isolated authorized-path fixture.\n`);
+    runGit(fixture.root, ["add", snapshotPath]);
+    runGit(fixture.root, ["commit", "-q", "-m", "snapshot repair path fixture"]);
+    const observeHead = () => {
+      item.headSha = runGit(fixture.root, ["rev-parse", "HEAD"]);
+      item.aheadBehind.ahead = Number(runGit(fixture.root, ["rev-list", "--count", `${MOBILE_SOURCE_FOR_TEST}..HEAD`]));
+      branch.headSha = item.headSha;
+      branch.lastCommitAt = runGit(fixture.root, ["show", "-s", "--format=%cI", item.headSha]);
+    };
+    observeHead();
+    expect(() => fixture.governance.validateMobilePilotSuccessorSnapshot(fixture.registry)).not.toThrow();
+    const historicalScope = structuredClone(fixture.registry);
+    historicalScope.workItems.at(-1).allowedPaths = [...MOBILE_PATHS_FOR_TEST];
+    expect(() => fixture.governance.validateMobilePilotSuccessorSnapshot(historicalScope)).toThrow("rule=mobile-pilot-snapshot-invalid");
+
+    const outsidePath = "sena-hk-template/lib/sena/operators.ts";
+    const original = readFileSync(join(fixture.root, outsidePath), "utf8");
+    writeFileSync(join(fixture.root, outsidePath), `${original}\n// Isolated out-of-scope fixture.\n`);
+    runGit(fixture.root, ["add", outsidePath]);
+    runGit(fixture.root, ["commit", "-q", "-m", "out-of-scope history fixture"]);
+    writeFileSync(join(fixture.root, outsidePath), original);
+    runGit(fixture.root, ["add", outsidePath]);
+    runGit(fixture.root, ["commit", "-q", "-m", "restore fixture bytes without rewriting history"]);
+    observeHead();
+    expect(() => fixture.governance.validateMobilePilotSuccessorSnapshot(fixture.registry)).toThrow("rule=mobile-pilot-snapshot-invalid");
+  }, 120_000);
   it("requires the retained D physical checkout in addition to its refs", async () => {
     const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-retained-d=${Date.now()}`);
     const sourceHead = runGit(projectRoot, ["rev-parse", `${MOBILE_SOURCE_FOR_TEST}^2`]);

@@ -1807,6 +1807,14 @@ function runWritePolicy(flags) {
     throw new Error("write-policy requires --registry-from-index --staged");
   }
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
+  // An empty index can never authorize a write. Reject locally before registry
+  // and provider proof; the Git-only release denial above keeps precedence.
+  if (stagedChangedPaths().length === 0) {
+    process.stderr.write("SENA_WRITE_POLICY blocked path=index rule=empty-staged-index-not-authorized source=write-policy\n");
+    process.stderr.write("SENA_WRITE_POLICY blocked findingCount=1; registrySource=index\n");
+    process.exitCode = 1;
+    return;
+  }
   const { parsed: registry } = loadRegistryForFlags(flags);
   const validation = validateRegistry(registry);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
@@ -1820,6 +1828,8 @@ function runWritePolicy(flags) {
   );
 
   const findings = [];
+  // Proof may take time. Preserve the original final observation point rather
+  // than authorizing from the early empty-index preflight's stale path list.
   const stagedPaths = stagedChangedPaths();
   const branchResult = git(["symbolic-ref", "--quiet", "--short", "HEAD"], { allowFailure: true });
   const branchName = branchResult.status === 0 ? String(branchResult.stdout).trim() : null;
@@ -1837,11 +1847,7 @@ function runWritePolicy(flags) {
   const expectedRef = branchName ? `refs/heads/${branchName}` : "detached-head";
 
   if (stagedPaths.length === 0) {
-    addFinding(findings, {
-      path: "index",
-      rule: "empty-staged-index-not-authorized",
-      source: "write-policy"
-    });
+    addFinding(findings, { path: "index", rule: "empty-staged-index-not-authorized", source: "write-policy" });
   }
   if (!branchName || !currentItem || !branchRecord) {
     addFinding(findings, { path: expectedRef, rule: "index-writer-unregistered", source: "write-policy" });
@@ -11865,6 +11871,58 @@ const MOBILE_PILOT_RELEASE_POLICY = Object.freeze({
   pushAuthorized: false, retainNamedRemoteAtReviewedHead: true
 });
 
+// Explicit owner-approved snapshot repair extension. Retain the original list
+// for historical enrollment snapshots; neither list grants merge or deployment.
+const MOBILE_PILOT_SNAPSHOT_REPAIR_PATHS = [
+  ...MOBILE_PILOT_PATHS,
+  "sena-hk-template/lib/sena/snapshot.ts",
+  "sena-hk-template/lib/sena/snapshot-restore.ts",
+  "sena-hk-template/lib/sena/project-handoff.ts",
+  "sena-hk-template/lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
+  "sena-hk-template/lib/sena/__tests__/snapshot-cross-engine-roundtrip.test.ts"
+];
+
+// Selected deterministic-runtime design, fixed before numerical implementation.
+// Package manifests, node_modules, global comparator and workflows stay excluded.
+const MOBILE_PILOT_DETERMINISTIC_PATHS = [
+  ...MOBILE_PILOT_SNAPSHOT_REPAIR_PATHS,
+  "sena-hk-template/lib/sena/deterministic-numerics.ts",
+  "sena-hk-template/lib/sena/deterministic-ena.ts",
+  "sena-hk-template/lib/sena/deterministic-numerics.NOTICE",
+  "sena-hk-template/lib/sena/__tests__/deterministic-numerics.test.ts",
+  "sena-hk-template/lib/sena/__tests__/deterministic-ena.test.ts",
+  "sena-hk-template/lib/sena/__tests__/snapshot-runtime-compatibility.test.ts",
+  "sena-hk-template/lib/sena/model.ts",
+  "sena-hk-template/lib/sena/operators.ts",
+  "sena-hk-template/lib/sena/ena-manifest.ts",
+  "sena-hk-template/lib/sena/temporal-runtime.ts",
+  "sena-hk-template/lib/sena/report.ts",
+  "sena-hk-template/lib/sena/types.ts",
+  "sena-hk-template/lib/sena/analytical-input-validation.ts",
+  "sena-hk-template/lib/sena/runtime-constants.ts",
+  "sena-hk-template/lib/sena/method-protocol.ts",
+  "sena-hk-template/lib/sena/publication-figure.ts",
+  "sena-hk-template/components/sena/workspace/use-sena-fusion-workspace-main-shell-props.ts",
+  "sena-hk-template/components/sena/workspace/use-project-snapshot-restore-action.ts",
+  "docs/adr/0012-deterministic-numerical-runtime.md",
+  "sena-hk-template/lib/sena/runtime-consistency.ts",
+  "sena-hk-template/lib/sena/development-plan.ts",
+  "sena-hk-template/lib/sena/review-packet.ts",
+  "sena-hk-template/lib/sena/inference.ts",
+  "sena-hk-template/lib/sena/enterprise/heavy-request-admission.ts",
+  "sena-hk-template/lib/sena/data-contract-audit.ts",
+  "sena-hk-template/components/sena/workspace/use-enterprise-import-actions.ts",
+  "sena-hk-template/components/sena/workspace/enterprise-actions.ts",
+  "sena-hk-template/lib/sena/schema-registry.ts",
+  "sena-hk-template/lib/sena/__tests__/schema-registry.test.ts",
+  "sena-hk-template/next.config.mjs"
+];
+
+function mobilePilotAllowedPaths(item) {
+  return [MOBILE_PILOT_PATHS, MOBILE_PILOT_SNAPSHOT_REPAIR_PATHS, MOBILE_PILOT_DETERMINISTIC_PATHS]
+    .find((paths) => isDeepStrictEqual(item?.allowedPaths, paths)) ?? null;
+}
+
 function mobilePilotItem(registry) {
   return (registry?.workItems ?? []).find((item) => item?.taskId === MOBILE_PILOT_TASK);
 }
@@ -11891,8 +11949,8 @@ function resolveMobilePilotSource() {
   return protectedActivationNativeStructuredClone(mobilePilotSourceCache);
 }
 
-function mobilePilotOrdinaryDescendant(fromSha, toSha) {
-  if (!isSha(fromSha) || !isSha(toSha) || !gitObjectExists(`${fromSha}^{commit}`) ||
+function mobilePilotOrdinaryDescendant(fromSha, toSha, allowedPaths) {
+  if (!allowedPaths || !isSha(fromSha) || !isSha(toSha) || !gitObjectExists(`${fromSha}^{commit}`) ||
       !gitObjectExists(`${toSha}^{commit}`)) return false;
   if (fromSha === toSha) return true;
   if (git(["merge-base", "--is-ancestor", fromSha, toSha], { allowFailure: true }).status !== 0) return false;
@@ -11902,7 +11960,7 @@ function mobilePilotOrdinaryDescendant(fromSha, toSha) {
   for (const line of lines.split("\n")) {
     const [sha, ...parents] = line.split(" ");
     const paths = protectedMainAdvanceChangedPaths(previous, sha);
-    if (!sameJson(parents, [previous]) || !paths || paths.some((path) => !MOBILE_PILOT_PATHS.includes(path))) return false;
+    if (!sameJson(parents, [previous]) || !paths || paths.some((path) => !allowedPaths.includes(path))) return false;
     previous = sha;
   }
   return previous === toSha;
@@ -11949,6 +12007,8 @@ export function validateMobilePilotSuccessorSnapshot(registry) {
     const frozen = source.mergeTimeRegistry;
     const item = mobilePilotItem(registry);
     const branch = registry.branches?.find((entry) => entry.name === MOBILE_PILOT_BRANCH);
+    const allowedPaths = mobilePilotAllowedPaths(item);
+    if (!allowedPaths) throw new Error();
     const lifecycle = {
       schemaVersion: "sena-mobile-pilot-lane/v1", status: "registered", sourcePullRequest: 85,
       sourceMergeSha: MOBILE_PILOT_SOURCE_MERGE, taskId: MOBILE_PILOT_TASK,
@@ -11961,7 +12021,7 @@ export function validateMobilePilotSuccessorSnapshot(registry) {
       repo: frozen.repo, cwd: MOBILE_PILOT_WORKTREE, owner: "Codex SENA mobile research pilot writer",
       ownerKey: MOBILE_PILOT_OWNER, ownerLane: "SENA-A01 enrollment; SENA-A06 mobile UI; SENA-A11 verification",
       laneType: "integration-release", branch: MOBILE_PILOT_BRANCH, worktreePath: MOBILE_PILOT_WORKTREE,
-      baseSha: MOBILE_PILOT_SOURCE_MERGE, allowedPaths: MOBILE_PILOT_PATHS,
+      baseSha: MOBILE_PILOT_SOURCE_MERGE, allowedPaths,
       expectedCloseAt: "owner-gated:mobile-research-pilot-exact-merge-release-verification",
       sensitivePaths: [], disposition: "active", freezeException: null, mobilePilotLifecycle: lifecycle
     };
@@ -11982,7 +12042,7 @@ export function validateMobilePilotSuccessorSnapshot(registry) {
         !pr85ExactRecord(branch, [...Object.keys(fixedBranch), ...branchObservations]) ||
         !Object.entries(fixedItem).every(([key, value]) => isDeepStrictEqual(item[key], value)) ||
         !Object.entries(fixedBranch).every(([key, value]) => isDeepStrictEqual(branch[key], value)) ||
-        !mobilePilotOrdinaryDescendant(MOBILE_PILOT_SOURCE_MERGE, item.headSha) ||
+        !mobilePilotOrdinaryDescendant(MOBILE_PILOT_SOURCE_MERGE, item.headSha, allowedPaths) ||
         branch.headSha !== item.headSha ||
         !isDeepStrictEqual(item.aheadBehind, { ...actualAheadBehind(item.headSha, MOBILE_PILOT_SOURCE_MERGE), baseRef: "origin/main" }) ||
         !pr85ExactRecord(item.evidenceState, ["local", "ci", "merged", "deployed", "live"]) ||
@@ -12000,8 +12060,8 @@ export function validateMobilePilotSuccessorSnapshot(registry) {
         branch.nextReviewAt !== item.nextReviewAt) throw new Error();
     if (branch.remotePresent === true) {
       if (branch.upstream !== `origin/${MOBILE_PILOT_BRANCH}` || branch.upstreamState !== "live" || branch.upstreamCacheState !== "present" ||
-          !mobilePilotOrdinaryDescendant(MOBILE_PILOT_SOURCE_MERGE, branch.remoteHeadSha) ||
-          !mobilePilotOrdinaryDescendant(branch.remoteHeadSha, item.headSha)) throw new Error();
+          !mobilePilotOrdinaryDescendant(MOBILE_PILOT_SOURCE_MERGE, branch.remoteHeadSha, allowedPaths) ||
+          !mobilePilotOrdinaryDescendant(branch.remoteHeadSha, item.headSha, allowedPaths)) throw new Error();
     } else if (branch.remotePresent !== false || branch.remoteHeadSha !== null || branch.upstream !== null ||
         branch.upstreamState !== "not-applicable" || branch.upstreamCacheState !== "not-applicable") throw new Error();
     if (item.prNumber === null) {
@@ -15066,8 +15126,8 @@ export function validateMobilePilotProtectedMergeDescriptor(descriptor, options 
         !isSha(mergeCommitSha) || !isSha(secondParentSha) || secondParentSha === MOBILE_PILOT_SOURCE_MERGE ||
         !sameJson(orderedParentShas, [MOBILE_PILOT_SOURCE_MERGE, secondParentSha]) ||
         !sameJson(protectedMainAdvanceCommitParents(mergeCommitSha), orderedParentShas) ||
-        !mobilePilotOrdinaryDescendant(MOBILE_PILOT_SOURCE_MERGE, secondParentSha) ||
-        !mobilePilotOrdinaryDescendant(item.headSha, secondParentSha) ||
+        !mobilePilotOrdinaryDescendant(MOBILE_PILOT_SOURCE_MERGE, secondParentSha, mobilePilotAllowedPaths(item)) ||
+        !mobilePilotOrdinaryDescendant(item.headSha, secondParentSha, mobilePilotAllowedPaths(item)) ||
         !isSha(mergeTreeSha) || !isSha(registryBlobSha) ||
         protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !== mergeTreeSha ||
         protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !== mergeTreeSha ||
@@ -15077,7 +15137,8 @@ export function validateMobilePilotProtectedMergeDescriptor(descriptor, options 
     if (options.mergeTimeOnly === true) return true;
     validateMobilePilotSuccessorSnapshot(currentObservationRegistry);
     if (mobilePilotItem(currentObservationRegistry).prNumber !== item.prNumber ||
-        !mobilePilotOrdinaryDescendant(mobilePilotItem(currentObservationRegistry).headSha, secondParentSha) ||
+        !mobilePilotOrdinaryDescendant(mobilePilotItem(currentObservationRegistry).headSha, secondParentSha,
+          mobilePilotAllowedPaths(mobilePilotItem(currentObservationRegistry))) ||
         protectedMainAdvanceObjectSha("origin/main^{commit}") !== mergeCommitSha) return false;
     const evidence = validateMobilePilotFinalHeadLiveGitHubEvidence(descriptor, options);
     if (Array.isArray(options.ruleSuiteReceiptCollector)) options.ruleSuiteReceiptCollector.push(evidence.ruleSuiteReceipt);
@@ -15736,8 +15797,9 @@ function changedPathsAcrossProtectedMainCandidateRange(baseSha, headSha, protect
 
 function scopedActiveAdvance(fromSha, actualHeadSha, item) {
   if (item?.taskId === MOBILE_PILOT_TASK) {
-    return { isForward: mobilePilotOrdinaryDescendant(fromSha, actualHeadSha), protectedMainBaseline: false,
-      laneChangedPaths: mobilePilotOrdinaryDescendant(fromSha, actualHeadSha) ? changedPathsAcrossCommitRange(fromSha, actualHeadSha) : [] };
+    const isForward = mobilePilotOrdinaryDescendant(fromSha, actualHeadSha, mobilePilotAllowedPaths(item));
+    return { isForward, protectedMainBaseline: false,
+      laneChangedPaths: isForward ? changedPathsAcrossCommitRange(fromSha, actualHeadSha) : [] };
   }
   if (
     !isSha(fromSha) ||

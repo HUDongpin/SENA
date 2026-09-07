@@ -16,6 +16,7 @@ import {
   styleRenaNetwork
 } from "../ena/plot-encoding";
 import { buildSenaEnaManifest } from "./ena-manifest";
+import { assertSenaNumericalRuntime } from "./runtime-constants";
 import { buildSenaEnaPlotComposition } from "./ena-plot-model";
 import type { SenaEnaManifest, SenaModel } from "./types";
 
@@ -311,7 +312,12 @@ export function buildSenaPublicationFigure(
   model: SenaModel,
   options: SenaPublicationFigureOptions = {}
 ): SenaPublicationFigure {
-  const manifest = options.manifest ?? buildSenaEnaManifest(model.dataset);
+  assertSenaNumericalRuntime(model.options.numericalRuntime);
+  const manifest = options.manifest ?? buildSenaEnaManifest(model.dataset, { numericalRuntime: model.options.numericalRuntime });
+  assertSenaNumericalRuntime(manifest.options?.numericalRuntime);
+  if (manifest.options?.numericalRuntime !== model.options.numericalRuntime) {
+    throw new Error("SENA publication figure manifest numericalRuntime does not match the model.");
+  }
   const title = options.title ?? SENA_PUBLICATION_FIGURE_TITLE;
   const composition = buildSenaEnaPlotComposition(manifest, model.people, model.codes, { title });
 

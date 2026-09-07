@@ -5,6 +5,7 @@ import {
   type SenaWorkspaceFetch
 } from "./api-client";
 import type {
+  SenaBuildOptions,
   SenaCodingReliabilityReview,
   SenaDataset,
   SenaProjectSnapshot
@@ -417,6 +418,7 @@ export async function importEnterpriseFilesAction(
     description: string;
     createProject?: boolean;
     includeRuntimeBundle?: boolean;
+    buildOptions?: Pick<SenaBuildOptions, "numericalRuntime">;
   },
   options: Pick<EnterpriseActionOptions, "csrfHeaders" | "fetchImpl">
 ) {
@@ -425,6 +427,7 @@ export async function importEnterpriseFilesAction(
   if (input.teamId) form.append("teamId", input.teamId);
   if (input.createProject) form.append("action", "create-project");
   if (input.includeRuntimeBundle) form.append("includeRuntimeBundle", "true");
+  if (input.buildOptions !== undefined) form.append("buildOptions", JSON.stringify(input.buildOptions));
   form.append("title", input.title);
   form.append("description", input.description);
   return requestSenaWorkspaceJson<EnterpriseImportFilesActionResponse>(

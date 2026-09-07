@@ -17,6 +17,8 @@ import {
   buildSenaDatasetContentHash
 } from "./data-contract-audit";
 import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
+import { SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "./runtime-constants";
+import { senaDeterministicLog } from "./deterministic-numerics";
 import {
   buildSenaFusionAdjacency,
   findSenaIsolatedVertices,
@@ -40,6 +42,7 @@ import type {
   SenaMatrixBlock,
   SenaModel,
   SenaNode,
+  SenaNumericalRuntime,
   SenaOperatorDiagnostics,
   SenaPairReport,
   SenaPerson,
@@ -510,13 +513,13 @@ function zScores(values: number[]) {
   return values.map((value) => (value - mean) / sd);
 }
 
-function entropy(values: number[]) {
+function entropy(values: number[], numericalRuntime?: SenaNumericalRuntime) {
   const total = sum(values);
   if (total === 0) return 0;
   return values.reduce((score, value) => {
     if (value <= 0) return score;
     const p = value / total;
-    return score - p * Math.log(p);
+    return score - p * (numericalRuntime === SENA_DETERMINISTIC_NUMERICAL_RUNTIME ? senaDeterministicLog(p) : Math.log(p));
   }, 0);
 }
 
@@ -929,7 +932,8 @@ function buildMetrics({
   W,
   B,
   socialAnalysis,
-  personPairContribution
+  personPairContribution,
+  numericalRuntime
 }: {
   dataset: SenaDataset;
   S: number[][];
@@ -937,6 +941,7 @@ function buildMetrics({
   B: number[][];
   socialAnalysis: ReturnType<typeof buildSocialAnalysis>;
   personPairContribution: Map<string, Map<string, number>>;
+  numericalRuntime?: SenaNumericalRuntime;
 }) {
   const codeIndex = idIndex(dataset.codebook, "code");
   const codeMap = new Map(dataset.codebook.map((code) => [code.id, code]));
@@ -984,7 +989,7 @@ function buildMetrics({
         exploratoryBridgeScoreWeights.epistemicContribution * zContribution[personPosition] +
         exploratoryBridgeScoreWeights.conceptBrokerage * zBrokerage[personPosition]
       ),
-      epistemicDiversity: entropy(B[personPosition]),
+      epistemicDiversity: entropy(B[personPosition], numericalRuntime),
       alignment: cosine(B[personPosition], neighborContribution),
       conceptBrokerage: conceptBrokerage[personPosition],
       topInteractors: topN(
@@ -1052,7 +1057,7 @@ function buildEdges({
   normalizedB: number[][];
   normalizedBcp: number[][];
   independentBridgeMatrices: boolean;
-  options: Required<SenaBuildOptions>;
+  options: SenaResolvedBuildOptions;
 }) {
   const peopleById = new Map(dataset.people.map((person) => [person.id, person]));
   const edges: SenaEdge[] = [];
@@ -1150,7 +1155,7 @@ function buildEdges({
   return edges;
 }
 
-function buildFusionMatrix(S: number[][], W: number[][], B: number[][], Bcp: number[][], options: Required<SenaBuildOptions>) {
+function buildFusionMatrix(S: number[][], W: number[][], B: number[][], Bcp: number[][], options: SenaResolvedBuildOptions) {
   return buildSenaFusionAdjacency({
     S,
     W,
@@ -1580,11 +1585,11 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
   const pairContribution = buildPairContribution(dataset, personIndex, codeIndex, codePairs);
   const socialAnalysis = buildSocialAnalysis(social.S, social.directedS, options.undirectedSocial);
 
-  const normalizedSResult = normalizeSenaMatrix(social.S, options.normalization);
-  const normalizedWResult = normalizeSenaMatrix(concept.W, options.normalization);
-  const normalizedBResult = normalizeSenaMatrix(bridge.B, options.normalization);
-  const normalizedBcpResult = normalizeSenaMatrix(bridge.Bcp, options.normalization);
-  const normalizedGResult = normalizeSenaMatrix(pairContribution.G, options.normalization);
+  const normalizedSResult = normalizeSenaMatrix(social.S, options.normalization, options.numericalRuntime);
+  const normalizedWResult = normalizeSenaMatrix(concept.W, options.normalization, options.numericalRuntime);
+  const normalizedBResult = normalizeSenaMatrix(bridge.B, options.normalization, options.numericalRuntime);
+  const normalizedBcpResult = normalizeSenaMatrix(bridge.Bcp, options.normalization, options.numericalRuntime);
+  const normalizedGResult = normalizeSenaMatrix(pairContribution.G, options.normalization, options.numericalRuntime);
   const normalizedS = normalizedSResult.values;
   const normalizedW = normalizedWResult.values;
   const normalizedB = normalizedBResult.values;
@@ -1597,7 +1602,8 @@ export function buildSenaModel(dataset: SenaDataset, buildOptions: Partial<SenaB
     W: concept.W,
     B: bridge.B,
     socialAnalysis,
-    personPairContribution: pairContribution.personPairContribution
+    personPairContribution: pairContribution.personPairContribution,
+    numericalRuntime: options.numericalRuntime
   });
 
   const personNodes: SenaNode[] = dataset.people.map((person, index) => ({

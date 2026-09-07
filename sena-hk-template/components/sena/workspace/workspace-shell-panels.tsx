@@ -134,7 +134,7 @@ export function WorkspaceRail({
             className={cn(
               "group grid h-[4.125rem] min-w-[3.125rem] place-items-center rounded-2xl border text-center shadow-[inset_0_1px_0_rgb(255_255_255/0.2),0_10px_22px_rgb(2_6_23/0.25)] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyanGlow xl:w-[3.125rem]",
               isActive
-                ? "border-cyanGlow/70 bg-cyanGlow/80 text-white"
+                ? "border-cyanGlow/70 bg-cyanGlow/80 text-slate-950"
                 : "border-white/12 bg-white/[0.07] text-slate-300 hover:border-white/25 hover:bg-white/[0.11] hover:text-white"
             )}
             aria-pressed={isActive}

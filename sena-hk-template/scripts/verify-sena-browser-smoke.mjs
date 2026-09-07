@@ -52,6 +52,10 @@ async function clickByTestId(page, testId) {
 async function activateButtonByTestId(page, testId) {
   const locator = page.locator(`[data-testid="${testId}"]`).first();
   await locator.waitFor({ state: "visible", timeout: defaultTimeout });
+  if (testId.startsWith("workspace-rail-")) {
+    await locator.click({ timeout: defaultTimeout });
+    return;
+  }
   await locator.evaluate((element) => element.click());
 }
 
@@ -395,6 +399,17 @@ async function verifyResearchDetailsDrawer(page) {
     await content.getByText(uniqueText, { exact: false }).first().waitFor({ state: "visible", timeout: defaultTimeout });
   }
 
+  const railClearance = await page.evaluate(() => {
+    const rail = document.querySelector('[data-testid="workspace-persistent-rail"]');
+    const details = document.querySelector('[data-testid="workspace-research-details-drawer"]');
+    const button = document.querySelector('[data-testid="workspace-rail-model"]');
+    if (!rail || !details || !button) return false;
+    const box = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+    return (hit === button || button.contains(hit)) &&
+      (innerWidth < 1280 || details.getBoundingClientRect().left >= rail.getBoundingClientRect().right);
+  });
+  if (!railClearance) throw new Error("Research Details must leave the persistent rail clickable without covering its evidence.");
   await activateButtonByTestId(page, "workspace-rail-model");
   const taskDrawer = page.locator('[data-testid="workspace-left-panel-overlay"]').first();
   await taskDrawer.waitFor({ state: "visible", timeout: defaultTimeout });
@@ -1159,7 +1174,25 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   if (enaReport.manifest?.schemaVersion !== "sena-ena-manifest/v1" || enaReport.manifest?.status !== "computed") {
     throw new Error("jENA report export is missing computed manifest provenance.");
   }
-  assertArrayIncludes(enaReport.runtimeProvenance?.apiSurface, "ena()", "jENA report API surface");
+  const numericalRuntime = enaReport.manifest?.options?.numericalRuntime;
+  let expectedEnaApiSurface;
+  if (numericalRuntime === undefined) {
+    expectedEnaApiSurface = ["ena()"];
+    assertArrayIncludes(enaReport.runtimeProvenance?.apiSurface, "ena()", "jENA report API surface");
+    if (enaReport.runtimeProvenance?.numericalAdapter !== undefined || runtimeBundle.runtimeProvenance?.numericalRuntime !== undefined) {
+      throw new Error("Legacy ENA report has mismatched numerical profile provenance.");
+    }
+  } else if (numericalRuntime === "sena-deterministic-v1") {
+    expectedEnaApiSurface = ["buildSenaDeterministicEnaSet()", "accumulateData()", "makeSet()", "projectIn()", "senaDeterministicEnaCorrelations()"];
+    if (enaReport.runtimeProvenance?.numericalAdapter?.profile !== numericalRuntime ||
+      enaReport.runtimeProvenance?.numericalAdapter?.implementation !== "lib/sena/deterministic-ena.ts" ||
+      runtimeBundle.runtimeProvenance?.numericalRuntime !== numericalRuntime ||
+      JSON.stringify(enaReport.runtimeProvenance?.apiSurface) !== JSON.stringify(expectedEnaApiSurface)) {
+      throw new Error("Deterministic ENA report must record its matching adapter and public jENA pipeline.");
+    }
+  } else {
+    throw new Error("ENA report contains an unsupported numericalRuntime.");
+  }
   if (enaReport.runtimeConsistencyAudit?.items?.find((item) => item.id === "jena-concept-matrix")?.status !== "pass") {
     throw new Error("jENA report export is missing passing concept-pair handoff evidence.");
   }
@@ -1262,7 +1295,9 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
     throw new Error("Runtime consistency audit export is missing the jENA concept-pair handoff pass evidence.");
   }
   const jenaApiSurfaceAudit = runtimeAudit.items?.find((item) => item.id === "jena-api-surface");
-  if (jenaApiSurfaceAudit?.status !== "pass" || !String(jenaApiSurfaceAudit.actual ?? "").includes("ena()")) {
+  if (jenaApiSurfaceAudit?.status !== "pass" || (numericalRuntime === undefined
+    ? !String(jenaApiSurfaceAudit.actual ?? "").includes("ena()")
+    : jenaApiSurfaceAudit.actual !== expectedEnaApiSurface.join(", "))) {
     throw new Error("Runtime consistency audit export is missing the jENA API surface pass evidence.");
   }
   const jenaRenaParityAudit = runtimeAudit.items?.find((item) => item.id === "jena-rena-parity");
