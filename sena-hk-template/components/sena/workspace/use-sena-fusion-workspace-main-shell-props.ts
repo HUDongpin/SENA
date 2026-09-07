@@ -1,6 +1,8 @@
 "use client";
 
 import { type SetStateAction, useCallback, useEffect, useMemo, useState } from "react";
+import { SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "@/lib/sena/runtime-constants";
+import type { SenaDataset, SenaNumericalRuntime } from "@/lib/sena/types";
 import {
   lessonStudySenaContract
 } from "@/lib/sena/pilot-assets";
@@ -220,6 +222,13 @@ export function nextWorkspaceImportErrorState(
 
 export function useSenaFusionWorkspaceMainShellProps() {
   const [dataset, setDataset] = useState(() => lessonStudySenaContract);
+  const [numericalRuntime, setNumericalRuntime] = useState<SenaNumericalRuntime | undefined>(SENA_DETERMINISTIC_NUMERICAL_RUNTIME);
+  const setRawDataset = useCallback((next: SetStateAction<SenaDataset>) => {
+    // Raw replacements start a new analysis; warning-only functional updates
+    // after a stored snapshot restore retain that snapshot's numerical profile.
+    if (typeof next !== "function") setNumericalRuntime(SENA_DETERMINISTIC_NUMERICAL_RUNTIME);
+    setDataset(next);
+  }, []);
   const [uploadedTables, setUploadedTables] = useState<UploadedSenaTable[]>([]);
   const [importMessage, setImportMessage] = useState("Lesson-study sample loaded from the bundled SENA pilot package.");
   const [importErrorState, setImportErrorState] = useState(INITIAL_WORKSPACE_IMPORT_ERROR_STATE);
@@ -356,6 +365,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
   const [releaseGateVerificationHash, setReleaseGateVerificationHash] = useState("");
 
   const buildOptions = useMemo(() => ({
+    numericalRuntime,
     alpha,
     beta,
     gamma,
@@ -366,7 +376,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
       movingWindowStep,
       turnWindowRadius
     }
-  }), [alpha, beta, gamma, movingWindowSize, movingWindowStep, normalization, temporalMode, turnWindowRadius]);
+  }), [alpha, beta, gamma, movingWindowSize, movingWindowStep, normalization, numericalRuntime, temporalMode, turnWindowRadius]);
   const codingReliabilityReview = useMemo<Partial<SenaCodingReliabilityReview>>(() => ({
     status: codingReliabilityStatus,
     reviewer: codingReliabilityReviewer,
@@ -404,7 +414,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     return activeTemporalWindow ? scopeSenaDatasetToWindow(dataset, activeTemporalWindow) : dataset;
   }, [activeTemporalWindow, dataset]);
   const model = useMemo(() => buildSenaModel(analysisDataset, buildOptions), [analysisDataset, buildOptions]);
-  const enaManifest = useMemo(() => buildSenaEnaManifest(model.dataset), [model.dataset]);
+  const enaManifest = useMemo(() => buildSenaEnaManifest(model.dataset, { numericalRuntime: model.options.numericalRuntime }), [model.dataset, model.options.numericalRuntime]);
   const snaManifest = useMemo(() => buildSenaSnaManifest(model), [model]);
   const dataContractAudit = useMemo(() => buildSenaDataContractAudit(model.dataset, { modelWarnings: model.summary.warnings }), [model.dataset, model.summary.warnings]);
   const jenaConceptPairHandoffRows = useMemo(() => buildSenaJenaConceptPairHandoffRows(model, enaManifest), [enaManifest, model]);
@@ -1171,6 +1181,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     setMovingWindowStep,
     setNextActions,
     setNormalization,
+    setNumericalRuntime,
     setReliabilityLimitations,
     setReportTitle,
     setReviewStatus,
@@ -1190,7 +1201,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     enterpriseCsrfHeaders,
     setEnterpriseBusy,
     setWorkspaceRailMode,
-    setDataset,
+    setDataset: setRawDataset,
     setUploadedTables,
     setDemoManualReviews,
     setSelectedId,
@@ -1432,7 +1443,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
   } = useDataImportMappedTableActions({
     downloadText,
     uploadedTables,
-    setDataset,
+    setDataset: setRawDataset,
     setUploadedTables,
     setLocalEnterpriseImportResult,
     setLocalEnterpriseReliabilityResult,
@@ -1459,7 +1470,7 @@ export function useSenaFusionWorkspaceMainShellProps() {
     importFilesViaEnterpriseApi,
     restoreProjectSnapshot,
     restoreValidatedProjectSnapshot,
-    setDataset,
+    setDataset: setRawDataset,
     setDemoManualReviews,
     setImportError,
     setImportMessage,

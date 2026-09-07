@@ -89,6 +89,7 @@ export function buildSenaDatasetContentHash(dataset: SenaDataset) {
 
 export function buildSenaAnalysisConfigHash(options: SenaResolvedBuildOptions) {
   return buildSenaStableContentHash({
+    ...(options.numericalRuntime === undefined ? {} : { numericalRuntime: options.numericalRuntime }),
     alpha: options.alpha,
     beta: options.beta,
     gamma: options.gamma,

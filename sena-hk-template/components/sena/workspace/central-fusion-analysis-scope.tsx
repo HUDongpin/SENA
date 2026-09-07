@@ -89,14 +89,14 @@ export function CentralFusionAnalysisScope({
       data-transition-id={activeTransition?.id ?? ""}
       data-delta-fusion={activeTransition?.delta.fusion ?? ""}
       data-delta-g={activeTransition?.delta.G ?? ""}
-      className="grid gap-3 border-t border-slate-200 pt-3"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3 border-t border-slate-200 pt-3 [overflow-wrap:anywhere]"
     >
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-bold text-slate-600">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs font-bold text-slate-600">
         <strong className="text-sm text-slate-950">{windowLabel}</strong>
         <span data-testid="central-fusion-scope-frame">Window {frameLabel}</span>
         <span data-testid="central-fusion-scope-turns">Turns {turns}</span>
         <span className="font-black text-cyanGlow">A_fusion {aFusionFingerprint?.checksum ?? "pending"}</span>
-        <div data-testid="central-fusion-scope-layer-counts" className="ml-auto flex flex-wrap gap-1.5">
+        <div data-testid="central-fusion-scope-layer-counts" className="ml-auto flex min-w-0 max-w-full flex-wrap gap-1.5">
           {layerCounts.map(([layer, count]) => (
             <span key={layer} className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-slate-700">
               {layer} {count}
@@ -108,7 +108,7 @@ export function CentralFusionAnalysisScope({
       <div
         data-testid="central-fusion-evidence-capsule"
         data-visual-role="current-window-fusion-evidence-capsule"
-        className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4"
+        className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-2 2xl:grid-cols-4"
       >
         {evidenceCapsuleRows.map((row) => (
           <div key={row.id} className={cn("min-w-0 rounded-lg border px-3 py-2", row.className)}>
@@ -116,7 +116,7 @@ export function CentralFusionAnalysisScope({
               <span>{row.id}</span>
               <span>{row.label}</span>
             </div>
-            <div className="mt-1 truncate text-xs font-black text-slate-950" title={row.value}>{row.value}</div>
+            <div className="mt-1 min-w-0 text-xs font-black text-slate-950" title={row.value}>{row.value}</div>
             <div className="mt-0.5 text-[0.68rem] font-bold text-slate-500">{row.detail}</div>
           </div>
         ))}
@@ -125,7 +125,7 @@ export function CentralFusionAnalysisScope({
       <div
         data-testid="central-active-window-brief"
         data-visual-role="active-window-interpretation-brief"
-        className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900"
+        className="min-w-0 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900"
       >
         <strong>Interpretation guardrail:</strong> {guardrail}
       </div>
@@ -133,7 +133,7 @@ export function CentralFusionAnalysisScope({
       <div
         data-testid="central-fusion-transition-delta"
         data-visual-role="active-window-fusion-transition-delta"
-        className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-500"
+        className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-semibold text-slate-500"
       >
         <span className="font-black text-slate-700">Adjacent-window delta</span>
         <span>{transitionLabel}</span>
@@ -143,7 +143,7 @@ export function CentralFusionAnalysisScope({
           data-g-pair-from={activeTransition?.strongestGPair.from?.label ?? "NA"}
           data-g-pair-to={activeTransition?.strongestGPair.to?.label ?? "NA"}
           data-g-pair-changed={String(activeTransition?.strongestGPair.changed ?? false)}
-          className="min-w-0 truncate"
+          className="min-w-0 max-w-full"
         >
           <span className="font-black text-rose-600">Top G pair shift</span>{" "}
           {activeTransition?.strongestGPair.from?.label ?? "NA"} {"->"} {activeTransition?.strongestGPair.to?.label ?? "NA"}

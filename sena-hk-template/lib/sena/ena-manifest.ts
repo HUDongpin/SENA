@@ -12,8 +12,9 @@ import {
   type Row
 } from "jena-js";
 import { displayedRotationColumns, displayedVariance } from "../ena/display-dimensions";
-import type { SenaDataset, SenaEnaManifest, SenaManifestRow } from "./types";
-import { jenaRuntimeVersion } from "./runtime-constants";
+import type { SenaDataset, SenaEnaManifest, SenaManifestRow, SenaNumericalRuntime } from "./types";
+import { assertSenaNumericalRuntime, jenaRuntimeVersion, SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "./runtime-constants";
+import { buildSenaDeterministicEnaSet, senaDeterministicEnaCorrelations } from "./deterministic-ena";
 
 const defaultManifestOptions = {
   model: "EndPoint",
@@ -85,9 +86,9 @@ function buildRows(dataset: SenaDataset) {
  * degenerate temporal window would otherwise put a `null` where the type
  * promises a number.
  */
-function manifestGoodnessOfFit(set: ENASet, warnings: string[]) {
+function manifestGoodnessOfFit(set: ENASet, warnings: string[], numericalRuntime?: SenaNumericalRuntime) {
   try {
-    const rows = enaCorrelations(set)
+    const rows = (numericalRuntime === SENA_DETERMINISTIC_NUMERICAL_RUNTIME ? senaDeterministicEnaCorrelations(set) : enaCorrelations(set))
       .filter((row) =>
         [row.pearson, row.spearman, row.pearsonLower, row.pearsonUpper].every((value) =>
           Number.isFinite(value)
@@ -124,6 +125,7 @@ function manifestGoodnessOfFit(set: ENASet, warnings: string[]) {
  * checked is the *source* window's.
  */
 export type SenaEnaRotationReference = {
+  numericalRuntime?: SenaNumericalRuntime;
   method: "svd" | "mean";
   codes: string[];
   adjacencyKey: AdjacencyKeyEntry[];
@@ -135,9 +137,12 @@ export type SenaEnaRotationReference = {
 
 /** The rotation a computed manifest can lend to another window, or null. */
 export function senaEnaRotationReference(manifest: SenaEnaManifest): SenaEnaRotationReference | null {
+  const numericalRuntime = manifest.options?.numericalRuntime;
+  assertSenaNumericalRuntime(numericalRuntime);
   const rotation = manifest.outputs?.rotation;
   if (manifest.status !== "computed" || !manifest.outputs || !rotation) return null;
   return {
+    ...(numericalRuntime !== undefined ? { numericalRuntime } : {}),
     method: rotation.method,
     codes: manifest.source.codeColumns,
     adjacencyKey: manifest.outputs.adjacencyKey,
@@ -235,6 +240,7 @@ function meanRotationGroups(rows: Row[], column: string) {
  * every existing consumer, fixture, and gate keeps reading the same manifest.
  */
 export type SenaEnaManifestOverrides = {
+  numericalRuntime?: SenaNumericalRuntime;
   /**
    * `"mean"` puts the difference between two groups' means on the first axis
    * (rENA's means rotation; the axis is named MR1). Needs exactly two groups in
@@ -258,12 +264,13 @@ export type SenaEnaManifestOverrides = {
   emitRotation?: boolean;
 };
 
-function skippedManifest(dataset: SenaDataset, reason: string, warnings: string[] = []): SenaEnaManifest {
+function skippedManifest(dataset: SenaDataset, reason: string, warnings: string[] = [], numericalRuntime?: SenaNumericalRuntime): SenaEnaManifest {
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enaManifest,
     status: "skipped",
     engine: "jena-js",
     engineVersion: jenaRuntimeVersion,
+    ...(numericalRuntime !== undefined ? { options: { ...defaultManifestOptions, numericalRuntime } } : {}),
     source: {
       rowsFrom: "coded_segments",
       unitColumns: ["personId"],
@@ -286,10 +293,18 @@ export function buildSenaEnaManifest(
   dataset: SenaDataset,
   overrides: SenaEnaManifestOverrides = {}
 ): SenaEnaManifest {
+  const numericalRuntime = overrides.numericalRuntime;
+  assertSenaNumericalRuntime(numericalRuntime);
+  if (overrides.projectInto) {
+    assertSenaNumericalRuntime(overrides.projectInto.numericalRuntime);
+    if (overrides.projectInto.numericalRuntime !== numericalRuntime) {
+      throw new Error("SENA numericalRuntime must match the borrowed rotation profile.");
+    }
+  }
   const { rows, codeIds, warnings } = buildRows(dataset);
 
-  if (codeIds.length < 2) return skippedManifest(dataset, "jENA manifest requires at least two codes.", warnings);
-  if (rows.length === 0) return skippedManifest(dataset, "jENA manifest requires at least one coded segment.", warnings);
+  if (codeIds.length < 2) return skippedManifest(dataset, "jENA manifest requires at least two codes.", warnings, numericalRuntime);
+  if (rows.length === 0) return skippedManifest(dataset, "jENA manifest requires at least one coded segment.", warnings, numericalRuntime);
 
   const options: ENAOptions = {
     rows,
@@ -324,20 +339,22 @@ export function buildSenaEnaManifest(
       const data = accumulateData(options);
       const groups = meanRotationGroups(data.connectionCounts, groupColumn);
       if (groups) {
-        set = ena({ ...options, rotation: { method: "mean", params: { groups: groups.selectors } } });
+        set = numericalRuntime === SENA_DETERMINISTIC_NUMERICAL_RUNTIME
+          ? buildSenaDeterministicEnaSet(options, groups.selectors)
+          : ena({ ...options, rotation: { method: "mean", params: { groups: groups.selectors } } });
         rotationMethod = "mean";
       } else {
         warnings.push(
           `jENA means rotation needs exactly two groups in "${groupColumn}"; the projection fell back to SVD.`
         );
         groupColumn = undefined;
-        set = ena(options);
+        set = numericalRuntime === SENA_DETERMINISTIC_NUMERICAL_RUNTIME ? buildSenaDeterministicEnaSet(options) : ena(options);
       }
     } else {
-      set = ena(options);
+      set = numericalRuntime === SENA_DETERMINISTIC_NUMERICAL_RUNTIME ? buildSenaDeterministicEnaSet(options) : ena(options);
     }
 
-    const goodnessOfFit = manifestGoodnessOfFit(set, warnings);
+    const goodnessOfFit = manifestGoodnessOfFit(set, warnings, numericalRuntime);
     const emitRotation = overrides.emitRotation === true || rotationMethod === "mean" || projectedIn;
     const rotation = emitRotation ? manifestRotation(set, rotationMethod, warnings) : undefined;
     const recordedOptions =
@@ -363,7 +380,7 @@ export function buildSenaEnaManifest(
         metadataColumns: options.metadata ?? [],
         activeCodeValue: "segment-confidence-or-1"
       },
-      options: recordedOptions,
+      options: numericalRuntime !== undefined ? { ...recordedOptions, numericalRuntime } : recordedOptions,
       datasetCounts: {
         rows: rows.length,
         units: set.unitLabels.length,
@@ -396,7 +413,8 @@ export function buildSenaEnaManifest(
     return skippedManifest(
       dataset,
       `jENA manifest failed: ${error instanceof Error ? error.message : String(error)}`,
-      warnings
+      warnings,
+      numericalRuntime
     );
   }
 }

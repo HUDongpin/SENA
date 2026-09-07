@@ -1,4 +1,5 @@
 import type { SenaBuildOptions } from "./types";
+import { SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "./runtime-constants";
 
 export type SenaInputValidationRule =
   | "finite-nonnegative"
@@ -723,6 +724,9 @@ export function validateSenaAnalyticalInputs(input: {
   }
 
   if (options) {
+    if (options.numericalRuntime !== undefined && options.numericalRuntime !== SENA_DETERMINISTIC_NUMERICAL_RUNTIME) {
+      add("buildOptions.numericalRuntime", "supported-value");
+    }
     for (const field of ["alpha", "beta", "gamma"] as const) {
       const value = options[field];
       if (value !== undefined && (!isFiniteNumber(value) || value < 0)) {

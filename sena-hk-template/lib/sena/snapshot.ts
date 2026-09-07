@@ -19,6 +19,7 @@ import {
   type SenaReportOptions
 } from "./report";
 import { buildSenaEnaManifest } from "./ena-manifest";
+import { assertSenaNumericalRuntime } from "./runtime-constants";
 import { buildSenaSnaManifest } from "./sna-manifest";
 import { buildSenaDataContractAudit } from "./data-contract-audit";
 import { buildSenaRuntimeConsistencyAudit } from "./runtime-consistency";
@@ -850,6 +851,7 @@ function assertDataGovernance(value: unknown, context: string) {
 
 function assertBuildOptions(value: unknown) {
   const options = asRecord(value, "project snapshot reproducibility.buildOptions");
+  assertSenaNumericalRuntime(options.numericalRuntime);
   assertFiniteNumber(options.alpha, "project snapshot buildOptions.alpha");
   assertFiniteNumber(options.beta, "project snapshot buildOptions.beta");
   assertFiniteNumber(options.gamma, "project snapshot buildOptions.gamma");
@@ -1170,7 +1172,7 @@ function assertSenaProjectSnapshotCanonicalAnalysis(
     );
   }
 
-  const canonicalEnaManifest = buildSenaEnaManifest(canonicalModel.dataset);
+  const canonicalEnaManifest = buildSenaEnaManifest(canonicalModel.dataset, { numericalRuntime: canonicalModel.options.numericalRuntime });
   const canonicalSnaManifest = buildSenaSnaManifest(canonicalModel);
   const canonicalDataContractAudit = buildSenaDataContractAudit(canonicalModel.dataset, {
     modelWarnings: canonicalModel.summary.warnings

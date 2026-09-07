@@ -1,5 +1,7 @@
-import type { SenaNormalization } from "./types";
+import type { SenaNormalization, SenaNumericalRuntime } from "./types";
 import { validateSenaFusionAdjacencyInputs } from "./analytical-input-validation";
+import { assertSenaNumericalRuntime, SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "./runtime-constants";
+import { senaDeterministicLog1p } from "./deterministic-numerics";
 
 export type SenaAdmissibleNormalization = Extract<SenaNormalization, "max" | "frobenius" | "log1p-max">;
 
@@ -236,7 +238,8 @@ function maxWindowProducts(codeActivityByWindow: number[][]) {
   return bounds;
 }
 
-export function normalizeSenaMatrix(matrix: number[][], rule: SenaNormalization): SenaNormalizationResult {
+export function normalizeSenaMatrix(matrix: number[][], rule: SenaNormalization, numericalRuntime?: SenaNumericalRuntime): SenaNormalizationResult {
+  assertSenaNumericalRuntime(numericalRuntime);
   if (rule === "none") {
     return {
       rule,
@@ -250,7 +253,7 @@ export function normalizeSenaMatrix(matrix: number[][], rule: SenaNormalization)
 
   const canonicalRule = rule === "log-max" ? "log1p-max" : rule;
   const transformed = canonicalRule === "log1p-max"
-    ? matrix.map((row) => row.map((value) => Math.log1p(value)))
+    ? matrix.map((row) => row.map((value) => numericalRuntime === SENA_DETERMINISTIC_NUMERICAL_RUNTIME ? senaDeterministicLog1p(value) : Math.log1p(value)))
     : cloneMatrix(matrix);
   const divisor = canonicalRule === "frobenius" ? matrixFrobenius(transformed) : matrixMax(transformed);
   const values = divisor === 0 ? zeroLike(transformed) : transformed.map((row) => row.map((value) => value / divisor));
