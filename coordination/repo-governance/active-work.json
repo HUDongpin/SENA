@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-07T17:02:06Z",
+  "updatedAt": "2026-09-07T18:04:20Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -7056,10 +7056,10 @@
       "branch": "codex/sena-pr86-delivery-closeout-20260907",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
       "baseSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
-      "headSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+      "headSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 0,
+        "ahead": 1,
         "behind": 0
       },
       "allowedPaths": [
@@ -7068,27 +7068,27 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-07T14:25:43Z",
-      "lastHeartbeatAt": "2026-09-07T17:02:06Z",
-      "lastObservedAt": "2026-09-07T17:02:06Z",
+      "lastHeartbeatAt": "2026-09-07T18:04:20Z",
+      "lastObservedAt": "2026-09-07T18:04:20Z",
       "nextReviewAt": "2026-09-09T14:30:00Z",
       "expectedCloseAt": "owner-gated:pr86-delivery-protected-closeout",
-      "prNumber": null,
-      "noPrReason": "Closeout implementation awaits exact-candidate independent review before a protected PR.",
-      "dirtyState": "staged-pr86-delivery-closeout",
+      "prNumber": 87,
+      "noPrReason": null,
+      "dirtyState": "staged-pr86-delivery-closeout-pr-observation",
       "sensitivePaths": [],
       "disposition": "active",
       "freezeException": null,
       "evidenceState": {
-        "local": "Three-path governance closeout based on protected PR86.",
-        "ci": "No candidate CI claim.",
+        "local": "Native enrollment commit 1b19c1c0d5cfb8d89c90ada641d250890080d19d pushed; draft PR87 observed at that exact head.",
+        "ci": "Final PR-head CI and merged-baseline verification remain required.",
         "merged": "Not merged.",
-        "deployed": "No deployment authorized.",
-        "live": "Protected source PR86 and named mobile remote retained."
+        "deployed": "No production cutover performed.",
+        "live": "Named closeout remote and draft PR head both 1b19c1c0d5cfb8d89c90ada641d250890080d19d; live main remains protected PR86."
       },
-      "prState": null,
-      "prIsDraft": false,
+      "prState": "OPEN",
+      "prIsDraft": true,
       "prReadyForReview": false,
-      "prHeadSha": null
+      "prHeadSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d"
     }
   ],
   "branches": [
@@ -8299,28 +8299,28 @@
       "owner": "Codex SENA PR86 delivery closeout writer",
       "ownerKey": "Codex-sena-pr86-delivery-closeout-20260907",
       "baseSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
-      "headSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
-      "upstream": null,
-      "upstreamState": "not-applicable",
-      "upstreamCacheState": "not-applicable",
-      "remotePresent": false,
-      "remoteHeadSha": null,
-      "remoteObservedAt": "2026-09-07T17:02:06Z",
-      "pr": null,
-      "noPrReason": "Closeout implementation awaits exact-candidate independent review before a protected PR.",
-      "prHeadSha": null,
-      "prState": null,
+      "headSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
+      "upstream": "origin/codex/sena-pr86-delivery-closeout-20260907",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": true,
+      "remoteHeadSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
+      "remoteObservedAt": "2026-09-07T18:04:20Z",
+      "pr": 87,
+      "noPrReason": null,
+      "prHeadSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
+      "prState": "OPEN",
       "prBase": "main",
-      "prIsDraft": false,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-09-07T17:02:06Z",
-      "lastObservedAt": "2026-09-07T17:02:06Z",
-      "lastCommitAt": "2026-09-07T16:28:51+08:00",
+      "lastOwnerHeartbeatAt": "2026-09-07T18:04:20Z",
+      "lastObservedAt": "2026-09-07T18:04:20Z",
+      "lastCommitAt": "2026-09-08T01:54:14+08:00",
       "nextReviewAt": "2026-09-09T14:30:00Z",
       "expectedCloseAt": "owner-gated:pr86-delivery-protected-closeout",
       "disposition": "active",
-      "closeout": "Closeout implementation awaits exact-candidate independent review before a protected PR."
+      "closeout": "Draft PR87 observed after native enrollment push; protected checks and merge remain pending. Historical and retained-owner authority records are unchanged."
     }
   ],
   "orphanWorktrees": [
