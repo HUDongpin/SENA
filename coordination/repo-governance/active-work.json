@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-08T18:02:49Z",
+  "updatedAt": "2026-09-08T19:06:08Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -7274,10 +7274,10 @@
       "branch": "codex/sena-h-governance-intake-20260908",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-h-governance-intake-20260908",
       "baseSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
-      "headSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
+      "headSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 3,
+        "ahead": 4,
         "behind": 0
       },
       "allowedPaths": [
@@ -7286,25 +7286,25 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-08T09:22:20Z",
-      "lastHeartbeatAt": "2026-09-08T18:02:49Z",
-      "lastObservedAt": "2026-09-08T18:02:49Z",
-      "nextReviewAt": "2026-09-10T18:02:49Z",
-      "expectedCloseAt": "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge",
+      "lastHeartbeatAt": "2026-09-08T19:06:08Z",
+      "lastObservedAt": "2026-09-08T19:06:08Z",
+      "nextReviewAt": "2026-09-10T19:06:08Z",
+      "expectedCloseAt": "owner-gated:pr88-final-head-ci-then-ready-protected-merge",
       "prNumber": 88,
       "noPrReason": null,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "dirtyState": "staged-m-l-portable-j-ci-remediation",
+      "dirtyState": "staged-n-m-pr88-final-authorization",
       "sensitivePaths": [],
       "disposition": "active",
       "freezeException": null,
       "evidenceState": {
-        "local": "L commit 6a1127db is clean and exact at the remote PR head; M stages only the three governance paths.",
-        "ci": "PR #88 build passed; both repository-security runs reached exact registry validation and failed only because the GitHub runner cannot read local J physical paths.",
-        "merged": "PR #88 remains OPEN and Draft; Ready and merge remain ineffective.",
+        "local": "M commit 26a13f04 is clean and exact at the remote PR head; N stages only the three governance paths.",
+        "ci": "Exact M head 26a13f04 passed build and both repository-security checks at attempt 1 with zero annotations.",
+        "merged": "PR #88 remains OPEN and Draft; N must pass its own fresh exact-head checks before Ready or protected merge.",
         "deployed": "Deployment remains gated on landed-main and target verification.",
-        "live": "Remote branch and Draft PR #88 are exact at 6a1127db before the one-ref M update."
+        "live": "Remote branch and Draft PR #88 are exact at 26a13f04 before the one-ref N update."
       }
     },
     {
@@ -8613,28 +8613,30 @@
       "owner": "Codex SENA I-H dedicated landing candidate writer",
       "ownerKey": "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
       "baseSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
-      "headSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
+      "headSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
       "upstream": "origin/codex/sena-h-governance-intake-20260908",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
-      "remoteObservedAt": "2026-09-08T18:02:49Z",
+      "remoteHeadSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      "remoteObservedAt": "2026-09-08T19:06:08Z",
       "pr": 88,
       "noPrReason": null,
-      "prHeadSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
+      "prHeadSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
       "prState": "OPEN",
       "prBase": "main",
       "prIsDraft": true,
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-09-08T18:02:49Z",
-      "lastObservedAt": "2026-09-08T18:02:49Z",
-      "lastCommitAt": "2026-09-09T01:49:30+08:00",
-      "nextReviewAt": "2026-09-10T18:02:49Z",
-      "expectedCloseAt": "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge",
+      "lastOwnerHeartbeatAt": "2026-09-08T19:06:08Z",
+      "lastObservedAt": "2026-09-08T19:06:08Z",
+      "lastCommitAt": "2026-09-09T02:49:25+08:00",
+      "nextReviewAt": "2026-09-10T19:06:08Z",
+      "expectedCloseAt": "owner-gated:pr88-final-head-ci-then-ready-protected-merge",
       "disposition": "active",
-      "closeout": "Draft PR #88 is bound at 6a1127db; M permits only strict portable substitution for unavailable J host evidence."
+      "closeout": "Draft PR #88 is bound at exact green M head 26a13f04; N records its receipts and gates Ready/merge on fresh N checks.",
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN"
     },
     {
       "name": "codex/sena-pr86-delivery-closeout-20260907",
@@ -13368,6 +13370,109 @@
       "branchUpdateCommitAuthorizedAfterGates": true,
       "branchUpdatePushAuthorizedNow": true,
       "remoteCiAuthorized": true,
+      "readyAuthorizedNow": false,
+      "mergeAuthorizedNow": false,
+      "deploymentAuthorizedNow": false,
+      "gProductWriteAuthorizedNow": false,
+      "cleanupAuthorizedNow": false,
+      "directMainPushAuthorized": false,
+      "forceAuthorized": false,
+      "historyRewriteAuthorized": false,
+      "bypassHooksAuthorized": false
+    }
+  },
+  "nMPr88FinalAuthorization": {
+    "schemaVersion": "sena-n-m-pr88-final-authorization/v1",
+    "status": "final-authorization-staged-pending-own-checks",
+    "recordedAt": "2026-09-08T19:06:08Z",
+    "source": {
+      "commitSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      "treeSha": "ff53849c4351ffa0acb6460adb29b6e48651f962",
+      "orderedParentShas": [
+        "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"
+      ],
+      "exactPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "blobShas": [
+        "b1461ea63354a4cfad8f179a133266c4c6c9640b",
+        "e9bcf502f834e0810c6308ef8b593826578053b4",
+        "d0a0fd872fc39d0f70df4c8e682e65aa6264e902"
+      ],
+      "fileSha256": [
+        "a8ba54e595faf709aee2862081c8133f7b4de563caa5164250569a4856d5fa78",
+        "dc837079b41ebeb6e27480d736f138be7cd0fe5e28a827b512ad3fb4c9134da5",
+        "439f19bd52030f04161466308c1be8b1c699c416745072bd3bcad4e8bcbca8b6"
+      ]
+    },
+    "initialHeadCompletionEvidence": {
+      "headSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      "treeSha": "ff53849c4351ffa0acb6460adb29b6e48651f962",
+      "build": {
+        "event": "pull_request",
+        "runId": 34266721411,
+        "runAttempt": 1,
+        "jobId": 102197814481,
+        "conclusion": "SUCCESS",
+        "annotationsEmpty": true
+      },
+      "repositorySecurity": [
+        {
+          "event": "push",
+          "runId": 34266717233,
+          "runAttempt": 1,
+          "jobId": 102197800401,
+          "conclusion": "SUCCESS",
+          "annotationsEmpty": true
+        },
+        {
+          "event": "pull_request",
+          "runId": 34266721387,
+          "runAttempt": 1,
+          "jobId": 102197814791,
+          "conclusion": "SUCCESS",
+          "annotationsEmpty": true
+        }
+      ],
+      "requiredChecksPassed": true,
+      "annotationsEmpty": true
+    },
+    "pullRequest": {
+      "number": 88,
+      "state": "OPEN",
+      "draft": true,
+      "headRef": "codex/sena-h-governance-intake-20260908",
+      "headSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      "baseRef": "main",
+      "baseSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
+      "mergeable": "MERGEABLE",
+      "mergeStateStatus": "CLEAN"
+    },
+    "finalUpdatePushContract": {
+      "remoteName": "origin",
+      "localRef": "refs/heads/codex/sena-h-governance-intake-20260908",
+      "remoteRef": "refs/heads/codex/sena-h-governance-intake-20260908",
+      "expectedRemoteOldSha": "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      "exactlyOneRef": true,
+      "force": false
+    },
+    "requiredExecution": [
+      "commit-and-push-one-exact-three-path-final-authorization-successor",
+      "verify-final-head-build-and-both-repository-security-checks-at-latest-attempt-with-zero-annotations",
+      "mark-pr88-ready-only-after-exact-final-head-provider-readback",
+      "protected-merge-pr88-with-exact-head-lease-and-no-admin-bypass",
+      "verify-post-main-build-security-rule-suite-and-commit-bound-live-audit",
+      "only-after-landed-governance-and-fresh-g-currentness-authorize-g-product-integration",
+      "keep-deployment-and-cleanup-gated-on-their-own-evidence"
+    ],
+    "authorizationBoundary": {
+      "finalAuthorizationCommitAuthorizedAfterGates": true,
+      "finalAuthorizationPushAuthorizedNow": true,
+      "remoteCiAuthorized": true,
+      "readyAuthorizedAfterFinalHeadChecks": true,
+      "protectedMergeAuthorizedAfterFinalHeadChecks": true,
       "readyAuthorizedNow": false,
       "mergeAuthorizedNow": false,
       "deploymentAuthorizedNow": false,

@@ -14168,10 +14168,17 @@ function postPr83BinaryDiffSha256ForTest(
       "--",
       ...POST_PR83_PATHS_FOR_TEST
     ],
-    { cwd: root, encoding: null, env: process.env }
+    {
+      cwd: root,
+      encoding: null,
+      env: process.env,
+      maxBuffer: 64 * 1024 * 1024
+    }
   );
   if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
-    throw new Error(`post-PR83 binary diff failed: ${String(result.stderr)}`);
+    throw new Error(
+      `post-PR83 binary diff failed status=${String(result.status)} code=${String((result.error as NodeJS.ErrnoException | undefined)?.code)}: ${String(result.stderr)}`
+    );
   }
   return createHash("sha256").update(result.stdout).digest("hex");
 }
@@ -19391,17 +19398,18 @@ describe("L-K Draft PR and CI portability remediation", () => {
       projectRoot,
       root
     ]);
-    runGit(root, ["checkout", "--detach", L_K_SOURCE_COMMIT_FOR_TEST]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"
+    ]);
     expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
-      L_K_SOURCE_COMMIT_FOR_TEST
+      "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"
     );
-    runGit(root, ["config", "user.name", "SENA L portable test"]);
-    runGit(root, ["config", "user.email", "l-portable@example.invalid"]);
-    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
-      copyFileSync(join(projectRoot, relative), join(root, relative));
-    }
-    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
-    runGit(root, ["commit", "-q", "-m", "exact L portable candidate"]);
+    copyFileSync(
+      governanceScript,
+      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    );
     const localOnlyTree = spawnSync(
       "git",
       ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
@@ -19583,10 +19591,10 @@ describe("M-L portable J evidence CI remediation", () => {
     const candidate = mLCandidateForTest();
     expect(
       JSON.parse(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json"),
-          "utf8"
-        )
+        runGit(projectRoot, [
+          "show",
+          "26a13f040c5b3834e6fda6a9c004d511d8c572fb:coordination/repo-governance/active-work.json"
+        ])
       )
     ).toEqual(candidate);
     const proof =
@@ -19647,17 +19655,18 @@ describe("M-L portable J evidence CI remediation", () => {
       projectRoot,
       root
     ]);
-    runGit(root, ["checkout", "--detach", M_L_SOURCE_COMMIT_FOR_TEST]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
+    ]);
     expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
-      M_L_SOURCE_COMMIT_FOR_TEST
+      "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
     );
-    runGit(root, ["config", "user.name", "SENA M portable test"]);
-    runGit(root, ["config", "user.email", "m-portable@example.invalid"]);
-    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
-      copyFileSync(join(projectRoot, relative), join(root, relative));
-    }
-    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
-    runGit(root, ["commit", "-q", "-m", "exact M portable candidate"]);
+    copyFileSync(
+      governanceScript,
+      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    );
     expect(
       spawnSync(
         "git",
@@ -19683,5 +19692,777 @@ describe("M-L portable J evidence CI remediation", () => {
     );
     expect(registry.status).toBe(0);
     expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
+});
+
+describe("N-M PR 88 final authorization", () => {
+  it("requires an exact M CI receipt transition before Ready or protected merge", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateNMPr88FinalAuthorizationTransition
+    ).toBe("function");
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        "26a13f040c5b3834e6fda6a9c004d511d8c572fb:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination/repo-governance/active-work.json"),
+        "utf8"
+      )
+    );
+    const proof = governance.validateNMPr88FinalAuthorizationTransition(
+      source,
+      candidate
+    );
+    expect(proof).toMatchObject({
+      sourceCommitSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      sourceTreeSha: "ff53849c4351ffa0acb6460adb29b6e48651f962",
+      pullRequestNumber: 88,
+      finalAuthorizationCommitAuthorizedAfterGates: true,
+      finalAuthorizationPushAuthorizedNow: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedAfterFinalHeadChecks: true,
+      protectedMergeAuthorizedAfterFinalHeadChecks: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.nMPr88FinalAuthorizationHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => (value.nMPr88FinalAuthorization.source.commitSha =
+        "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"),
+      (value: any) => (value.nMPr88FinalAuthorization.initialHeadCompletionEvidence.build.runId = 1),
+      (value: any) => (value.nMPr88FinalAuthorization.initialHeadCompletionEvidence.repositorySecurity[0].event = "pull_request"),
+      (value: any) => (value.nMPr88FinalAuthorization.initialHeadCompletionEvidence.annotationsEmpty = false),
+      (value: any) => (value.nMPr88FinalAuthorization.pullRequest.mergeStateStatus = "BLOCKED"),
+      (value: any) => (value.nMPr88FinalAuthorization.requiredExecution.reverse()),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.readyAuthorizedNow = true),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.deploymentAuthorizedNow = true),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateNMPr88FinalAuthorizationTransition(source, changed)
+      ).toThrow("rule=n-m-pr88-final-authorization-transition-invalid");
+    }
+    const facts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: "e".repeat(40),
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: "e".repeat(40),
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      orderedParentShas: ["26a13f040c5b3834e6fda6a9c004d511d8c572fb"],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      outgoingRegistryMatches: true
+    };
+    expect(governance.nMPr88FinalPushFactsAllowed(candidate, facts)).toBe(true);
+    for (const change of [
+      { branch: "foreign" },
+      { currentHeadSha: "f".repeat(40) },
+      { localRef: "refs/heads/main" },
+      { remoteSha: "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d" },
+      { orderedParentShas: ["6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { cachedMainSha: "f".repeat(40) },
+      { rootMainSha: "f".repeat(40) },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.nMPr88FinalPushFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("revalidates the exact M CI receipts and rejects provider drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination/repo-governance/active-work.json"),
+        "utf8"
+      )
+    );
+    const initialRuns = [
+      {
+        id: 34266721411,
+        name: "build-gate",
+        event: "pull_request",
+        jobId: 102197814481,
+        jobName: "build"
+      },
+      {
+        id: 34266717233,
+        name: "repo-security-gate",
+        event: "push",
+        jobId: 102197800401,
+        jobName: "repository-security"
+      },
+      {
+        id: 34266721387,
+        name: "repo-security-gate",
+        event: "pull_request",
+        jobId: 102197814791,
+        jobName: "repository-security"
+      }
+    ];
+    const initialProvider = (path: string): any => {
+      for (const entry of initialRuns) {
+        if (path === `repos/HUDongpin/SENA/actions/runs/${entry.id}`) {
+          return {
+            id: entry.id,
+            name: entry.name,
+            event: entry.event,
+            head_sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+            head_branch: I_H_BRANCH_FOR_TEST,
+            head_repository: { full_name: "HUDongpin/SENA" },
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          };
+        }
+        if (path === `repos/HUDongpin/SENA/actions/jobs/${entry.jobId}`) {
+          return {
+            id: entry.jobId,
+            run_id: entry.id,
+            run_attempt: 1,
+            name: entry.jobName,
+            head_sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+            status: "completed",
+            conclusion: "success"
+          };
+        }
+        if (
+          path ===
+          `repos/HUDongpin/SENA/check-runs/${entry.jobId}/annotations`
+        ) {
+          return [];
+        }
+      }
+      if (path === "repos/HUDongpin/SENA/pulls/88") {
+        return {
+          number: 88,
+          state: "open",
+          draft: true,
+          merged: false,
+          head: {
+            sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+            ref: I_H_BRANCH_FOR_TEST,
+            repo: { full_name: "HUDongpin/SENA" }
+          },
+          base: {
+            sha: H_GOVERNANCE_SOURCE_FOR_TEST,
+            ref: "main",
+            repo: { full_name: "HUDongpin/SENA" }
+          },
+          mergeable: true,
+          mergeable_state: "clean"
+        };
+      }
+      if (
+        path ===
+        `repos/HUDongpin/SENA/git/ref/heads/${I_H_BRANCH_FOR_TEST}`
+      ) {
+        return {
+          ref: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          object: { sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb" }
+        };
+      }
+      if (path === "repos/HUDongpin/SENA/git/ref/heads/main") {
+        return {
+          ref: "refs/heads/main",
+          object: { sha: H_GOVERNANCE_SOURCE_FOR_TEST }
+        };
+      }
+      throw new Error(`unexpected initial provider path: ${path}`);
+    };
+    expect(
+      governance.validateNMPr88InitialHeadLiveEvidence(candidate, {
+        githubTransport: initialProvider
+      })
+    ).toMatchObject({
+      headSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      buildRunId: 34266721411,
+      repositorySecurityRunIds: [34266717233, 34266721387],
+      checkJobIds: [102197814481, 102197800401, 102197814791],
+      annotationsEmpty: true,
+      pullRequestNumber: 88,
+      pullRequestDraft: true,
+      mergeable: true
+    });
+    for (const alter of [
+      (path: string, value: any) => {
+        if (path.endsWith("/actions/runs/34266721411")) {
+          value.conclusion = "failure";
+        }
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/actions/jobs/102197814481")) {
+          value.head_sha = "f".repeat(40);
+        }
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/check-runs/102197814481/annotations")) {
+          value.push({ path: "unexpected" });
+        }
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/pulls/88")) value.draft = false;
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/git/ref/heads/main")) {
+          value.object.sha = "f".repeat(40);
+        }
+      }
+    ]) {
+      expect(() =>
+        governance.validateNMPr88InitialHeadLiveEvidence(candidate, {
+          githubTransport: (path: string) => {
+            const value = structuredClone(initialProvider(path));
+            alter(path, value);
+            return value;
+          }
+        })
+      ).toThrow("rule=n-m-pr88-initial-head-live-evidence-invalid");
+    }
+  });
+
+  it("validates the exact N final head and its future protected merge shape in a fresh clone", () => {
+    const holder = temporaryRoot("n-m-final-and-merge");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
+    ]);
+    runGit(root, ["config", "user.name", "SENA N fixture"]);
+    runGit(root, ["config", "user.email", "n-fixture@example.invalid"]);
+    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, relative), join(root, relative));
+    }
+    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
+    runGit(root, ["commit", "-q", "-m", "exact N final candidate"]);
+    const finalHeadSha = runGit(root, ["rev-parse", "HEAD"]);
+    const finalTreeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+    const finalRegistryBlobSha = runGit(root, [
+      "rev-parse",
+      `HEAD:${H_GOVERNANCE_PATHS_FOR_TEST[0]}`
+    ]);
+    runGit(root, ["branch", "main", H_GOVERNANCE_SOURCE_FOR_TEST]);
+    runGit(root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      H_GOVERNANCE_SOURCE_FOR_TEST
+    ]);
+    const portable = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: "refs/pull/88/merge",
+          GITHUB_SHA: finalHeadSha
+        }
+      }
+    );
+    expect(portable.status).toBe(0);
+    expect(portable.stdout).toContain("SENA_REPO_REGISTRY pass");
+
+    runGit(root, ["checkout", "--detach", H_GOVERNANCE_SOURCE_FOR_TEST]);
+    runGit(root, ["merge", "--no-ff", "--no-edit", finalHeadSha]);
+    const mergeCommitSha = runGit(root, ["rev-parse", "HEAD"]);
+    expect(runGit(root, ["rev-list", "--parents", "-n", "1", "HEAD"]))
+      .toBe(`${mergeCommitSha} ${H_GOVERNANCE_SOURCE_FOR_TEST} ${finalHeadSha}`);
+    expect(runGit(root, ["rev-parse", "HEAD^{tree}"])).toBe(finalTreeSha);
+
+    const script = String.raw`
+      process.argv[1] = "/usr/bin/env";
+      const { readFileSync } = await import("node:fs");
+      const { execFileSync } = await import("node:child_process");
+      const governance = await import(process.env.N_GOVERNANCE_MODULE_URL);
+      const text = (args) => execFileSync("git", args, {
+        cwd: process.cwd(), encoding: "utf8"
+      }).trim();
+      const finalHeadSha = process.env.N_FINAL_HEAD;
+      const mergeCommitSha = process.env.N_MERGE_HEAD;
+      const sourceMainSha = process.env.N_SOURCE_MAIN;
+      const branch = process.env.N_BRANCH;
+      const candidate = JSON.parse(readFileSync(
+        process.env.N_REGISTRY_PATH, "utf8"
+      ));
+      const runs = [
+        { id: 9001, name: "build-gate", event: "pull_request", job: "build" },
+        { id: 9002, name: "repo-security-gate", event: "push", job: "repository-security" },
+        { id: 9003, name: "repo-security-gate", event: "pull_request", job: "repository-security" }
+      ];
+      const provider = (path) => {
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=")) {
+          return { workflow_runs: runs.map((run, index) => ({
+            id: run.id,
+            name: run.name,
+            event: run.event,
+            head_sha: finalHeadSha,
+            head_branch: branch,
+            head_repository: { full_name: "HUDongpin/SENA" },
+            created_at: new Date(1_800_000_000_000 + index * 1000).toISOString(),
+            run_number: index + 1,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          })) };
+        }
+        for (const [index, run] of runs.entries()) {
+          if (path === "repos/HUDongpin/SENA/actions/runs/" + run.id + "/attempts/1/jobs") {
+            return { jobs: [{
+              id: 9101 + index,
+              run_id: run.id,
+              run_attempt: 1,
+              name: run.job,
+              head_sha: finalHeadSha,
+              status: "completed",
+              conclusion: "success"
+            }] };
+          }
+          if (path === "repos/HUDongpin/SENA/check-runs/" + (9101 + index) + "/annotations") {
+            return [];
+          }
+        }
+        if (path === "repos/HUDongpin/SENA/pulls/88") {
+          return {
+            number: 88,
+            state: "open",
+            draft: true,
+            merged: false,
+            head: { sha: finalHeadSha, ref: branch, repo: { full_name: "HUDongpin/SENA" } },
+            base: { sha: sourceMainSha, ref: "main", repo: { full_name: "HUDongpin/SENA" } },
+            mergeable: true,
+            mergeable_state: "clean"
+          };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/" + branch) {
+          return { ref: "refs/heads/" + branch, object: { sha: finalHeadSha } };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/main") {
+          return { ref: "refs/heads/main", object: { sha: sourceMainSha } };
+        }
+        throw new Error("unexpected provider path: " + path);
+      };
+      const mainRuns = [
+        { id: 9201, name: "build-gate", event: "push", job: "build" },
+        { id: 9202, name: "repo-security-gate", event: "push", job: "repository-security" }
+      ];
+      const mergedProvider = (path) => {
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=" + finalHeadSha)) {
+          return provider(path);
+        }
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=" + mergeCommitSha)) {
+          return { workflow_runs: mainRuns.map((run, index) => ({
+            id: run.id,
+            name: run.name,
+            event: run.event,
+            head_sha: mergeCommitSha,
+            head_branch: "main",
+            head_repository: { full_name: "HUDongpin/SENA" },
+            created_at: new Date(1_800_000_010_000 + index * 1000).toISOString(),
+            run_number: index + 20,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          })) };
+        }
+        for (const [index, run] of mainRuns.entries()) {
+          if (path === "repos/HUDongpin/SENA/actions/runs/" + run.id + "/attempts/1/jobs") {
+            return { jobs: [{
+              id: 9301 + index,
+              run_id: run.id,
+              run_attempt: 1,
+              name: run.job,
+              head_sha: mergeCommitSha,
+              status: "completed",
+              conclusion: "success"
+            }] };
+          }
+          if (path === "repos/HUDongpin/SENA/check-runs/" + (9301 + index) + "/annotations") {
+            return [];
+          }
+        }
+        if (path === "repos/HUDongpin/SENA/pulls/88") {
+          return {
+            number: 88,
+            state: "closed",
+            draft: false,
+            merged: true,
+            merge_commit_sha: mergeCommitSha,
+            head: { sha: finalHeadSha, ref: branch, repo: { full_name: "HUDongpin/SENA" } },
+            base: { sha: sourceMainSha, ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+          };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/" + branch) {
+          return { ref: "refs/heads/" + branch, object: { sha: finalHeadSha } };
+        }
+        if (path.startsWith("repos/HUDongpin/SENA/rulesets/rule-suites?")) {
+          return [{
+            id: 9501,
+            actor_name: "HUDongpin",
+            before_sha: sourceMainSha,
+            after_sha: mergeCommitSha,
+            repository_name: "SENA",
+            result: "pass"
+          }];
+        }
+        if (path === "repos/HUDongpin/SENA/rulesets/rule-suites/9501") {
+          return {
+            id: 9501,
+            actor_name: "HUDongpin",
+            before_sha: sourceMainSha,
+            after_sha: mergeCommitSha,
+            repository_name: "SENA",
+            result: "pass",
+            rule_evaluations: [
+              "deletion",
+              "non_fast_forward",
+              "pull_request",
+              "required_status_checks"
+            ].map((rule_type) => ({
+              rule_type,
+              enforcement: "active",
+              result: "pass",
+              rule_source: {
+                id: 21232887,
+                name: "main-minimum-safety",
+                type: "ruleset"
+              }
+            }))
+          };
+        }
+        return provider(path);
+      };
+      const source = JSON.parse(text([
+        "show",
+        "26a13f040c5b3834e6fda6a9c004d511d8c572fb:coordination/repo-governance/active-work.json"
+      ]));
+      const transition = governance.validateNMPr88FinalAuthorizationTransition(
+        source, candidate
+      );
+      const readiness = governance.validateNMPr88FinalHeadReadiness(
+        candidate, finalHeadSha, { githubTransport: provider }
+      );
+      const descriptor = {
+        mergeTimeRegistry: candidate,
+        currentObservationRegistry: candidate,
+        mergeCommitSha,
+        orderedParentShas: [sourceMainSha, finalHeadSha],
+        secondParentSha: finalHeadSha,
+        mergeTreeSha: text(["rev-parse", mergeCommitSha + "^{tree}"]),
+        registryBlobSha: text(["rev-parse", mergeCommitSha + ":coordination/repo-governance/active-work.json"])
+      };
+      const mergeTime = governance.validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+        descriptor, { mergeTimeOnly: true }
+      );
+      execFileSync(
+        "git",
+        ["update-ref", "refs/remotes/origin/main", mergeCommitSha],
+        { cwd: process.cwd() }
+      );
+      const protectedMerge = governance.validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+        descriptor, {
+          githubTransport: mergedProvider,
+          observedAt: "2026-09-08T19:10:00Z"
+        }
+      );
+      const chain = [
+        {
+          pr: 86,
+          before: "c782aa03940028a2c19db18dfddec55370c797b1",
+          merge: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+          final: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+          branch: "codex/sena-mobile-research-pilot-20260905",
+          suite: 9601,
+          runBase: 10000,
+          jobBase: 11000
+        },
+        {
+          pr: 87,
+          before: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+          merge: sourceMainSha,
+          final: "7fd9e29c34ee7c1573dc81f4824124faadbae279",
+          branch: "codex/sena-pr86-delivery-closeout-20260907",
+          suite: 9602,
+          runBase: 12000,
+          jobBase: 13000
+        },
+        {
+          pr: 88,
+          before: sourceMainSha,
+          merge: mergeCommitSha,
+          final: finalHeadSha,
+          branch,
+          suite: 9603,
+          runBase: 14000,
+          jobBase: 15000
+        }
+      ];
+      const workflowRows = (entry, postMain) => {
+        const rows = postMain
+          ? [
+              ["build-gate", "push", "build"],
+              ["repo-security-gate", "push", "repository-security"]
+            ]
+          : [
+              ["build-gate", "pull_request", "build"],
+              ["repo-security-gate", "push", "repository-security"],
+              ["repo-security-gate", "pull_request", "repository-security"]
+            ];
+        return rows.map(([name, event, job], index) => ({
+          id: entry.runBase + (postMain ? 100 : 0) + index + 1,
+          jobId: entry.jobBase + (postMain ? 100 : 0) + index + 1,
+          name,
+          event,
+          job,
+          head: postMain ? entry.merge : entry.final,
+          branch: postMain ? "main" : entry.branch
+        }));
+      };
+      const allWorkflowRows = chain.flatMap((entry) => [
+        ...workflowRows(entry, false),
+        ...workflowRows(entry, true)
+      ]);
+      const suiteDetail = (entry) => ({
+        id: entry.suite,
+        actor_name: "HUDongpin",
+        before_sha: entry.before,
+        after_sha: entry.merge,
+        repository_name: "SENA",
+        result: "pass",
+        rule_evaluations: [
+          "deletion",
+          "non_fast_forward",
+          "pull_request",
+          "required_status_checks"
+        ].map((rule_type) => ({
+          rule_type,
+          enforcement: "active",
+          result: "pass",
+          rule_source: {
+            id: 21232887,
+            name: "main-minimum-safety",
+            type: "ruleset"
+          }
+        }))
+      });
+      const chainProvider = (path) => {
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=")) {
+          const queryHead = path.split("head_sha=")[1].split("&")[0];
+          const rows = allWorkflowRows.filter((row) => row.head === queryHead);
+          return { workflow_runs: rows.map((row, index) => ({
+            id: row.id,
+            name: row.name,
+            event: row.event,
+            head_sha: row.head,
+            head_branch: row.branch,
+            head_repository: { full_name: "HUDongpin/SENA" },
+            created_at: new Date(1_800_100_000_000 + index * 1000).toISOString(),
+            run_number: row.id,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          })) };
+        }
+        for (const row of allWorkflowRows) {
+          if (path === "repos/HUDongpin/SENA/actions/runs/" + row.id + "/attempts/1/jobs") {
+            return { jobs: [{
+              id: row.jobId,
+              run_id: row.id,
+              run_attempt: 1,
+              name: row.job,
+              head_sha: row.head,
+              status: "completed",
+              conclusion: "success"
+            }] };
+          }
+          if (path === "repos/HUDongpin/SENA/check-runs/" + row.jobId + "/annotations") {
+            return [];
+          }
+        }
+        const pull = chain.find((entry) => path === "repos/HUDongpin/SENA/pulls/" + entry.pr);
+        if (pull) {
+          return {
+            number: pull.pr,
+            state: "closed",
+            draft: false,
+            merged: true,
+            merge_commit_sha: pull.merge,
+            head: {
+              sha: pull.final,
+              ref: pull.branch,
+              repo: { full_name: "HUDongpin/SENA" }
+            },
+            base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+          };
+        }
+        const remote = chain.find(
+          (entry) => path === "repos/HUDongpin/SENA/git/ref/heads/" + entry.branch
+        );
+        if (remote) {
+          return {
+            ref: "refs/heads/" + remote.branch,
+            object: { sha: remote.final }
+          };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/main") {
+          return { ref: "refs/heads/main", object: { sha: mergeCommitSha } };
+        }
+        if (path.startsWith("repos/HUDongpin/SENA/rulesets/rule-suites?")) {
+          return chain.map((entry) => {
+            const detail = suiteDetail(entry);
+            const { rule_evaluations, ...summary } = detail;
+            return summary;
+          });
+        }
+        const suite = chain.find(
+          (entry) => path === "repos/HUDongpin/SENA/rulesets/rule-suites/" + entry.suite
+        );
+        if (suite) return suiteDetail(suite);
+        throw new Error("unexpected chain provider path: " + path);
+      };
+      for (const entry of chain) {
+        execFileSync(
+          "git",
+          ["update-ref", "refs/remotes/origin/" + entry.branch, entry.final],
+          { cwd: process.cwd() }
+        );
+      }
+      const currentness = governance.resolvePr86DeliveryCurrentnessCommit(
+        candidate,
+        mergeCommitSha,
+        {
+          githubTransport: chainProvider,
+          observedAt: "2026-09-08T19:10:00Z"
+        }
+      );
+      const readOnlyHeads = currentness
+        ? chain.map((entry) => governance.pr86DeliveryReadOnlyHeadObservationAllowed(
+            candidate, currentness, entry.branch, entry.final
+          ))
+        : [];
+      let evidenceError = null;
+      try {
+        governance.validatePr88DedicatedGovernanceFinalHeadLiveGitHubEvidence(
+          descriptor,
+          {
+            githubTransport: mergedProvider,
+            observedAt: "2026-09-08T19:10:00Z"
+          }
+        );
+      } catch (error) {
+        evidenceError = error instanceof Error ? error.message : String(error);
+      }
+      console.log(JSON.stringify({
+        transition,
+        readiness,
+        mergeTime,
+        protectedMerge,
+        currentness: currentness
+          ? {
+              mergeCommitSha: currentness.mergeCommitSha,
+              reviewedHeadSha: currentness.reviewedHeadSha,
+              closeoutReviewedHeadSha: currentness.closeoutReviewedHeadSha,
+              dedicatedLandingReviewedHeadSha:
+                currentness.dedicatedLandingReviewedHeadSha
+            }
+          : null,
+        readOnlyHeads,
+        evidenceError
+      }));
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: "refs/pull/88/merge",
+          GITHUB_SHA: finalHeadSha,
+          SENA_GOVERNANCE_TARGET_ROOT: root,
+          N_GOVERNANCE_MODULE_URL: pathToFileURL(governanceScript).href,
+          N_FINAL_HEAD: finalHeadSha,
+          N_MERGE_HEAD: mergeCommitSha,
+          N_SOURCE_MAIN: H_GOVERNANCE_SOURCE_FOR_TEST,
+          N_BRANCH: I_H_BRANCH_FOR_TEST,
+          N_REGISTRY_PATH: join(root, H_GOVERNANCE_PATHS_FOR_TEST[0])
+        }
+      }
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const result = JSON.parse(child.stdout);
+    expect(result.transition).toMatchObject({
+      sourceCommitSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      finalAuthorizationPushAuthorizedNow: true,
+      readyAuthorizedAfterFinalHeadChecks: true,
+      protectedMergeAuthorizedAfterFinalHeadChecks: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false
+    });
+    expect(result.readiness).toMatchObject({
+      headSha: finalHeadSha,
+      treeSha: finalTreeSha,
+      registryBlobSha: finalRegistryBlobSha,
+      checkJobIds: [9101, 9102, 9103],
+      annotationsEmpty: true,
+      pullRequestNumber: 88,
+      pullRequestDraft: true,
+      protectedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST
+    });
+    expect(result.mergeTime).toBe(true);
+    expect(result.protectedMerge, result.evidenceError).toBe(true);
+    expect(result.currentness).toEqual({
+      mergeCommitSha,
+      reviewedHeadSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+      closeoutReviewedHeadSha: "7fd9e29c34ee7c1573dc81f4824124faadbae279",
+      dedicatedLandingReviewedHeadSha: finalHeadSha
+    });
+    expect(result.readOnlyHeads).toEqual([true, true, true]);
   }, 120_000);
 });
