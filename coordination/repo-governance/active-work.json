@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-08T16:52:40Z",
+  "updatedAt": "2026-09-08T18:02:49Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -7274,10 +7274,10 @@
       "branch": "codex/sena-h-governance-intake-20260908",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-h-governance-intake-20260908",
       "baseSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
-      "headSha": "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f",
+      "headSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
+        "ahead": 3,
         "behind": 0
       },
       "allowedPaths": [
@@ -7286,25 +7286,25 @@
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-08T09:22:20Z",
-      "lastHeartbeatAt": "2026-09-08T16:52:40Z",
-      "lastObservedAt": "2026-09-08T16:52:40Z",
-      "nextReviewAt": "2026-09-10T16:52:40Z",
-      "expectedCloseAt": "owner-gated:pr88-ci-remediation-then-ready-protected-merge",
+      "lastHeartbeatAt": "2026-09-08T18:02:49Z",
+      "lastObservedAt": "2026-09-08T18:02:49Z",
+      "nextReviewAt": "2026-09-10T18:02:49Z",
+      "expectedCloseAt": "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge",
       "prNumber": 88,
       "noPrReason": null,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "dirtyState": "staged-l-k-pr88-ci-portability-remediation",
+      "dirtyState": "staged-m-l-portable-j-ci-remediation",
       "sensitivePaths": [],
       "disposition": "active",
       "freezeException": null,
       "evidenceState": {
-        "local": "K initial-push commit b54bec52 is clean and exactly matches the remote PR head; L stages only the three governance paths.",
-        "ci": "PR #88 build passed; repository-security failed because the fresh runner correctly lacked the local-only H staged tree object. L adds a strict GitHub Actions reconstruction path.",
-        "merged": "PR #88 remains OPEN and Draft; Ready and protected merge are not yet effective.",
+        "local": "L commit 6a1127db is clean and exact at the remote PR head; M stages only the three governance paths.",
+        "ci": "PR #88 build passed; both repository-security runs reached exact registry validation and failed only because the GitHub runner cannot read local J physical paths.",
+        "merged": "PR #88 remains OPEN and Draft; Ready and merge remain ineffective.",
         "deployed": "Deployment remains gated on landed-main and target verification.",
-        "live": "Remote branch and Draft PR #88 are exact at b54bec52 before the one-ref L update."
+        "live": "Remote branch and Draft PR #88 are exact at 6a1127db before the one-ref M update."
       }
     },
     {
@@ -8613,28 +8613,28 @@
       "owner": "Codex SENA I-H dedicated landing candidate writer",
       "ownerKey": "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
       "baseSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
-      "headSha": "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f",
+      "headSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
       "upstream": "origin/codex/sena-h-governance-intake-20260908",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f",
-      "remoteObservedAt": "2026-09-08T16:52:40Z",
+      "remoteHeadSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
+      "remoteObservedAt": "2026-09-08T18:02:49Z",
       "pr": 88,
       "noPrReason": null,
-      "prHeadSha": "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f",
+      "prHeadSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
       "prState": "OPEN",
       "prBase": "main",
       "prIsDraft": true,
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-09-08T16:52:40Z",
-      "lastObservedAt": "2026-09-08T16:52:40Z",
-      "lastCommitAt": "2026-09-09T00:15:00+08:00",
-      "nextReviewAt": "2026-09-10T16:52:40Z",
-      "expectedCloseAt": "owner-gated:pr88-ci-remediation-then-ready-protected-merge",
+      "lastOwnerHeartbeatAt": "2026-09-08T18:02:49Z",
+      "lastObservedAt": "2026-09-08T18:02:49Z",
+      "lastCommitAt": "2026-09-09T01:49:30+08:00",
+      "nextReviewAt": "2026-09-10T18:02:49Z",
+      "expectedCloseAt": "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge",
       "disposition": "active",
-      "closeout": "Draft PR #88 is bound at b54bec52; L repairs fresh-runner source portability and authorizes only the exact branch update."
+      "closeout": "Draft PR #88 is bound at 6a1127db; M permits only strict portable substitution for unavailable J host evidence."
     },
     {
       "name": "codex/sena-pr86-delivery-closeout-20260907",
@@ -13272,6 +13272,95 @@
       "localRef": "refs/heads/codex/sena-h-governance-intake-20260908",
       "remoteRef": "refs/heads/codex/sena-h-governance-intake-20260908",
       "expectedRemoteOldSha": "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f",
+      "exactlyOneRef": true,
+      "force": false
+    },
+    "authorizationBoundary": {
+      "branchUpdateCommitAuthorizedAfterGates": true,
+      "branchUpdatePushAuthorizedNow": true,
+      "remoteCiAuthorized": true,
+      "readyAuthorizedNow": false,
+      "mergeAuthorizedNow": false,
+      "deploymentAuthorizedNow": false,
+      "gProductWriteAuthorizedNow": false,
+      "cleanupAuthorizedNow": false,
+      "directMainPushAuthorized": false,
+      "forceAuthorized": false,
+      "historyRewriteAuthorized": false,
+      "bypassHooksAuthorized": false
+    }
+  },
+  "mLPortableJEvidenceCiRemediation": {
+    "schemaVersion": "sena-m-l-portable-j-evidence-ci-remediation/v1",
+    "status": "portable-j-ci-fix-staged",
+    "recordedAt": "2026-09-08T18:02:49Z",
+    "source": {
+      "commitSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
+      "treeSha": "0236973317eec972b49d0bb5af9a27eb0784f9db",
+      "orderedParentShas": [
+        "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+      ],
+      "exactPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "blobShas": [
+        "3e5ba0e0378dba3f8220150f8ecf6708812ddae0",
+        "5a2bf72e9dd051aa2bb2698c535911e4aa11c477",
+        "e7ac26e71f72b3979e196f27fdff961c6cd27e2b"
+      ],
+      "fileSha256": [
+        "26ff3aeb39f84982d43f4992dc22accd909db95fd25bd2be3f5d09859c548b3a",
+        "325a88a3a1a20a4decc81793ee185fb22c007a1d6d6cbea12cae45bb81c9aae1",
+        "5ae9e8b0066d595d424feec5b1fdd27edc0447e4c7dc3f7b12e0f1a6f1804c8d"
+      ]
+    },
+    "pullRequest": {
+      "number": 88,
+      "state": "OPEN",
+      "draft": true,
+      "headSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
+      "baseSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975"
+    },
+    "observedChecks": {
+      "build": {
+        "runId": 34260416942,
+        "jobId": 102176680378,
+        "conclusion": "SUCCESS"
+      },
+      "repositorySecurityFailures": [
+        {
+          "event": "push",
+          "runId": 34260410659,
+          "jobId": 102176660505,
+          "conclusion": "FAILURE"
+        },
+        {
+          "event": "pull_request",
+          "runId": 34260416788,
+          "jobId": 102176679298,
+          "conclusion": "FAILURE"
+        }
+      ],
+      "exactErrors": [
+        "rule=i-h-dedicated-landing-transition-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    "remediation": {
+      "mode": "strict-github-actions-portable-j-substitution",
+      "localJPhysicalRevalidationPreserved": true,
+      "portableRequiresLocalOnlyHTreeAbsent": true,
+      "portableRequiresExactReachableICommitTreeAndBlobs": true,
+      "portableDoesNotClaimRunnerHostCustody": true,
+      "portableAllowsHostOrProviderMutation": false
+    },
+    "updatePushContract": {
+      "remoteName": "origin",
+      "localRef": "refs/heads/codex/sena-h-governance-intake-20260908",
+      "remoteRef": "refs/heads/codex/sena-h-governance-intake-20260908",
+      "expectedRemoteOldSha": "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d",
       "exactlyOneRef": true,
       "force": false
     },

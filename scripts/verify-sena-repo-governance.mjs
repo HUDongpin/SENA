@@ -1633,7 +1633,8 @@ function runPushPolicy(flags) {
     if (
       !outgoingRegistry ||
       (!kILandingInitialPushAuthorized(outgoingRegistry, updates) &&
-        !lKBranchUpdatePushAuthorized(outgoingRegistry, updates))
+        !lKBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
+        !mLBranchUpdatePushAuthorized(outgoingRegistry, updates))
     ) {
       throw new Error("rule=i-h-dedicated-landing-push-denied");
     }
@@ -1841,6 +1842,9 @@ function runWritePolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
   const committedPr86Closeout = pr86DeliveryCurrentCheckoutMerged();
   const { parsed: registry } = loadRegistryForFlags(flags);
+  const isMLPortableJEvidenceCi = Boolean(
+    registry.mLPortableJEvidenceCiRemediation
+  );
   const isLKDraftPrCiRemediation = Boolean(
     registry.lKDraftPrCiRemediation
   );
@@ -1850,9 +1854,12 @@ function runWritePolicy(flags) {
   const isIHDedicatedLanding = Boolean(
     registry.iHDedicatedLandingCandidate
   );
-  let exactGovernanceIndex = isLKDraftPrCiRemediation
-    ? typeof lKDraftPrCiCurrentIndexAllowed === "function" &&
-      lKDraftPrCiCurrentIndexAllowed(registry)
+  let exactGovernanceIndex = isMLPortableJEvidenceCi
+    ? typeof mLPortableJEvidenceCiCurrentIndexAllowed === "function" &&
+      mLPortableJEvidenceCiCurrentIndexAllowed(registry)
+    : isLKDraftPrCiRemediation
+      ? typeof lKDraftPrCiCurrentIndexAllowed === "function" &&
+        lKDraftPrCiCurrentIndexAllowed(registry)
     : isKILandingLifecycle
       ? typeof kILandingCurrentIndexAllowed === "function" &&
         kILandingCurrentIndexAllowed(registry)
@@ -1874,8 +1881,12 @@ function runWritePolicy(flags) {
       (isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? (isLKDraftPrCiRemediation
-                ? typeof lKDraftPrCiCurrentIndexAllowed === "function" &&
-                  lKDraftPrCiCurrentIndexAllowed(registry)
+                ? (isMLPortableJEvidenceCi
+                    ? typeof mLPortableJEvidenceCiCurrentIndexAllowed ===
+                        "function" &&
+                      mLPortableJEvidenceCiCurrentIndexAllowed(registry)
+                    : typeof lKDraftPrCiCurrentIndexAllowed === "function" &&
+                      lKDraftPrCiCurrentIndexAllowed(registry))
                 : typeof kILandingCurrentIndexAllowed === "function" &&
                   kILandingCurrentIndexAllowed(registry))
             : typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
@@ -1960,8 +1971,10 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !exactGovernanceIndex) {
     addFinding(findings, {
       path: "index",
-      rule: isLKDraftPrCiRemediation
-        ? "l-k-draft-pr-ci-index-identity-invalid"
+      rule: isMLPortableJEvidenceCi
+        ? "m-l-portable-j-ci-index-identity-invalid"
+        : isLKDraftPrCiRemediation
+          ? "l-k-draft-pr-ci-index-identity-invalid"
         : isKILandingLifecycle
           ? "k-i-landing-lifecycle-index-identity-invalid"
         : isIHDedicatedLanding
@@ -1997,8 +2010,10 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !governanceFinalBarrierAllowed()) {
     addFinding(findings, {
       path: "index",
-      rule: isLKDraftPrCiRemediation
-        ? "l-k-draft-pr-ci-final-barrier-invalid"
+      rule: isMLPortableJEvidenceCi
+        ? "m-l-portable-j-ci-final-barrier-invalid"
+        : isLKDraftPrCiRemediation
+          ? "l-k-draft-pr-ci-final-barrier-invalid"
         : isKILandingLifecycle
           ? "k-i-landing-lifecycle-final-barrier-invalid"
         : isIHDedicatedLanding
@@ -14274,14 +14289,17 @@ export function validateIHDedicatedLandingCandidateTransition(
   candidateRegistry
 ) {
   try {
+    const portableCiReconstruction =
+      iHDedicatedLandingPortableSourceReconstructionAllowed();
     if (
       !iHDedicatedLandingTransitionStructurallyAllowed(
         sourceRegistry,
         candidateRegistry
       ) ||
-      !jHEvidenceCustodyPhysicalAllowed(
-        candidateRegistry.jHEvidenceCustodyReconstruction
-      )
+      (!portableCiReconstruction &&
+        !jHEvidenceCustodyPhysicalAllowed(
+          candidateRegistry.jHEvidenceCustodyReconstruction
+        ))
     ) {
       throw new Error();
     }
@@ -14334,6 +14352,10 @@ export function iHDedicatedLandingHistoricalProjection(registry) {
 
 function iHDedicatedLandingOperationalRegistry(registry) {
   let operationalRegistry = registry;
+  if (operationalRegistry?.mLPortableJEvidenceCiRemediation) {
+    operationalRegistry =
+      mLPortableJEvidenceCiHistoricalProjection(operationalRegistry);
+  }
   if (operationalRegistry?.lKDraftPrCiRemediation) {
     operationalRegistry =
       lKDraftPrCiRemediationHistoricalProjection(operationalRegistry);
@@ -15106,6 +15128,332 @@ function lKCommittedBranchUpdateBarrierAllowed(registry) {
         protectedMainAdvanceObjectSha("origin/main^{commit}") ===
           H_GOVERNANCE_SOURCE &&
         protectedMainAdvanceObjectSha("refs/heads/main") ===
+          H_GOVERNANCE_SOURCE &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+const M_L_SOURCE_COMMIT = "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d";
+const M_L_SOURCE_TREE = "0236973317eec972b49d0bb5af9a27eb0784f9db";
+const M_L_SOURCE_BLOBS = [
+  "3e5ba0e0378dba3f8220150f8ecf6708812ddae0",
+  "5a2bf72e9dd051aa2bb2698c535911e4aa11c477",
+  "e7ac26e71f72b3979e196f27fdff961c6cd27e2b"
+];
+const M_L_SOURCE_SHA256 = [
+  "26ff3aeb39f84982d43f4992dc22accd909db95fd25bd2be3f5d09859c548b3a",
+  "325a88a3a1a20a4decc81793ee185fb22c007a1d6d6cbea12cae45bb81c9aae1",
+  "5ae9e8b0066d595d424feec5b1fdd27edc0447e4c7dc3f7b12e0f1a6f1804c8d"
+];
+const M_L_RECORDED_AT = "2026-09-08T18:02:49Z";
+const M_L_NEXT_REVIEW_AT = "2026-09-10T18:02:49Z";
+const M_L_AUTHORIZATION_BOUNDARY = Object.freeze({
+  branchUpdateCommitAuthorizedAfterGates: true,
+  branchUpdatePushAuthorizedNow: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let mLSourceCache = null;
+function mLPortableJEvidenceCiRemediationSource() {
+  if (!mLSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${M_L_SOURCE_COMMIT}^{tree}`) !==
+        M_L_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(M_L_SOURCE_COMMIT), [
+        L_K_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(
+          L_K_SOURCE_COMMIT,
+          M_L_SOURCE_COMMIT
+        ),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=m-l-portable-j-ci-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${M_L_SOURCE_COMMIT}:${path}`
+      );
+      if (
+        blob !== M_L_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          M_L_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=m-l-portable-j-ci-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(M_L_SOURCE_COMMIT).parsed;
+    if (
+      !lKDraftPrCiRemediationTransitionStructurallyAllowed(
+        lKDraftPrCiRemediationSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=m-l-portable-j-ci-source-invalid");
+    }
+    mLSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(mLSourceCache);
+}
+
+function mLPortableJEvidenceCiExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch) {
+    throw new Error("rule=m-l-portable-j-ci-source-invalid");
+  }
+  const expectedCloseAt =
+    "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge";
+  expected.updatedAt = M_L_RECORDED_AT;
+  Object.assign(item, {
+    headSha: M_L_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 3, behind: 0 },
+    lastHeartbeatAt: M_L_RECORDED_AT,
+    lastObservedAt: M_L_RECORDED_AT,
+    nextReviewAt: M_L_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    dirtyState: "staged-m-l-portable-j-ci-remediation",
+    evidenceState: {
+      local:
+        "L commit 6a1127db is clean and exact at the remote PR head; M stages only the three governance paths.",
+      ci:
+        "PR #88 build passed; both repository-security runs reached exact registry validation and failed only because the GitHub runner cannot read local J physical paths.",
+      merged:
+        "PR #88 remains OPEN and Draft; Ready and merge remain ineffective.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Remote branch and Draft PR #88 are exact at 6a1127db before the one-ref M update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: M_L_SOURCE_COMMIT,
+    remoteHeadSha: M_L_SOURCE_COMMIT,
+    remoteObservedAt: M_L_RECORDED_AT,
+    prHeadSha: M_L_SOURCE_COMMIT,
+    lastOwnerHeartbeatAt: M_L_RECORDED_AT,
+    lastObservedAt: M_L_RECORDED_AT,
+    lastCommitAt: "2026-09-09T01:49:30+08:00",
+    nextReviewAt: M_L_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at 6a1127db; M permits only strict portable substitution for unavailable J host evidence."
+  });
+  expected.mLPortableJEvidenceCiRemediation = {
+    schemaVersion: "sena-m-l-portable-j-evidence-ci-remediation/v1",
+    status: "portable-j-ci-fix-staged",
+    recordedAt: M_L_RECORDED_AT,
+    source: {
+      commitSha: M_L_SOURCE_COMMIT,
+      treeSha: M_L_SOURCE_TREE,
+      orderedParentShas: [L_K_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...M_L_SOURCE_BLOBS],
+      fileSha256: [...M_L_SOURCE_SHA256]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: M_L_SOURCE_COMMIT,
+      baseSha: H_GOVERNANCE_SOURCE
+    },
+    observedChecks: {
+      build: {
+        runId: 34260416942,
+        jobId: 102176680378,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34260410659,
+          jobId: 102176660505,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34260416788,
+          jobId: 102176679298,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-transition-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-j-substitution",
+      localJPhysicalRevalidationPreserved: true,
+      portableRequiresLocalOnlyHTreeAbsent: true,
+      portableRequiresExactReachableICommitTreeAndBlobs: true,
+      portableDoesNotClaimRunnerHostCustody: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: M_L_SOURCE_COMMIT,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      ...M_L_AUTHORIZATION_BOUNDARY
+    }
+  };
+  return expected;
+}
+
+function mLPortableJEvidenceCiTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = mLPortableJEvidenceCiRemediationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          mLPortableJEvidenceCiExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateMLPortableJEvidenceCiRemediationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !mLPortableJEvidenceCiTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=m-l-portable-j-ci-transition-invalid");
+  }
+  return {
+    sourceCommitSha: M_L_SOURCE_COMMIT,
+    sourceTreeSha: M_L_SOURCE_TREE,
+    pullRequestNumber: 88,
+    ...M_L_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function mLPortableJEvidenceCiHistoricalProjection(registry) {
+  const source = mLPortableJEvidenceCiRemediationSource();
+  validateMLPortableJEvidenceCiRemediationTransition(source, registry);
+  return source;
+}
+
+function mLBranchUpdatePushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    validateMLPortableJEvidenceCiRemediationTransition(
+      mLPortableJEvidenceCiRemediationSource(),
+      registry
+    );
+    const update = updates[0];
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      update.localRef === `refs/heads/${I_H_BRANCH}` &&
+        update.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        update.remoteSha === M_L_SOURCE_COMMIT &&
+        update.localSha === headSha &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          M_L_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(M_L_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE
+    );
+  } catch {
+    return false;
+  }
+}
+
+function mLPortableJEvidenceCiIndexFactsAllowed(registry, facts) {
+  try {
+    validateMLPortableJEvidenceCiRemediationTransition(
+      mLPortableJEvidenceCiRemediationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: M_L_SOURCE_COMMIT,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function mLPortableJEvidenceCiCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(facts && mLPortableJEvidenceCiIndexFactsAllowed(registry, facts));
+}
+
+function mLCommittedBranchUpdateBarrierAllowed(registry) {
+  try {
+    validateMLPortableJEvidenceCiRemediationTransition(
+      mLPortableJEvidenceCiRemediationSource(),
+      registry
+    );
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== M_L_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          M_L_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(M_L_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
           H_GOVERNANCE_SOURCE &&
         gitText([
           "status",
@@ -19682,6 +20030,9 @@ function runAudit(flags) {
     runPortableAudit(registry, validateRegistry(registry));
     return;
   }
+  const isMLPortableJEvidenceCi = Boolean(
+    registry.mLPortableJEvidenceCiRemediation
+  );
   const isLKDraftPrCiRemediation = Boolean(
     registry.lKDraftPrCiRemediation
   );
@@ -19694,10 +20045,14 @@ function runAudit(flags) {
   const committedLifecyclePrePush = Boolean(
     isKILandingLifecycle && flags.has("pre-push")
   );
-  const exactGovernanceIndex = isLKDraftPrCiRemediation
+  const exactGovernanceIndex = isMLPortableJEvidenceCi
     ? committedLifecyclePrePush
-      ? lKCommittedBranchUpdateBarrierAllowed(registry)
-      : lKDraftPrCiCurrentIndexAllowed(registry)
+      ? mLCommittedBranchUpdateBarrierAllowed(registry)
+      : mLPortableJEvidenceCiCurrentIndexAllowed(registry)
+    : isLKDraftPrCiRemediation
+      ? committedLifecyclePrePush
+        ? lKCommittedBranchUpdateBarrierAllowed(registry)
+        : lKDraftPrCiCurrentIndexAllowed(registry)
     : isKILandingLifecycle
       ? committedLifecyclePrePush
         ? kILandingCommittedInitialPushBarrierAllowed(registry)
@@ -19715,20 +20070,28 @@ function runAudit(flags) {
       (isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? committedLifecyclePrePush
-              ? isLKDraftPrCiRemediation
-                ? lKCommittedBranchUpdateBarrierAllowed(registry)
+              ? isMLPortableJEvidenceCi
+                ? mLCommittedBranchUpdateBarrierAllowed(registry)
+                : isLKDraftPrCiRemediation
+                  ? lKCommittedBranchUpdateBarrierAllowed(registry)
                 : kILandingCommittedInitialPushBarrierAllowed(registry)
-              : isLKDraftPrCiRemediation
-                ? lKDraftPrCiCurrentIndexAllowed(registry) &&
+              : isMLPortableJEvidenceCi
+                ? mLPortableJEvidenceCiCurrentIndexAllowed(registry) &&
                   iHDedicatedLandingIndexSnapshotsMatch(
                     initialGovernanceIndexSnapshot,
                     hGovernanceCurrentIndexSnapshot()
                   )
-              : kILandingCurrentIndexAllowed(registry) &&
-                iHDedicatedLandingIndexSnapshotsMatch(
-                  initialGovernanceIndexSnapshot,
-                  hGovernanceCurrentIndexSnapshot()
-                )
+                : isLKDraftPrCiRemediation
+                  ? lKDraftPrCiCurrentIndexAllowed(registry) &&
+                    iHDedicatedLandingIndexSnapshotsMatch(
+                      initialGovernanceIndexSnapshot,
+                      hGovernanceCurrentIndexSnapshot()
+                    )
+                  : kILandingCurrentIndexAllowed(registry) &&
+                    iHDedicatedLandingIndexSnapshotsMatch(
+                      initialGovernanceIndexSnapshot,
+                      hGovernanceCurrentIndexSnapshot()
+                    )
             : iHDedicatedLandingCurrentIndexAllowed(registry) &&
               iHDedicatedLandingIndexSnapshotsMatch(
                 initialGovernanceIndexSnapshot,
@@ -20252,8 +20615,10 @@ function runAudit(flags) {
     (flags.has("pre-commit") || flags.has("pre-push")) &&
     !governanceAuditFinalBarrierAllowed() &&
     !errors.includes(
-      isLKDraftPrCiRemediation
-        ? "rule=l-k-draft-pr-ci-final-barrier-invalid"
+      isMLPortableJEvidenceCi
+        ? "rule=m-l-portable-j-ci-final-barrier-invalid"
+        : isLKDraftPrCiRemediation
+          ? "rule=l-k-draft-pr-ci-final-barrier-invalid"
         : isKILandingLifecycle
           ? "rule=k-i-landing-lifecycle-final-barrier-invalid"
         : isIHDedicatedLanding
@@ -20262,8 +20627,10 @@ function runAudit(flags) {
     )
   ) {
     errors.push(
-      isLKDraftPrCiRemediation
-        ? "rule=l-k-draft-pr-ci-final-barrier-invalid"
+      isMLPortableJEvidenceCi
+        ? "rule=m-l-portable-j-ci-final-barrier-invalid"
+        : isLKDraftPrCiRemediation
+          ? "rule=l-k-draft-pr-ci-final-barrier-invalid"
         : isKILandingLifecycle
           ? "rule=k-i-landing-lifecycle-final-barrier-invalid"
         : isIHDedicatedLanding

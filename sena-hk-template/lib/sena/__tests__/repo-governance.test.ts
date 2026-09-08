@@ -19066,6 +19066,11 @@ describe("K-I owner-authorized landing lifecycle", () => {
       projectRoot,
       root
     ]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+    ]);
     expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
       "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
     );
@@ -19291,10 +19296,10 @@ describe("L-K Draft PR and CI portability remediation", () => {
     const candidate = lKCandidateForTest();
     expect(
       JSON.parse(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json"),
-          "utf8"
-        )
+        runGit(projectRoot, [
+          "show",
+          "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d:coordination/repo-governance/active-work.json"
+        ])
       )
     ).toEqual(candidate);
     const proof = governance.validateLKDraftPrCiRemediationTransition(
@@ -19386,6 +19391,7 @@ describe("L-K Draft PR and CI portability remediation", () => {
       projectRoot,
       root
     ]);
+    runGit(root, ["checkout", "--detach", L_K_SOURCE_COMMIT_FOR_TEST]);
     expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
       L_K_SOURCE_COMMIT_FOR_TEST
     );
@@ -19414,6 +19420,263 @@ describe("L-K Draft PR and CI portability remediation", () => {
           GITHUB_EVENT_NAME: "pull_request",
           GITHUB_WORKSPACE: root,
           GITHUB_REF: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          GITHUB_SHA: runGit(root, ["rev-parse", "HEAD"])
+        }
+      }
+    );
+    expect(registry.status).toBe(0);
+    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
+});
+
+const M_L_SOURCE_COMMIT_FOR_TEST =
+  "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d";
+const M_L_SOURCE_TREE_FOR_TEST =
+  "0236973317eec972b49d0bb5af9a27eb0784f9db";
+const M_L_RECORDED_AT_FOR_TEST = "2026-09-08T18:02:49Z";
+const M_L_NEXT_REVIEW_AT_FOR_TEST = "2026-09-10T18:02:49Z";
+
+function mLSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${M_L_SOURCE_COMMIT_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function mLCandidateForTest() {
+  const source = mLSourceForTest();
+  const candidate = structuredClone(source);
+  const item = candidate.workItems.find(
+    (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+  );
+  const branch = candidate.branches.find(
+    (entry: any) => entry.name === I_H_BRANCH_FOR_TEST
+  );
+  const expectedCloseAt =
+    "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge";
+  candidate.updatedAt = M_L_RECORDED_AT_FOR_TEST;
+  Object.assign(item, {
+    headSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 3, behind: 0 },
+    lastHeartbeatAt: M_L_RECORDED_AT_FOR_TEST,
+    lastObservedAt: M_L_RECORDED_AT_FOR_TEST,
+    nextReviewAt: M_L_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    dirtyState: "staged-m-l-portable-j-ci-remediation",
+    evidenceState: {
+      local:
+        "L commit 6a1127db is clean and exact at the remote PR head; M stages only the three governance paths.",
+      ci: "PR #88 build passed; both repository-security runs reached exact registry validation and failed only because the GitHub runner cannot read local J physical paths.",
+      merged: "PR #88 remains OPEN and Draft; Ready and merge remain ineffective.",
+      deployed: "Deployment remains gated on landed-main and target verification.",
+      live: "Remote branch and Draft PR #88 are exact at 6a1127db before the one-ref M update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    remoteHeadSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    remoteObservedAt: M_L_RECORDED_AT_FOR_TEST,
+    prHeadSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    lastOwnerHeartbeatAt: M_L_RECORDED_AT_FOR_TEST,
+    lastObservedAt: M_L_RECORDED_AT_FOR_TEST,
+    lastCommitAt: "2026-09-09T01:49:30+08:00",
+    nextReviewAt: M_L_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at 6a1127db; M permits only strict portable substitution for unavailable J host evidence."
+  });
+  candidate.mLPortableJEvidenceCiRemediation = {
+    schemaVersion: "sena-m-l-portable-j-evidence-ci-remediation/v1",
+    status: "portable-j-ci-fix-staged",
+    recordedAt: M_L_RECORDED_AT_FOR_TEST,
+    source: {
+      commitSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      treeSha: M_L_SOURCE_TREE_FOR_TEST,
+      orderedParentShas: [L_K_SOURCE_COMMIT_FOR_TEST],
+      exactPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      blobShas: [
+        "3e5ba0e0378dba3f8220150f8ecf6708812ddae0",
+        "5a2bf72e9dd051aa2bb2698c535911e4aa11c477",
+        "e7ac26e71f72b3979e196f27fdff961c6cd27e2b"
+      ],
+      fileSha256: [
+        "26ff3aeb39f84982d43f4992dc22accd909db95fd25bd2be3f5d09859c548b3a",
+        "325a88a3a1a20a4decc81793ee185fb22c007a1d6d6cbea12cae45bb81c9aae1",
+        "5ae9e8b0066d595d424feec5b1fdd27edc0447e4c7dc3f7b12e0f1a6f1804c8d"
+      ]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      baseSha: H_GOVERNANCE_SOURCE_FOR_TEST
+    },
+    observedChecks: {
+      build: {
+        runId: 34260416942,
+        jobId: 102176680378,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34260410659,
+          jobId: 102176660505,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34260416788,
+          jobId: 102176679298,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-transition-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-j-substitution",
+      localJPhysicalRevalidationPreserved: true,
+      portableRequiresLocalOnlyHTreeAbsent: true,
+      portableRequiresExactReachableICommitTreeAndBlobs: true,
+      portableDoesNotClaimRunnerHostCustody: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      expectedRemoteOldSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      branchUpdateCommitAuthorizedAfterGates: true,
+      branchUpdatePushAuthorizedNow: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    }
+  };
+  return candidate;
+}
+
+describe("M-L portable J evidence CI remediation", () => {
+  it("binds the second PR 88 CI failures and authorizes only the exact non-force update", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateMLPortableJEvidenceCiRemediationTransition
+    ).toBe("function");
+    const source = mLSourceForTest();
+    const candidate = mLCandidateForTest();
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json"),
+          "utf8"
+        )
+      )
+    ).toEqual(candidate);
+    const proof =
+      governance.validateMLPortableJEvidenceCiRemediationTransition(
+        source,
+        candidate
+      );
+    expect(proof).toMatchObject({
+      sourceCommitSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      sourceTreeSha: M_L_SOURCE_TREE_FOR_TEST,
+      pullRequestNumber: 88,
+      branchUpdatePushAuthorizedNow: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.mLPortableJEvidenceCiHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.source.commitSha = L_K_SOURCE_COMMIT_FOR_TEST),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.observedChecks.build.conclusion = "FAILURE"),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.remediation.localJPhysicalRevalidationPreserved = false),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.remediation.portableDoesNotClaimRunnerHostCustody = false),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.authorizationBoundary.readyAuthorizedNow = true),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateMLPortableJEvidenceCiRemediationTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=m-l-portable-j-ci-transition-invalid");
+    }
+  });
+
+  it("validates the exact staged M candidate in a fresh GitHub Actions clone", () => {
+    const holder = temporaryRoot("m-l-portable-ci");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    runGit(root, ["checkout", "--detach", M_L_SOURCE_COMMIT_FOR_TEST]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      M_L_SOURCE_COMMIT_FOR_TEST
+    );
+    runGit(root, ["config", "user.name", "SENA M portable test"]);
+    runGit(root, ["config", "user.email", "m-portable@example.invalid"]);
+    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, relative), join(root, relative));
+    }
+    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
+    runGit(root, ["commit", "-q", "-m", "exact M portable candidate"]);
+    expect(
+      spawnSync(
+        "git",
+        ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
+        { cwd: root, encoding: "utf8", env: process.env }
+      ).status
+    ).not.toBe(0);
+    const registry = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: "refs/pull/88/merge",
           GITHUB_SHA: runGit(root, ["rev-parse", "HEAD"])
         }
       }
