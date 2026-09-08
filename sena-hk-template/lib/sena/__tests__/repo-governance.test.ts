@@ -18961,10 +18961,10 @@ describe("K-I owner-authorized landing lifecycle", () => {
     const candidate = kICandidateForTest();
     expect(
       JSON.parse(
-        readFileSync(
-          join(projectRoot, "coordination/repo-governance/active-work.json"),
-          "utf8"
-        )
+        runGit(projectRoot, [
+          "show",
+          "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f:coordination/repo-governance/active-work.json"
+        ])
       )
     ).toEqual(candidate);
     const proof =
@@ -19052,4 +19052,373 @@ describe("K-I owner-authorized landing lifecycle", () => {
       ).toBe(false);
     }
   });
+
+  it("validates the committed K registry in a fresh GitHub Actions clone without local-only H tree objects", () => {
+    const holder = temporaryRoot("k-i-portable-ci");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+    );
+    const localOnlyTree = spawnSync(
+      "git",
+      ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
+      { cwd: root, encoding: "utf8", env: process.env }
+    );
+    expect(localOnlyTree.status).not.toBe(0);
+    copyFileSync(
+      governanceScript,
+      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    );
+    const registry = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          GITHUB_SHA: "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+        }
+      }
+    );
+    expect(registry.status).toBe(0);
+    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
+});
+
+const L_K_SOURCE_COMMIT_FOR_TEST =
+  "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f";
+const L_K_SOURCE_TREE_FOR_TEST =
+  "ad6733d7ab1805f1336fda063bf41f4ebd660528";
+const L_K_RECORDED_AT_FOR_TEST = "2026-09-08T16:52:40Z";
+const L_K_NEXT_REVIEW_AT_FOR_TEST = "2026-09-10T16:52:40Z";
+const L_K_FAKE_OUTGOING_COMMIT_FOR_TEST = "b".repeat(40);
+
+function lKSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${L_K_SOURCE_COMMIT_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function lKCandidateForTest() {
+  const source = lKSourceForTest();
+  const candidate = structuredClone(source);
+  const item = candidate.workItems.find(
+    (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+  );
+  const branch = candidate.branches.find(
+    (entry: any) => entry.name === I_H_BRANCH_FOR_TEST
+  );
+  const expectedCloseAt =
+    "owner-gated:pr88-ci-remediation-then-ready-protected-merge";
+  candidate.updatedAt = L_K_RECORDED_AT_FOR_TEST;
+  Object.assign(item, {
+    headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 2, behind: 0 },
+    lastHeartbeatAt: L_K_RECORDED_AT_FOR_TEST,
+    lastObservedAt: L_K_RECORDED_AT_FOR_TEST,
+    nextReviewAt: L_K_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    prNumber: 88,
+    noPrReason: null,
+    prIsDraft: true,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-l-k-pr88-ci-portability-remediation",
+    evidenceState: {
+      local:
+        "K initial-push commit b54bec52 is clean and exactly matches the remote PR head; L stages only the three governance paths.",
+      ci: "PR #88 build passed; repository-security failed because the fresh runner correctly lacked the local-only H staged tree object. L adds a strict GitHub Actions reconstruction path.",
+      merged: "PR #88 remains OPEN and Draft; Ready and protected merge are not yet effective.",
+      deployed: "Deployment remains gated on landed-main and target verification.",
+      live: "Remote branch and Draft PR #88 are exact at b54bec52 before the one-ref L update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    upstream: `origin/${I_H_BRANCH_FOR_TEST}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    remoteObservedAt: L_K_RECORDED_AT_FOR_TEST,
+    pr: 88,
+    noPrReason: null,
+    prHeadSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    prState: "OPEN",
+    prBase: "main",
+    prIsDraft: true,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: L_K_RECORDED_AT_FOR_TEST,
+    lastObservedAt: L_K_RECORDED_AT_FOR_TEST,
+    lastCommitAt: "2026-09-09T00:15:00+08:00",
+    nextReviewAt: L_K_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at b54bec52; L repairs fresh-runner source portability and authorizes only the exact branch update."
+  });
+  candidate.kILandingLifecycleAuthorization.status =
+    "draft-pr-bound-ci-remediation-authorized";
+  candidate.kILandingLifecycleAuthorization.draftPrBinding = {
+    number: 88,
+    url: "https://github.com/HUDongpin/SENA/pull/88",
+    state: "OPEN",
+    draft: true,
+    headRef: I_H_BRANCH_FOR_TEST,
+    headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    baseRef: "main",
+    createdAt: "2026-09-08T16:45:05Z"
+  };
+  Object.assign(
+    candidate.kILandingLifecycleAuthorization.authorizationBoundary,
+    {
+      initialPushAuthorizedNow: false,
+      branchUpdatePushAuthorizedNow: true,
+      ciRemediationAuthorized: true
+    }
+  );
+  candidate.lKDraftPrCiRemediation = {
+    schemaVersion: "sena-l-k-draft-pr-ci-remediation/v1",
+    status: "draft-pr-bound-portability-fix-staged",
+    recordedAt: L_K_RECORDED_AT_FOR_TEST,
+    source: {
+      commitSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      treeSha: L_K_SOURCE_TREE_FOR_TEST,
+      orderedParentShas: [K_I_SOURCE_COMMIT_FOR_TEST],
+      exactPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      blobShas: [
+        "cdab47abe72d5c0da5bc8b928f86fe63c8928ec0",
+        "7b8a322d6150b3818f9adc78fca5cd99d67d61c7",
+        "335b75f4fd4c2e87582043c801af6c7932022502"
+      ],
+      fileSha256: [
+        "e1d424708cedf402ff3fd88b2d83aa0f39d424d866f306fd7ee2335396cee118",
+        "3eb39bf24c3ab0cd034c9e139644b9b8db165dcdf8f4a06b8dcb5c6fe9a87f3b",
+        "defb4de9d32b557a54c6ad143b8da23f389d4200c31b426c2dfe2ac8a808893f"
+      ]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      baseSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      mergeable: "MERGEABLE"
+    },
+    observedChecks: {
+      build: {
+        runId: 34252971447,
+        jobId: 102151647784,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34252855112,
+          jobId: 102151263378,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34252971465,
+          jobId: 102151647868,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-source-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-reconstruction",
+      localPhysicalHObjectRequirementPreserved: true,
+      portableRequiresExactRepositoryAndEvent: true,
+      portableRequiresReachableICommitTreeAndBlobs: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      expectedRemoteOldSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      branchUpdateCommitAuthorizedAfterGates: true,
+      branchUpdatePushAuthorizedNow: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    }
+  };
+  return candidate;
+}
+
+describe("L-K Draft PR and CI portability remediation", () => {
+  it("binds exact PR 88 failure receipts and permits only one non-force branch update", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateLKDraftPrCiRemediationTransition
+    ).toBe("function");
+    const source = lKSourceForTest();
+    const candidate = lKCandidateForTest();
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json"),
+          "utf8"
+        )
+      )
+    ).toEqual(candidate);
+    const proof = governance.validateLKDraftPrCiRemediationTransition(
+      source,
+      candidate
+    );
+    expect(proof).toMatchObject({
+      sourceCommitSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      sourceTreeSha: L_K_SOURCE_TREE_FOR_TEST,
+      pullRequestNumber: 88,
+      branchUpdatePushAuthorizedNow: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.lKDraftPrCiRemediationHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.branches.reverse(),
+      (value: any) => (value.workItems.find(
+        (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+      ).prNumber = 89),
+      (value: any) => (value.kILandingLifecycleAuthorization.draftPrBinding.draft = false),
+      (value: any) => (value.lKDraftPrCiRemediation.source.commitSha = K_I_SOURCE_COMMIT_FOR_TEST),
+      (value: any) => (value.lKDraftPrCiRemediation.observedChecks.build.conclusion = "FAILURE"),
+      (value: any) => (value.lKDraftPrCiRemediation.remediation.localPhysicalHObjectRequirementPreserved = false),
+      (value: any) => (value.lKDraftPrCiRemediation.authorizationBoundary.readyAuthorizedNow = true),
+      (value: any) => (value.lKDraftPrCiRemediation.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.lKDraftPrCiRemediation.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateLKDraftPrCiRemediationTransition(source, changed)
+      ).toThrow("rule=l-k-draft-pr-ci-remediation-transition-invalid");
+    }
+    const facts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: L_K_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: L_K_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      orderedParentShas: [L_K_SOURCE_COMMIT_FOR_TEST],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      outgoingRegistryMatches: true
+    };
+    expect(governance.lKBranchUpdatePushFactsAllowed(candidate, facts)).toBe(
+      true
+    );
+    for (const change of [
+      { currentHeadSha: "c".repeat(40) },
+      { remoteSha: "0".repeat(40) },
+      { remoteRef: "refs/heads/main" },
+      { orderedParentShas: [K_I_SOURCE_COMMIT_FOR_TEST] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { cachedMainSha: "c".repeat(40) },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.lKBranchUpdatePushFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("validates the exact staged L candidate after a fresh-clone commit with no local-only H tree", () => {
+    const holder = temporaryRoot("l-k-portable-ci");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      L_K_SOURCE_COMMIT_FOR_TEST
+    );
+    runGit(root, ["config", "user.name", "SENA L portable test"]);
+    runGit(root, ["config", "user.email", "l-portable@example.invalid"]);
+    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, relative), join(root, relative));
+    }
+    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
+    runGit(root, ["commit", "-q", "-m", "exact L portable candidate"]);
+    const localOnlyTree = spawnSync(
+      "git",
+      ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
+      { cwd: root, encoding: "utf8", env: process.env }
+    );
+    expect(localOnlyTree.status).not.toBe(0);
+    const registry = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          GITHUB_SHA: runGit(root, ["rev-parse", "HEAD"])
+        }
+      }
+    );
+    expect(registry.status).toBe(0);
+    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
 });
