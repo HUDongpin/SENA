@@ -1610,11 +1610,36 @@ function runPostPr83PushDraftReadiness() {
 function runPushPolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-push-denied");
   if (pr86DeliveryCurrentCheckoutMerged()) throw new Error("rule=pr86-delivery-closeout-push-denied");
+  const currentBranch = git(
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    { allowFailure: true }
+  );
   const findings = [];
   const input = readFileSync(0, "utf8");
   const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
   const remoteLocation = process.env.SENA_GOVERNANCE_REMOTE_LOCATION ?? "";
   const updates = parsePrePushUpdates(input);
+  if (
+    currentBranch.status === 0 &&
+    String(currentBranch.stdout ?? "").trim() === I_H_BRANCH
+  ) {
+    let outgoingRegistry = null;
+    try {
+      outgoingRegistry = loadRegistryFromCommit(updates[0]?.localSha).parsed;
+    } catch {
+      // Preserve the historical dedicated-lane denial rule for malformed or
+      // replayed updates; only the exact K transition may continue.
+    }
+    if (
+      !outgoingRegistry ||
+      (!kILandingInitialPushAuthorized(outgoingRegistry, updates) &&
+        !lKBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
+        !mLBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
+        !nMPr88FinalPushAuthorized(outgoingRegistry, updates))
+    ) {
+      throw new Error("rule=i-h-dedicated-landing-push-denied");
+    }
+  }
   if (updates.length !== 1) {
     throw new Error("push-policy requires exactly one current-branch ref update");
   }
@@ -1816,7 +1841,96 @@ function runWritePolicy(flags) {
     throw new Error("write-policy requires --registry-from-index --staged");
   }
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
-  if (pr86DeliveryCurrentCheckoutMerged()) throw new Error("rule=pr86-delivery-closeout-source-write-denied");
+  const committedPr86Closeout = pr86DeliveryCurrentCheckoutMerged();
+  const { parsed: registry } = loadRegistryForFlags(flags);
+  const isNMPr88FinalAuthorization = Boolean(
+    registry.nMPr88FinalAuthorization
+  );
+  const isMLPortableJEvidenceCi = Boolean(
+    registry.mLPortableJEvidenceCiRemediation
+  );
+  const isLKDraftPrCiRemediation = Boolean(
+    registry.lKDraftPrCiRemediation
+  );
+  const isKILandingLifecycle = Boolean(
+    registry.kILandingLifecycleAuthorization
+  );
+  const isIHDedicatedLanding = Boolean(
+    registry.iHDedicatedLandingCandidate
+  );
+  let exactGovernanceIndex = isNMPr88FinalAuthorization
+    ? typeof nMPr88FinalCurrentIndexAllowed === "function" &&
+      nMPr88FinalCurrentIndexAllowed(registry)
+    : isMLPortableJEvidenceCi
+    ? typeof mLPortableJEvidenceCiCurrentIndexAllowed === "function" &&
+      mLPortableJEvidenceCiCurrentIndexAllowed(registry)
+    : isLKDraftPrCiRemediation
+      ? typeof lKDraftPrCiCurrentIndexAllowed === "function" &&
+        lKDraftPrCiCurrentIndexAllowed(registry)
+    : isKILandingLifecycle
+      ? typeof kILandingCurrentIndexAllowed === "function" &&
+        kILandingCurrentIndexAllowed(registry)
+    : isIHDedicatedLanding
+      ? typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
+        iHDedicatedLandingCurrentIndexAllowed(registry)
+      : typeof hGovernanceCurrentIndexAllowed === "function" &&
+        hGovernanceCurrentIndexAllowed(registry);
+  const initialGovernanceIndexSnapshot =
+    exactGovernanceIndex &&
+    typeof hGovernanceCurrentIndexSnapshot === "function"
+      ? hGovernanceCurrentIndexSnapshot()
+      : null;
+  const governanceFinalBarrierAllowed = () => Boolean(
+    registry.hGovernanceIntake &&
+      exactGovernanceIndex &&
+      initialGovernanceIndexSnapshot &&
+      typeof hGovernanceCurrentIndexSnapshot === "function" &&
+      (isIHDedicatedLanding
+        ? (isKILandingLifecycle
+            ? (isLKDraftPrCiRemediation
+                ? (isNMPr88FinalAuthorization
+                    ? typeof nMPr88FinalCurrentIndexAllowed === "function" &&
+                      nMPr88FinalCurrentIndexAllowed(registry)
+                    : isMLPortableJEvidenceCi
+                    ? typeof mLPortableJEvidenceCiCurrentIndexAllowed ===
+                        "function" &&
+                      mLPortableJEvidenceCiCurrentIndexAllowed(registry)
+                    : typeof lKDraftPrCiCurrentIndexAllowed === "function" &&
+                      lKDraftPrCiCurrentIndexAllowed(registry))
+                : typeof kILandingCurrentIndexAllowed === "function" &&
+                  kILandingCurrentIndexAllowed(registry))
+            : typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
+              iHDedicatedLandingCurrentIndexAllowed(registry)) &&
+          typeof iHDedicatedLandingIndexSnapshotsMatch === "function" &&
+          iHDedicatedLandingIndexSnapshotsMatch(
+            initialGovernanceIndexSnapshot,
+            hGovernanceCurrentIndexSnapshot()
+          ) &&
+          typeof jHEvidenceCustodyReconstructionAllowed === "function" &&
+          jHEvidenceCustodyReconstructionAllowed(registry, {
+            forcePhysicalRevalidation: true
+          }) &&
+          typeof iHDedicatedLandingGHostCustodyAllowed === "function" &&
+          iHDedicatedLandingGHostCustodyAllowed(registry) &&
+          typeof iHDedicatedLandingPreservedHHostCustodyAllowed === "function" &&
+          iHDedicatedLandingPreservedHHostCustodyAllowed(registry)
+        : typeof hGovernanceCurrentIndexAllowed === "function" &&
+          hGovernanceCurrentIndexAllowed(registry) &&
+          typeof hGovernanceIntakeIndexSnapshotsMatch === "function" &&
+          hGovernanceIntakeIndexSnapshotsMatch(
+            initialGovernanceIndexSnapshot,
+            hGovernanceCurrentIndexSnapshot()
+          ) &&
+          typeof hGovernanceIntakeRecoveryPackageAllowed === "function" &&
+          hGovernanceIntakeRecoveryPackageAllowed(registry, {
+            forcePhysicalRevalidation: true
+          }) &&
+          typeof hGovernanceGHostCustodyAllowed === "function" &&
+          hGovernanceGHostCustodyAllowed(registry))
+  );
+  if (committedPr86Closeout && !exactGovernanceIndex) {
+    throw new Error("rule=pr86-delivery-closeout-source-write-denied");
+  }
   // An empty index can never authorize a write. Reject locally before registry
   // and provider proof; the Git-only release denial above keeps precedence.
   if (stagedChangedPaths().length === 0) {
@@ -1825,11 +1939,13 @@ function runWritePolicy(flags) {
     process.exitCode = 1;
     return;
   }
-  const { parsed: registry } = loadRegistryForFlags(flags);
   const validation = validateRegistry(registry);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) throw new Error("index registry snapshot is invalid");
   if (mobilePilotItem(registry)) validateMobilePilotSourceEvidence(registry);
+  if (registry.hGovernanceIntake) {
+    exactGovernanceIndex = governanceFinalBarrierAllowed();
+  }
   const exactLifecycleIndexTransition = Boolean(
     validatePr80RepairIndexTransition(registry) ||
       validateEvidenceFlowCurrentnessIndexTransition(registry) ||
@@ -1839,7 +1955,7 @@ function runWritePolicy(flags) {
 
   const findings = [];
   if (registry.pr86DeliveryCloseout && sameExistingPath(pr86DeliveryItem(registry).worktreePath, REPO_ROOT) &&
-      !validatePr86DeliveryWriterCurrentness(registry)) {
+      !exactGovernanceIndex && !validatePr86DeliveryWriterCurrentness(registry)) {
     addFinding(findings, { path: `refs/heads/${PR86_DELIVERY_BRANCH}`, rule: "pr86-delivery-writer-current-main-not-source", source: "fresh-main-readback" });
   }
   // All provider decisions, including the closeout's fresh-main read, precede
@@ -1862,6 +1978,24 @@ function runWritePolicy(flags) {
   const branchRecord = (registry.branches ?? []).find((branch) => branch.name === branchName);
   const expectedRef = branchName ? `refs/heads/${branchName}` : "detached-head";
 
+  if (registry.hGovernanceIntake && !exactGovernanceIndex) {
+    addFinding(findings, {
+      path: "index",
+      rule: isNMPr88FinalAuthorization
+        ? "n-m-pr88-final-authorization-index-identity-invalid"
+        : isMLPortableJEvidenceCi
+        ? "m-l-portable-j-ci-index-identity-invalid"
+        : isLKDraftPrCiRemediation
+          ? "l-k-draft-pr-ci-index-identity-invalid"
+        : isKILandingLifecycle
+          ? "k-i-landing-lifecycle-index-identity-invalid"
+        : isIHDedicatedLanding
+          ? "i-h-dedicated-landing-index-identity-invalid"
+        : "h-governance-intake-index-identity-invalid",
+      source: "write-policy"
+    });
+  }
+
   if (stagedPaths.length === 0) {
     addFinding(findings, { path: "index", rule: "empty-staged-index-not-authorized", source: "write-policy" });
   }
@@ -1883,6 +2017,24 @@ function runWritePolicy(flags) {
   }
   if (gitText(["ls-files", "--unmerged", "-z"]).length > 0) {
     addFinding(findings, { path: "index", rule: "unmerged-index-not-authorized", source: "write-policy" });
+  }
+
+  if (registry.hGovernanceIntake && !governanceFinalBarrierAllowed()) {
+    addFinding(findings, {
+      path: "index",
+      rule: isNMPr88FinalAuthorization
+        ? "n-m-pr88-final-authorization-barrier-invalid"
+        : isMLPortableJEvidenceCi
+        ? "m-l-portable-j-ci-final-barrier-invalid"
+        : isLKDraftPrCiRemediation
+          ? "l-k-draft-pr-ci-final-barrier-invalid"
+        : isKILandingLifecycle
+          ? "k-i-landing-lifecycle-final-barrier-invalid"
+        : isIHDedicatedLanding
+          ? "i-h-dedicated-landing-final-barrier-invalid"
+        : "h-governance-intake-final-barrier-invalid",
+      source: "write-policy"
+    });
   }
 
   const cleaned = findings.map(({ key: _key, ...finding }) => finding);
@@ -1958,7 +2110,32 @@ function physicalWorkItemCustodyError(registryRepoResolution, item) {
 
 function appendHostPhysicalCustodyErrors(registry, errors) {
   appendPr86DeliveryRetainedCustodyErrors(registry, errors);
-  if (registry?.pr86DeliveryCloseout?.preservedTestFixtureObservation &&
+  if (registry?.hGovernanceIntake) {
+    if (registry.iHDedicatedLandingCandidate) {
+      if (!jHEvidenceCustodyReconstructionAllowed(registry, {
+        forcePhysicalRevalidation: true
+      })) {
+        errors.push("rule=j-h-evidence-custody-reconstruction-invalid");
+      }
+      if (!iHDedicatedLandingGHostCustodyAllowed(registry)) {
+        errors.push("rule=i-h-dedicated-landing-g-host-custody-invalid");
+      }
+      if (!iHDedicatedLandingPreservedHHostCustodyAllowed(registry)) {
+        errors.push("rule=i-h-dedicated-landing-preserved-h-custody-invalid");
+      }
+    } else {
+      if (!hGovernanceIntakeRecoveryPackageAllowed(registry, {
+        forcePhysicalRevalidation: true
+      })) {
+        errors.push("rule=h-governance-intake-recovery-package-invalid");
+      }
+      if (!hGovernanceGHostCustodyAllowed(registry)) {
+        errors.push("rule=h-governance-intake-g-host-custody-invalid");
+      }
+    }
+  }
+  if (!registry?.iHDedicatedLandingCandidate &&
+      registry?.pr86DeliveryCloseout?.preservedTestFixtureObservation &&
       canonicalExistingPath(CONTROL_ROOT) === registry.repo &&
       !pr86DeliveryPreservedTestFixtureAllowed(registry, {
         path: registry.pr86DeliveryCloseout.preservedTestFixtureObservation.repoPath,
@@ -11277,6 +11454,12 @@ const PR86_DELIVERY_GITHUB_BINDING = Object.freeze({
   receiptSchema: "sena-pr86-delivery-post-main-rule-suite/v1",
   requirePostMain: true
 });
+const PR88_GITHUB_BINDING = Object.freeze({
+  branch: "codex/sena-h-governance-intake-20260908",
+  beforeSha: "e366df35d8304ddc0c2b5d963301b8a9324e2975",
+  receiptSchema: "sena-pr88-dedicated-governance-post-main-rule-suite/v1",
+  requirePostMain: true
+});
 const MOBILE_PILOT_GITHUB_BINDING = Object.freeze({
   branch: "codex/sena-mobile-research-pilot-20260905",
   beforeSha: "c782aa03940028a2c19db18dfddec55370c797b1",
@@ -11393,9 +11576,10 @@ function validateProtectedFinalHeadLiveGitHubEvidence(
   const mergeCommitSha = descriptor?.mergeCommitSha;
   const githubTransport = options.githubTransport ?? null;
   if (
-    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING, MOBILE_PILOT_GITHUB_BINDING, PR86_DELIVERY_GITHUB_BINDING].includes(binding) ||
+    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING, MOBILE_PILOT_GITHUB_BINDING, PR86_DELIVERY_GITHUB_BINDING, PR88_GITHUB_BINDING].includes(binding) ||
     (binding === PR85_GITHUB_BINDING && pullRequestNumber !== 85) ||
     (binding === PR86_DELIVERY_GITHUB_BINDING && pullRequestNumber !== pr86DeliveryItem(descriptor?.mergeTimeRegistry)?.prNumber) ||
+    (binding === PR88_GITHUB_BINDING && pullRequestNumber !== 88) ||
     (binding === MOBILE_PILOT_GITHUB_BINDING && pullRequestNumber !== mobilePilotItem(descriptor?.mergeTimeRegistry)?.prNumber) ||
     !isSha(finalHeadSha) ||
     !isSha(mergeCommitSha) ||
@@ -11872,7 +12056,7 @@ export function validatePr85IntegrationSnapshot(registry) {
 
 function pr85IntegrationSnapshotAllowed(registry) {
   if (registry?.pr86DeliveryCloseout) {
-    try { validatePr86DeliveryCloseoutSnapshot(registry); return true; } catch { return false; }
+    try { validatePr86DeliveryOperationalSnapshot(registry); return true; } catch { return false; }
   }
   if (mobilePilotItem(registry)) {
     try { validateMobilePilotSuccessorSnapshot(registry); return true; } catch { return false; }
@@ -12372,9 +12556,3754 @@ export function validatePr86DeliveryCloseoutSnapshot(registry) {
   } catch (cause) { throw new Error("rule=pr86-delivery-closeout-snapshot-invalid", { cause }); }
 }
 
+// H is a preserve-only governance intake over exact protected Q. It does not
+// relax or replace the exported PR86 snapshot contract above: callers that ask
+// for the historical PR86 snapshot still receive a hard rejection for H. The
+// operational wrapper is private and projects H back to exact Q before older
+// lifecycle code is allowed to interpret it.
+const H_GOVERNANCE_SOURCE = "e366df35d8304ddc0c2b5d963301b8a9324e2975";
+const H_GOVERNANCE_SOURCE_TREE = "4238ab19c321cdf7f0d154f133af49a9e93ed696";
+const H_GOVERNANCE_SOURCE_PARENTS = [
+  "b9c25385453ee4da26e261c945dd125b0cd856ab",
+  "7fd9e29c34ee7c1573dc81f4824124faadbae279"
+];
+const H_GOVERNANCE_OPERATOR_BRANCH = PR86_DELIVERY_BRANCH;
+const H_GOVERNANCE_OPERATOR_WORKTREE =
+  "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907";
+const H_GOVERNANCE_G_TASK = "SENA-G-Q-CURRENTNESS-20260908";
+const H_GOVERNANCE_G_BRANCH = "codex/sena-convergence-q-currentness-20260908";
+const H_GOVERNANCE_G_WORKTREE =
+  "/Volumes/Starship/SENA/.worktrees/sena-convergence-q-currentness-20260908";
+const H_GOVERNANCE_RECORDED_AT = "2026-09-08T06:35:00Z";
+const H_GOVERNANCE_NEXT_REVIEW_AT = "2026-09-10T06:35:00Z";
+const H_GOVERNANCE_SOURCE_BLOBS = [
+  "679477fd7ceda9a6335453d5292330f2124f01a9",
+  "d98c3a759f4ba5a3ab6ab85fbb9b623542920ba4",
+  "c2c65dc46f37d99a6dcabf1b9f1718ec33d50a9b"
+];
+const H_GOVERNANCE_SOURCE_SHA256 = [
+  "85160cff4abb8091ccc55cb1fafd7c39e58735289c1a8e8b2619e3efe33d5d4b",
+  "e9825a0bcafafdfecac5f998c49217d8866c7ed88e717a387f28baaeb5bef651",
+  "31e546d6de07cbfff2e9921aa3ae849acafc88346cf00a068a8944ee3c52a573"
+];
+const H_GOVERNANCE_G_CANDIDATE_IDENTITY = Object.freeze({
+  stagedTreeSha: "f1468029f6a309b46894a2c557b03fe8514e5e85",
+  canonicalDiffSha256: "bcebf91738203a12c667c57f2f3613d95f926581c07cf33fddf4f35d7425c17d",
+  fullIndexDiffSha256: "b2c7602b427a70eac037010e85b56943eeff4ff09b210f3a44d64ad63a6d9827",
+  indexEntriesSha256: "70f44cf195b0be4fa338692a024dda092ad55a865ce81de826c495484d75faf9",
+  statusSha256: "5f9d1b5c9f34d0e2c9defa563d30c218eefae430ae37cbd897f528aeeb97fab1",
+  stagedPathCount: 152,
+  unstagedPathCount: 0,
+  untrackedPathCount: 0,
+  unmergedPathCount: 0,
+  canonicalDiffCommand: "git diff --cached --binary --no-ext-diff --no-textconv HEAD --",
+  fullIndexDiffCommand: "git diff --cached --binary --full-index --no-ext-diff --no-textconv HEAD --",
+  indexEntriesCommand: "git ls-files --stage -z",
+  statusCommand: "git status --porcelain=v1 -z --untracked-files=all"
+});
+const H_GOVERNANCE_PACKAGE_PATH =
+  "/Volumes/Starship/SENA-backups/20260908-convergence-recovery/h-gusO7Q-recovery-20260908T060646Z.X2PLmG";
+const H_GOVERNANCE_PACKAGE_FILES = [
+  "BUNDLE-HEADS.txt",
+  "BUNDLE-VERIFY.txt",
+  "DELETION-RECEIPT.txt",
+  "FREEZE.txt",
+  "HEAD-TREE.z",
+  "INDEX-ENTRIES.z",
+  "OBJECT-INVENTORY.txt",
+  "PACKAGE.sha256",
+  "REACHABLE-INVENTORY.txt",
+  "REFLOG.txt",
+  "REFS.txt",
+  "RESTORE-CHECKOUT.txt",
+  "RESTORE-CLONE.txt",
+  "RESTORE-MIRROR-CLONE.txt",
+  "RESTORE-VERIFICATION.txt",
+  "STATUS.porcelain-v2.z",
+  "index",
+  "repository.bundle"
+];
+const H_GOVERNANCE_AUTHORIZATION_BOUNDARY = Object.freeze({
+  bootstrapAuthorized: false,
+  candidateCommitAuthorized: false,
+  candidatePushAuthorized: false,
+  prAuthorized: false,
+  ciAuthorized: false,
+  readyAuthorized: false,
+  mergeAuthorized: false,
+  deploymentAuthorized: false,
+  cleanupAuthorized: false,
+  otherDeletionAuthorized: false,
+  moveAuthorized: false,
+  resetAuthorized: false,
+  rebaseAuthorized: false,
+  stashAuthorized: false,
+  cleanAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  providerMutationAuthorized: false
+});
+const H_GOVERNANCE_INTAKE = Object.freeze({
+  schemaVersion: "sena-h-governance-intake/v1",
+  status: "staged-candidate-pending-freeze-and-independent-review",
+  recordedAt: H_GOVERNANCE_RECORDED_AT,
+  sourceBinding: {
+    commitSha: H_GOVERNANCE_SOURCE,
+    treeSha: H_GOVERNANCE_SOURCE_TREE,
+    orderedParentShas: H_GOVERNANCE_SOURCE_PARENTS,
+    exactPaths: PR86_DELIVERY_PATHS,
+    blobShas: H_GOVERNANCE_SOURCE_BLOBS,
+    fileSha256: H_GOVERNANCE_SOURCE_SHA256
+  },
+  operator: {
+    taskId: PR86_DELIVERY_TASK,
+    branch: H_GOVERNANCE_OPERATOR_BRANCH,
+    worktreePath: H_GOVERNANCE_OPERATOR_WORKTREE,
+    headSha: H_GOVERNANCE_SOURCE,
+    stagedPaths: PR86_DELIVERY_PATHS
+  },
+  gCandidate: {
+    taskId: H_GOVERNANCE_G_TASK,
+    branch: H_GOVERNANCE_G_BRANCH,
+    worktreePath: H_GOVERNANCE_G_WORKTREE,
+    sourceHeadSha: H_GOVERNANCE_SOURCE,
+    candidateIdentity: H_GOVERNANCE_G_CANDIDATE_IDENTITY
+  },
+  cleanupEvidence: {
+    recoveryPackagePath: H_GOVERNANCE_PACKAGE_PATH,
+    packageManifestPath: `${H_GOVERNANCE_PACKAGE_PATH}/PACKAGE.sha256`,
+    packageManifestSha256: "ea97ff9fcc0139877df2fb49ae0a9b9a16f5219ed62fd1fd3c201a3fc4e1e944",
+    packageFileCount: 18,
+    bundlePath: `${H_GOVERNANCE_PACKAGE_PATH}/repository.bundle`,
+    bundleSha256: "be193bf7b2d9d6afc7437bc4c66b61e2c0a9d36bf9b0b232c11484a2c660034c",
+    bundleSizeBytes: 192263446,
+    deletionReceiptPath: `${H_GOVERNANCE_PACKAGE_PATH}/DELETION-RECEIPT.txt`,
+    deletionReceiptSha256: "cecacae2e3d9e84e0abb4c8edf4dda1f75d1ad197442839862e8b14cb550a809",
+    removedExactPath: "/Volumes/Starship/SENA/.tmp/sena-pr85-integration-guSO7Q",
+    removedAt: "2026-09-08T06:11:37Z",
+    removedHeadSha: "421def854a8b9d6c887b72d19a22cee05b68cbf7",
+    removedTreeSha: "03382d5828d0211e303d6d95bd2e3886a5547a86",
+    removedParentSha: "ed09ff92976ca5a86137bfda75f8562335c8a0c6",
+    objectCount: 7809,
+    objectInventorySha256: "da9a99cc47855d5be2b07382e02209eb17f26e9d58c459cff8a82ba60522bea8",
+    reachableInventorySha256: "9adaa0117a9d83c720a1aae50b725d74c59ca47ad3bd0492fd121c4139278f9b",
+    verificationClonePath: "/private/tmp/sena-guSO7Q-restore.9LLyXf",
+    recoveryVerified: true,
+    ownerOnlyPackageVerified: true,
+    exactSourceDeletionVerified: true,
+    otherPathDeletionAuthorized: false
+  },
+  ownerAuthorizationMessageSha256:
+    "7fd711d16df71a71e1d5ca032e5cd85e9fdd10811598b77b534451b691df05a5",
+  independentReview: {
+    required: true,
+    completed: false,
+    exactFrozenCandidateRequired: true,
+    activationAuthorized: false
+  },
+  authorizationBoundary: H_GOVERNANCE_AUTHORIZATION_BOUNDARY
+});
+
+let hGovernanceSourceCache = null;
+function hGovernanceProtectedSource() {
+  if (!hGovernanceSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${H_GOVERNANCE_SOURCE}^{tree}`) !==
+        H_GOVERNANCE_SOURCE_TREE ||
+      !sameJson(
+        protectedMainAdvanceCommitParents(H_GOVERNANCE_SOURCE),
+        H_GOVERNANCE_SOURCE_PARENTS
+      )
+    ) {
+      throw new Error("rule=h-governance-protected-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(`${H_GOVERNANCE_SOURCE}:${path}`);
+      if (
+        blob !== H_GOVERNANCE_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          H_GOVERNANCE_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=h-governance-protected-source-invalid");
+      }
+    }
+    const source = protectedMainAdvanceRegistryFromCommit(H_GOVERNANCE_SOURCE);
+    validatePr86DeliveryCloseoutSnapshot(source);
+    hGovernanceSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(hGovernanceSourceCache);
+}
+
+function hGovernanceExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const evidenceFlow = expected.workItems.find(
+    (item) => item.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+  );
+  const evidenceFlowBranch = expected.branches.find(
+    (branch) => branch.name === "codex/sena-evidenceflow-v1-20260828"
+  );
+  const preservedGSource = source.workItems.find(
+    (item) => item.taskId === "SENA-CONVERGENCE-CURRENTNESS-20260907"
+  );
+  if (
+    !evidenceFlow ||
+    !evidenceFlowBranch ||
+    !preservedGSource ||
+    preservedGSource.allowedPaths?.length !== 152
+  ) {
+    throw new Error("rule=h-governance-protected-source-invalid");
+  }
+  expected.updatedAt = H_GOVERNANCE_RECORDED_AT;
+  evidenceFlow.laneType = "read-only";
+  evidenceFlow.disposition = "preservation-review";
+  evidenceFlow.aheadBehind = { baseRef: "origin/main", ahead: 16, behind: 127 };
+  evidenceFlow.hPreservationObservation = {
+    treeSha: "66d986701619acc9281e61c7d62bbafd924981f1",
+    stagedPathCount: 0,
+    unstagedTrackedPathCount: 76,
+    untrackedPathCount: 10,
+    fullDiffSha256: "e6c725cfe31c8c30a6e0798de5ca2c4e2d343225085552224887d58b65ffa8c1",
+    statusPorcelainV1Sha256: "037d472704beb72408363f5b81bfe5be132405e5fc74edae9047dfdf265c708b",
+    sourceWritesAuthorized: false,
+    pushAuthorized: false,
+    mergeAuthorized: false,
+    cleanupAuthorized: false
+  };
+  evidenceFlowBranch.disposition = "preservation-review";
+  const gItem = {
+    taskId: H_GOVERNANCE_G_TASK,
+    threadId: "01a05865-c301-7223-b74d-96e228b8a435",
+    repo: source.repo,
+    cwd: H_GOVERNANCE_G_WORKTREE,
+    owner: "Codex SENA convergence G candidate custodian",
+    ownerKey: "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
+    ownerLane: "SENA-A01 exact frozen G candidate governance intake",
+    laneType: "feature",
+    branch: H_GOVERNANCE_G_BRANCH,
+    worktreePath: H_GOVERNANCE_G_WORKTREE,
+    baseSha: H_GOVERNANCE_SOURCE,
+    headSha: H_GOVERNANCE_SOURCE,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 0 },
+    allowedPaths: protectedActivationNativeStructuredClone(
+      preservedGSource.allowedPaths
+    ),
+    createdAt: H_GOVERNANCE_RECORDED_AT,
+    lastHeartbeatAt: H_GOVERNANCE_RECORDED_AT,
+    lastObservedAt: H_GOVERNANCE_RECORDED_AT,
+    nextReviewAt: H_GOVERNANCE_NEXT_REVIEW_AT,
+    expectedCloseAt: "owner-gated:g-candidate-exact-review-and-separate-authorization",
+    prNumber: null,
+    noPrReason:
+      "Exact frozen G candidate is registered for local custody and review only; no commit, push, PR, CI, merge or deployment is authorized.",
+    dirtyState: "staged-g-exact-152-path-candidate-identity",
+    sensitivePaths: [],
+    disposition: "active",
+    freezeException: null,
+    evidenceState: {
+      local:
+        "Registered G host at protected Q contains the exact frozen 152-path staged candidate bound by explicit SHA-256 identities.",
+      ci: "No G candidate CI is authorized or claimed.",
+      merged: "G candidate is not committed, pushed, proposed or merged.",
+      deployed: "No deployment is authorized or performed.",
+      live: "Local custody observation only; remote and provider mutation remain prohibited."
+    },
+    candidateIdentity: protectedActivationNativeStructuredClone(
+      H_GOVERNANCE_G_CANDIDATE_IDENTITY
+    )
+  };
+  const gBranch = {
+    name: H_GOVERNANCE_G_BRANCH,
+    owner: gItem.owner,
+    ownerKey: gItem.ownerKey,
+    baseSha: H_GOVERNANCE_SOURCE,
+    headSha: H_GOVERNANCE_SOURCE,
+    upstream: null,
+    upstreamState: "not-applicable",
+    upstreamCacheState: "not-applicable",
+    remotePresent: false,
+    remoteHeadSha: null,
+    remoteObservedAt: H_GOVERNANCE_RECORDED_AT,
+    pr: null,
+    noPrReason: gItem.noPrReason,
+    prHeadSha: null,
+    prState: null,
+    prBase: "main",
+    prIsDraft: false,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: H_GOVERNANCE_RECORDED_AT,
+    lastObservedAt: H_GOVERNANCE_RECORDED_AT,
+    lastCommitAt: "2026-09-08T02:29:37+08:00",
+    nextReviewAt: H_GOVERNANCE_NEXT_REVIEW_AT,
+    expectedCloseAt: gItem.expectedCloseAt,
+    disposition: "active",
+    closeout:
+      "H registers exact local G custody and a frozen 152-path identity only; all external activation remains separately gated."
+  };
+  const pr86ItemIndex = expected.workItems.findIndex(
+    (item) => item.taskId === PR86_DELIVERY_TASK
+  );
+  const pr86BranchIndex = expected.branches.findIndex(
+    (branch) => branch.name === PR86_DELIVERY_BRANCH
+  );
+  if (pr86ItemIndex < 0 || pr86BranchIndex < 0) {
+    throw new Error("rule=h-governance-protected-source-invalid");
+  }
+  expected.workItems.splice(pr86ItemIndex, 0, gItem);
+  expected.branches.splice(pr86BranchIndex, 0, gBranch);
+  expected.hGovernanceIntake = protectedActivationNativeStructuredClone(
+    H_GOVERNANCE_INTAKE
+  );
+  return expected;
+}
+
+let hGovernanceRecoveryPackageCacheKey = null;
+export function hOwnerOnlyRecoveryPackageSnapshotAllowed(observation) {
+  try {
+    if (
+      !pr85PlainJsonData(observation) ||
+      !pr85ExactRecord(observation, [
+        "recoveryPackagePath",
+        "packageManifestPath",
+        "packageManifestSha256",
+        "packageFileCount",
+        "expectedFiles"
+      ]) ||
+      typeof observation.recoveryPackagePath !== "string" ||
+      observation.packageManifestPath !==
+        join(observation.recoveryPackagePath, "PACKAGE.sha256") ||
+      !validSha256(observation.packageManifestSha256) ||
+      !Number.isInteger(observation.packageFileCount) ||
+      observation.packageFileCount < 2 ||
+      !Array.isArray(observation.expectedFiles) ||
+      observation.expectedFiles.length !== observation.packageFileCount ||
+      !observation.expectedFiles.includes("PACKAGE.sha256")
+    ) {
+      return false;
+    }
+    const packageStat = lstatSync(observation.recoveryPackagePath);
+    if (
+      !packageStat.isDirectory() ||
+      packageStat.isSymbolicLink() ||
+      (packageStat.mode & 0o777) !== 0o700 ||
+      realpathSync(observation.recoveryPackagePath) !==
+        observation.recoveryPackagePath
+    ) {
+      return false;
+    }
+    const expectedFiles = [...observation.expectedFiles].sort();
+    const observedFiles = readdirSync(observation.recoveryPackagePath).sort();
+    if (!sameJson(observedFiles, expectedFiles)) return false;
+    for (const name of observedFiles) {
+      const packageEntry = join(observation.recoveryPackagePath, name);
+      const info = lstatSync(packageEntry);
+      if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o777) !== 0o600) {
+        return false;
+      }
+    }
+    if (
+      sha256File(observation.packageManifestPath) !==
+        observation.packageManifestSha256
+    ) {
+      return false;
+    }
+    const manifestEntries = readFileSync(observation.packageManifestPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const match = line.match(/^([0-9a-f]{64})  ([^/\n]+)$/);
+        return match ? { sha256: match[1], name: match[2] } : null;
+      });
+    if (
+      manifestEntries.some((entry) => !entry) ||
+      manifestEntries.length !== observation.packageFileCount - 1
+    ) {
+      return false;
+    }
+    const manifestNames = manifestEntries.map((entry) => entry.name);
+    const expectedManifestNames = expectedFiles.filter(
+      (name) => name !== "PACKAGE.sha256"
+    );
+    if (
+      new Set(manifestNames).size !== manifestNames.length ||
+      !sameJson([...manifestNames].sort(), [...expectedManifestNames].sort())
+    ) {
+      return false;
+    }
+    for (const entry of manifestEntries) {
+      if (
+        !expectedFiles.includes(entry.name) ||
+        entry.name === "PACKAGE.sha256" ||
+        sha256File(join(observation.recoveryPackagePath, entry.name)) !==
+          entry.sha256
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hGovernanceRecoveryPackageEvidenceAllowed(
+  intake,
+  { forcePhysicalRevalidation = false } = {}
+) {
+  try {
+    if (!isDeepStrictEqual(intake?.cleanupEvidence, H_GOVERNANCE_INTAKE.cleanupEvidence)) {
+      return false;
+    }
+    const evidence = intake.cleanupEvidence;
+    const cacheKey = `${evidence.packageManifestSha256}:${evidence.deletionReceiptSha256}`;
+    if (!forcePhysicalRevalidation && hGovernanceRecoveryPackageCacheKey === cacheKey) {
+      return true;
+    }
+    if (
+      !hOwnerOnlyRecoveryPackageSnapshotAllowed({
+        recoveryPackagePath: evidence.recoveryPackagePath,
+        packageManifestPath: evidence.packageManifestPath,
+        packageManifestSha256: evidence.packageManifestSha256,
+        packageFileCount: evidence.packageFileCount,
+        expectedFiles: H_GOVERNANCE_PACKAGE_FILES
+      }) ||
+      existsSync(evidence.removedExactPath) ||
+      !lstatSync(evidence.verificationClonePath).isDirectory() ||
+      statSync(evidence.bundlePath).size !== evidence.bundleSizeBytes ||
+      sha256File(evidence.bundlePath) !== evidence.bundleSha256 ||
+      sha256File(evidence.deletionReceiptPath) !== evidence.deletionReceiptSha256
+    ) {
+      return false;
+    }
+    hGovernanceRecoveryPackageCacheKey = cacheKey;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function validateHGovernanceIntakeTransition(sourceRegistry, candidateRegistry) {
+  try {
+    const source = hGovernanceProtectedSource();
+    const expected = hGovernanceExpectedCandidate(source);
+    if (
+      !pr85PlainJsonData(sourceRegistry) ||
+      !pr85PlainJsonData(candidateRegistry) ||
+      !isDeepStrictEqual(sourceRegistry, source) ||
+      !isDeepStrictEqual(candidateRegistry, expected) ||
+      !hGovernanceRecoveryPackageEvidenceAllowed(candidateRegistry.hGovernanceIntake)
+    ) {
+      throw new Error();
+    }
+    return {
+      sourceCommitSha: H_GOVERNANCE_SOURCE,
+      sourceTreeSha: H_GOVERNANCE_SOURCE_TREE,
+      operatorBranch: H_GOVERNANCE_OPERATOR_BRANCH,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      ...H_GOVERNANCE_AUTHORIZATION_BOUNDARY
+    };
+  } catch (cause) {
+    throw new Error("rule=h-governance-intake-transition-invalid", { cause });
+  }
+}
+
+export function hGovernanceIntakeHistoricalProjection(registry) {
+  const source = hGovernanceProtectedSource();
+  validateHGovernanceIntakeTransition(source, registry);
+  return source;
+}
+
+export function hGovernanceIntakeRecoveryPackageAllowed(registry, options = {}) {
+  try {
+    const source = hGovernanceProtectedSource();
+    validateHGovernanceIntakeTransition(source, registry);
+    return options.forcePhysicalRevalidation === true
+      ? hGovernanceRecoveryPackageEvidenceAllowed(registry.hGovernanceIntake, {
+          forcePhysicalRevalidation: true
+        })
+      : true;
+  } catch {
+    return false;
+  }
+}
+
+function validatePr86DeliveryOperationalSnapshot(registry) {
+  if (!registry?.hGovernanceIntake) {
+    return validatePr86DeliveryCloseoutSnapshot(registry);
+  }
+  // I is validated against the exact staged H tree and the replacement J
+  // custody package. Do not then require the superseded H package to remain
+  // physically present merely to recover Q for historical PR86 observation.
+  // The old H transition itself remains strict and therefore still fails
+  // closed when that original package is absent.
+  const source = registry?.iHDedicatedLandingCandidate
+    ? (iHDedicatedLandingHistoricalProjection(registry),
+      hGovernanceProtectedSource())
+    : hGovernanceIntakeHistoricalProjection(registry);
+  return {
+    ...validatePr86DeliveryCloseoutSnapshot(source),
+    hGovernanceIntake: protectedActivationNativeStructuredClone(
+      registry.hGovernanceIntake
+    ),
+    ...(registry?.iHDedicatedLandingCandidate
+      ? {
+          iHDedicatedLandingCandidate: protectedActivationNativeStructuredClone(
+            registry.iHDedicatedLandingCandidate
+          )
+        }
+      : {}),
+    ...(registry?.kILandingLifecycleAuthorization
+      ? {
+          kILandingLifecycleAuthorization:
+            protectedActivationNativeStructuredClone(
+              registry.kILandingLifecycleAuthorization
+            )
+        }
+      : {})
+  };
+}
+
+export function hGovernanceIntakeIndexFactsAllowed(registry, facts) {
+  try {
+    const source = hGovernanceProtectedSource();
+    validateHGovernanceIntakeTransition(source, registry);
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: H_GOVERNANCE_OPERATOR_WORKTREE,
+      gitDirectory:
+        "/Volumes/Starship/SENA/.git/worktrees/sena-pr86-delivery-closeout-20260907",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: H_GOVERNANCE_OPERATOR_BRANCH,
+      headSha: H_GOVERNANCE_SOURCE,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function hGovernanceCurrentIndexFacts() {
+  try {
+    const marker = markerInfo(REPO_ROOT);
+    const root = (args) => gitText([
+      `--git-dir=${join(CONTROL_ROOT, ".git")}`,
+      `--work-tree=${CONTROL_ROOT}`,
+      "-c",
+      `core.worktree=${CONTROL_ROOT}`,
+      ...args
+    ]).trim();
+    return {
+      repo: realpathSync(CONTROL_ROOT),
+      worktreePath: realpathSync(REPO_ROOT),
+      gitDirectory: realpathSync(marker.target),
+      gitCommonDirectory: gitText([
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir"
+      ]).trim(),
+      markerKind: marker.kind,
+      markerValid: marker.valid,
+      markerIsSymlink: lstatSync(join(REPO_ROOT, ".git")).isSymbolicLink(),
+      branch: gitText(["symbolic-ref", "--quiet", "--short", "HEAD"]).trim(),
+      headSha: gitText(["rev-parse", "HEAD"]).trim(),
+      cachedOriginMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: root(["rev-parse", "refs/heads/main"]),
+      stagedPaths: stagedChangedPaths(),
+      unstagedPaths: unstagedChangedPaths(),
+      untrackedPaths: gitText([
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z"
+      ]).split("\0").filter(Boolean),
+      unmerged: gitText(["ls-files", "--unmerged", "-z"]).length > 0
+    };
+  } catch {
+    return null;
+  }
+}
+
+const H_GOVERNANCE_INDEX_SNAPSHOT_KEYS = [
+  "stagedTreeSha",
+  "stagedBlobEntriesSha256",
+  "canonicalDiffSha256",
+  "fullIndexDiffSha256",
+  "indexEntriesSha256",
+  "statusSha256",
+  "stagedPaths",
+  "unstagedPaths",
+  "untrackedPaths",
+  "unmerged"
+];
+
+function hGovernanceCurrentIndexSnapshot() {
+  try {
+    const facts = hGovernanceCurrentIndexFacts();
+    if (!facts) return null;
+    const binarySha256 = (args) =>
+      sha256Buffer(git(args, { binary: true }).stdout);
+    return {
+      stagedTreeSha: gitText(["write-tree"]).trim(),
+      stagedBlobEntriesSha256: binarySha256([
+        "ls-files",
+        "--stage",
+        "-z",
+        "--",
+        ...PR86_DELIVERY_PATHS
+      ]),
+      canonicalDiffSha256: binarySha256([
+        "diff",
+        "--cached",
+        "--binary",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        "--"
+      ]),
+      fullIndexDiffSha256: binarySha256([
+        "diff",
+        "--cached",
+        "--binary",
+        "--full-index",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        "--"
+      ]),
+      indexEntriesSha256: binarySha256(["ls-files", "--stage", "-z"]),
+      statusSha256: binarySha256([
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all"
+      ]),
+      stagedPaths: facts.stagedPaths,
+      unstagedPaths: facts.unstagedPaths,
+      untrackedPaths: facts.untrackedPaths,
+      unmerged: facts.unmerged
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function hGovernanceIntakeIndexSnapshotsMatch(initial, final) {
+  return Boolean(
+    pr85PlainJsonData(initial) &&
+      pr85PlainJsonData(final) &&
+      pr85ExactRecord(initial, H_GOVERNANCE_INDEX_SNAPSHOT_KEYS) &&
+      pr85ExactRecord(final, H_GOVERNANCE_INDEX_SNAPSHOT_KEYS) &&
+      isSha(initial.stagedTreeSha) &&
+      validSha256(initial.stagedBlobEntriesSha256) &&
+      validSha256(initial.canonicalDiffSha256) &&
+      validSha256(initial.fullIndexDiffSha256) &&
+      validSha256(initial.indexEntriesSha256) &&
+      validSha256(initial.statusSha256) &&
+      Array.isArray(initial.stagedPaths) &&
+      Array.isArray(initial.unstagedPaths) &&
+      Array.isArray(initial.untrackedPaths) &&
+      typeof initial.unmerged === "boolean" &&
+      isDeepStrictEqual(initial, final)
+  );
+}
+
+function hGovernanceCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(facts && hGovernanceIntakeIndexFactsAllowed(registry, facts));
+}
+
+function hGovernanceGHostCustodyAllowed(registry) {
+  try {
+    const source = hGovernanceProtectedSource();
+    const operationalRegistry = registry?.iHDedicatedLandingCandidate
+      ? iHDedicatedLandingHistoricalProjection(registry)
+      : registry;
+    if (!registry?.iHDedicatedLandingCandidate) {
+      validateHGovernanceIntakeTransition(source, operationalRegistry);
+    }
+    const item = operationalRegistry.workItems.find(
+      (entry) => entry.taskId === H_GOVERNANCE_G_TASK
+    );
+    const marker = markerInfo(item.worktreePath);
+    const registered = parseWorktreeList().find(
+      (entry) => entry.path === item.worktreePath
+    );
+    if (
+      !marker.valid ||
+      marker.kind !== "gitdir-file" ||
+      lstatSync(join(item.worktreePath, ".git")).isSymbolicLink() ||
+      registered?.branch !== item.branch ||
+      registered?.headSha !== item.headSha
+    ) {
+      return false;
+    }
+    const unsetEnv = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_PREFIX"
+    ];
+    const local = (args, binary = false) => git([
+      `--git-dir=${marker.target}`,
+      `--work-tree=${item.worktreePath}`,
+      "-c",
+      `core.worktree=${item.worktreePath}`,
+      ...args
+    ], { unsetEnv, binary });
+    const localText = (args) => String(local(args).stdout ?? "").trim();
+    const localBinarySha256 = (args) => sha256Buffer(local(args, true).stdout);
+    const stagedPaths = localText([
+      "diff",
+      "--cached",
+      "--name-only",
+      "--diff-filter=ACMRTD",
+      "--no-renames",
+      "-z"
+    ]).split("\0").filter(Boolean);
+    const unstagedPaths = localText([
+      "diff",
+      "--name-only",
+      "--diff-filter=ACMRTD",
+      "--no-renames",
+      "-z"
+    ]).split("\0").filter(Boolean);
+    const untrackedPaths = localText([
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "-z"
+    ]).split("\0").filter(Boolean);
+    const identity = item.candidateIdentity;
+    return (
+      localText(["symbolic-ref", "--quiet", "--short", "HEAD"]) === item.branch &&
+      localText(["rev-parse", "HEAD"]) === item.headSha &&
+      localText(["write-tree"]) === identity.stagedTreeSha &&
+      sameJson(stagedPaths, item.allowedPaths) &&
+      stagedPaths.length === identity.stagedPathCount &&
+      unstagedPaths.length === identity.unstagedPathCount &&
+      untrackedPaths.length === identity.untrackedPathCount &&
+      localText(["ls-files", "--unmerged", "-z"]).split("\0").filter(Boolean).length ===
+        identity.unmergedPathCount &&
+      localBinarySha256([
+        "diff",
+        "--cached",
+        "--binary",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        "--"
+      ]) === identity.canonicalDiffSha256 &&
+      localBinarySha256([
+        "diff",
+        "--cached",
+        "--binary",
+        "--full-index",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        "--"
+      ]) === identity.fullIndexDiffSha256 &&
+      localBinarySha256(["ls-files", "--stage", "-z"]) ===
+        identity.indexEntriesSha256 &&
+      localBinarySha256([
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all"
+      ]) === identity.statusSha256
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateHGovernanceIntakeProtectedSuccessorDescriptor(descriptor) {
+  try {
+    const {
+      mergeTimeRegistry,
+      mergeCommitSha,
+      orderedParentShas,
+      secondParentSha,
+      mergeTreeSha,
+      registryBlobSha
+    } = descriptor ?? {};
+    const source = hGovernanceProtectedSource();
+    validateHGovernanceIntakeTransition(source, mergeTimeRegistry);
+    return Boolean(
+      isSha(mergeCommitSha) &&
+        isSha(secondParentSha) &&
+        secondParentSha !== H_GOVERNANCE_SOURCE &&
+        sameJson(orderedParentShas, [H_GOVERNANCE_SOURCE, secondParentSha]) &&
+        sameJson(
+          protectedMainAdvanceCommitParents(mergeCommitSha),
+          orderedParentShas
+        ) &&
+        sameJson(protectedMainAdvanceCommitParents(secondParentSha), [H_GOVERNANCE_SOURCE]) &&
+        protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) === mergeTreeSha &&
+        protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) === mergeTreeSha &&
+        protectedMainAdvanceObjectSha(
+          `${mergeCommitSha}:${REGISTRY_REPO_PATH}`
+        ) === registryBlobSha &&
+        protectedMainAdvanceObjectSha(
+          `${secondParentSha}:${REGISTRY_REPO_PATH}`
+        ) === registryBlobSha &&
+        sameJson(
+          protectedMainAdvanceRegistryFromCommit(secondParentSha),
+          mergeTimeRegistry
+        ) &&
+        sameStringSet(
+          protectedMainAdvanceChangedPaths(H_GOVERNANCE_SOURCE, secondParentSha) ?? [],
+          PR86_DELIVERY_PATHS
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+// I moves the exact independently reviewed H bytes off the historical PR86
+// checkout and into a dedicated, still stage-only landing lane. It is a new
+// transition over exact H: the H validator above remains strict and therefore
+// continues to reject I. Nothing here grants commit, push, PR, CI, merge,
+// deployment, cleanup, or product-write authority.
+const I_H_SOURCE_STAGED_TREE = "8657ad8da77348afe46bbd74cefe5d7818f966ad";
+const I_H_SOURCE_BLOBS = [
+  "31494b87dbc8ed62f6d6212bf1162b5060ce2269",
+  "69c4152fe6321fba9a16c8a9e529e07f851b1b78",
+  "4daae84c2bc0f383548f4e70efebeab9aed8d0b5"
+];
+const I_H_SOURCE_SHA256 = [
+  "1e85c9d6e745653ecaa80c91fb6195f8c0417b33f2863f71bf5916f3b140ab40",
+  "a94bb158e105234f0639aebd139160b4cfe1864a7ecd61065c422818359dc24a",
+  "9e985e0a782945cb5229e359b26bc2bb4385fe82440616ed43e45705c82978b3"
+];
+const I_H_TASK = "SENA-I-H-DEDICATED-LANDING-CANDIDATE-20260908";
+const I_H_BRANCH = "codex/sena-h-governance-intake-20260908";
+const I_H_WORKTREE =
+  "/Volumes/Starship/SENA/.worktrees/sena-h-governance-intake-20260908";
+const I_H_GIT_DIRECTORY =
+  "/Volumes/Starship/SENA/.git/worktrees/sena-h-governance-intake-20260908";
+const I_H_RECORDED_AT = "2026-09-08T09:22:20Z";
+const I_H_NEXT_REVIEW_AT = "2026-09-10T09:22:20Z";
+const I_H_OWNER_AUTHORIZATION_SHA256 =
+  "fb516e8b900bd645d986c5b064d3ec19034350e110f11f5bd4826a0f59e3e218";
+const I_H_SOURCE_INDEX_IDENTITY = Object.freeze({
+  stagedTreeSha: I_H_SOURCE_STAGED_TREE,
+  stagedBlobEntriesSha256:
+    "e1a01e12e93a86b08c7462cbebe422c88a0160c0e2c0a5d50dfa5bda26736289",
+  canonicalDiffSha256:
+    "27b631f505b83522738055ebd10c82102984d8df39430701599e0720d4d2134b",
+  fullIndexDiffSha256:
+    "871a171ac395d005e84ccccb90bf2d14903908122fe622db686ccaa8b4df479e",
+  indexEntriesSha256:
+    "dbf499c34d37af73b7c5de59f407696652c2d3476b38660fa291c3fd4ddfe26a",
+  statusSha256:
+    "c5ba3bdc8545aeafd197d6ecbd6116e2404424e0006998e137dae8b45b37b3d7",
+  stagedPathCount: 3,
+  unstagedPathCount: 0,
+  untrackedPathCount: 0,
+  unmergedPathCount: 0
+});
+const I_H_COMPLETED_H_REVIEW = Object.freeze({
+  required: true,
+  completed: true,
+  exactFrozenCandidateRequired: true,
+  reviewedAt: "2026-09-08T08:58:00Z",
+  reviewerTask: "/root/h_final_independent_review",
+  reviewerWindowId: "01a0800b-c4da-7780-a7e2-51461279862c",
+  reviewedStagedTreeSha: I_H_SOURCE_STAGED_TREE,
+  reviewedCanonicalDiffSha256:
+    I_H_SOURCE_INDEX_IDENTITY.canonicalDiffSha256,
+  reviewedFullIndexDiffSha256:
+    I_H_SOURCE_INDEX_IDENTITY.fullIndexDiffSha256,
+  reviewedIndexEntriesSha256:
+    I_H_SOURCE_INDEX_IDENTITY.indexEntriesSha256,
+  reviewedStatusSha256: I_H_SOURCE_INDEX_IDENTITY.statusSha256,
+  verdict: "approved-ready-for-owner-decision",
+  criticalFindingCount: 0,
+  importantFindingCount: 0,
+  minorFindingCount: 1,
+  actionAuthorityGranted: false,
+  activationAuthorized: false
+});
+const I_H_PRESERVED_OPERATOR_OBSERVATION = Object.freeze({
+  headSha: H_GOVERNANCE_SOURCE,
+  headTreeSha: H_GOVERNANCE_SOURCE_TREE,
+  ...I_H_SOURCE_INDEX_IDENTITY,
+  exactPaths: PR86_DELIVERY_PATHS,
+  sourceWritesAuthorized: false,
+  pushAuthorized: false,
+  mergeAuthorized: false,
+  cleanupAuthorized: false
+});
+const I_H_AUTHORIZATION_BOUNDARY = Object.freeze({
+  ...H_GOVERNANCE_AUTHORIZATION_BOUNDARY
+});
+const J_H_RECORDED_AT = "2026-09-08T10:49:24.894Z";
+const J_H_PACKAGE_ROOT =
+  "/Volumes/Starship/SENA-backups/20260908-evidence-custody-reconstruction/j-h-evidence-custody-reconstruction-20260908T104924Z";
+const J_H_PACKAGE_FILES = [
+  "BENPRB-RETAINED-FIXTURE-MANIFEST.json",
+  "BUNDLE-HEADS.txt",
+  "BUNDLE-VERIFY.txt",
+  "MIRROR-REFS.txt",
+  "OBJECT-INVENTORY.txt",
+  "PACKAGE.sha256",
+  "RESTORE-VERIFICATION.json",
+  "SOURCE-FREEZE.json",
+  "repository.bundle"
+];
+const J_H_SUPERSEDED_PACKAGE_ROOT =
+  "/Volumes/Starship/SENA-backups/20260908-evidence-custody-reconstruction/j-h-evidence-custody-reconstruction-20260908T092220Z";
+const J_H_SOURCE_MIRROR =
+  "/private/tmp/sena-guSO7Q-restore.9LLyXf/mirror.git";
+const J_H_SOURCE_CHECKOUT =
+  "/private/tmp/sena-guSO7Q-restore.9LLyXf/repo";
+const J_H_BENPRB_SOURCE =
+  "/Volumes/Starship/SENA/.tmp/sena-pr85-integration-BENPrB/repo";
+const J_H_VERIFICATION_ROOT =
+  "/private/tmp/sena-jh-evidence-restore-F3YrKs";
+const J_H_ORIGINAL_PACKAGE =
+  "/Volumes/Starship/SENA-backups/20260908-convergence-recovery/h-gusO7Q-recovery-20260908T060646Z.X2PLmG";
+const J_H_ORIGINAL_PR86_MANIFEST =
+  "/Volumes/Starship/SENA-backups/pr86-delivery-closeout-20260907-ah0cjhrp/RETAINED-TEST-FIXTURE-MANIFEST-20260908.json";
+const J_H_ORIGINAL_ORPHAN_PATCH_RECORD =
+  "/Volumes/Starship/SENA-backups/pr86-delivery-closeout-20260907-ah0cjhrp/root-instruction-patches-originals/applied-files.json";
+const J_H_EMPTY_SHA256 =
+  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const J_H_SOURCE_FREEZE = Object.freeze({
+  schemaVersion: "sena-j-h-evidence-source-freeze/v1",
+  recordedAt: J_H_RECORDED_AT,
+  originalBackupRootObservedMissingBeforeJReconstruction: true,
+  originalBackupRootObservedMissing: "/Volumes/Starship/SENA-backups",
+  originalHRecoveryPackageObservedMissing: J_H_ORIGINAL_PACKAGE,
+  originalPr86FixtureManifestObservedMissing: J_H_ORIGINAL_PR86_MANIFEST,
+  mirrorSource: {
+    path: J_H_SOURCE_MIRROR,
+    bare: true,
+    headSha: "421def854a8b9d6c887b72d19a22cee05b68cbf7",
+    treeSha: "03382d5828d0211e303d6d95bd2e3886a5547a86",
+    refCount: 3,
+    refsSha256:
+      "c99f55e346bc3c57992afdc00902bc002fbc81893780d97c9841dff52de036f1",
+    reachableObjectCount: 7809,
+    reachableObjectInventorySha256:
+      "9adaa0117a9d83c720a1aae50b725d74c59ca47ad3bd0492fd121c4139278f9b",
+    fsckFullStrictExitCode: 0
+  },
+  checkoutSource: {
+    path: J_H_SOURCE_CHECKOUT,
+    headSha: "421def854a8b9d6c887b72d19a22cee05b68cbf7",
+    treeSha: "03382d5828d0211e303d6d95bd2e3886a5547a86",
+    trackedPathCount: 1518,
+    indexEntriesSha256:
+      "e8d64f5cd8f77371945e5f39f18e5b552ba6af0dab2b1158da211347785c7f77",
+    statusPorcelainV1Sha256: J_H_EMPTY_SHA256,
+    fsckFullStrictExitCode: 0
+  },
+  sourceMutationAuthorized: false,
+  sourceDeletionAuthorized: false,
+  sourceMoveAuthorized: false
+});
+const J_H_BENPRB_MANIFEST = Object.freeze({
+  schemaVersion: "sena-j-h-retained-test-fixture-manifest/v1",
+  recordedAt: J_H_RECORDED_AT,
+  sourcePath: J_H_BENPRB_SOURCE,
+  gitDirectory: `${J_H_BENPRB_SOURCE}/.git`,
+  headSha: "fcaba4cb6f2c27df79dce38259c3bc766e104dae",
+  treeSha: "85acba3873d233010dfbf01242e2c04c0297b65b",
+  orderedParentShas: ["c1446039c049d58a6b10d6b4c7f3bafa6437ab48"],
+  branch: null,
+  detachedHead: true,
+  trackedPathCount: 1518,
+  treeEntriesSha256:
+    "166764d0ce23dc7db1e68906ed9ad01cb7bae625c7f990c4017ddfd150324041",
+  indexEntriesSha256:
+    "6161d7158027918d4aa9b5168a40d18a7ae7f2ec6d51ad3058e4f2a2645bbda5",
+  statusPorcelainV1Sha256: J_H_EMPTY_SHA256,
+  reachableObjectCount: 7819,
+  reachableObjectInventorySha256:
+    "09bae85b899fd6beb5e204129fe79a9bd3d32dd5c0cdb7bdbe4f3e0aa8fa48e4",
+  fsckFullStrictExitCode: 0,
+  sourcePresent: true,
+  sourceMutationAuthorized: false,
+  sourceDeletionAuthorized: false,
+  sourceMoveAuthorized: false,
+  cleanupAuthorized: false
+});
+const J_H_RESTORE_VERIFICATION = Object.freeze({
+  schemaVersion: "sena-j-h-evidence-restore-verification/v1",
+  verifiedAt: J_H_RECORDED_AT,
+  verificationRoot: J_H_VERIFICATION_ROOT,
+  bundlePath: `${J_H_PACKAGE_ROOT}/repository.bundle`,
+  bundleSha256:
+    "be193bf7b2d9d6afc7437bc4c66b61e2c0a9d36bf9b0b232c11484a2c660034c",
+  bundleSizeBytes: 192263446,
+  bundleVerifyExitCode: 0,
+  mirrorClone: {
+    path: `${J_H_VERIFICATION_ROOT}/mirror.git`,
+    headSha: "421def854a8b9d6c887b72d19a22cee05b68cbf7",
+    treeSha: "03382d5828d0211e303d6d95bd2e3886a5547a86",
+    fsckFullStrictExitCode: 0
+  },
+  checkoutClone: {
+    path: `${J_H_VERIFICATION_ROOT}/repo`,
+    headSha: "421def854a8b9d6c887b72d19a22cee05b68cbf7",
+    treeSha: "03382d5828d0211e303d6d95bd2e3886a5547a86",
+    trackedPathCount: 1518,
+    indexEntriesSha256:
+      "e8d64f5cd8f77371945e5f39f18e5b552ba6af0dab2b1158da211347785c7f77",
+    statusPorcelainV1Sha256: J_H_EMPTY_SHA256,
+    fsckFullStrictExitCode: 0
+  },
+  originalSourcesRetained: true
+});
+const J_H_AUTHORIZATION_BOUNDARY = Object.freeze({
+  commitAuthorized: false,
+  pushAuthorized: false,
+  prAuthorized: false,
+  ciAuthorized: false,
+  mergeAuthorized: false,
+  deploymentAuthorized: false,
+  cleanupAuthorized: false,
+  evidenceDeletionAuthorized: false,
+  sourceMutationAuthorized: false,
+  sourceDeletionAuthorized: false,
+  sourceMoveAuthorized: false,
+  resetAuthorized: false,
+  rebaseAuthorized: false,
+  stashAuthorized: false,
+  cleanAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false
+});
+const J_H_EVIDENCE = Object.freeze({
+  schemaVersion: "sena-j-h-evidence-custody-reconstruction/v1",
+  status: "owner-only-reconstructed-and-independently-restored",
+  recordedAt: J_H_RECORDED_AT,
+  originalEvidenceObservation: {
+    backupRootWasMissingBeforeJ: true,
+    originalPackagePath: J_H_ORIGINAL_PACKAGE,
+    originalPackageStillAbsent: true,
+    originalPr86ManifestPath: J_H_ORIGINAL_PR86_MANIFEST,
+    originalPr86ManifestStillAbsent: true,
+    originalOrphanPatchRecordPath: J_H_ORIGINAL_ORPHAN_PATCH_RECORD,
+    originalOrphanPatchRecordStillAbsent: true,
+    orphanInstructionObservationAnchoredToReviewedHSource: true,
+    originalEvidenceTreatedAsCurrent: false
+  },
+  supersededAttempt: {
+    packageRoot: J_H_SUPERSEDED_PACKAGE_ROOT,
+    packageManifestSha256:
+      "8b32f9d8cef5d24af013985ed5bbfff4f7be8573723339c710aab94f8b84683c",
+    retained: true,
+    authoritative: false,
+    reason: "recordedAt-and-verifiedAt-used-the-earlier-I-authorization-time"
+  },
+  newPackage: {
+    packageRoot: J_H_PACKAGE_ROOT,
+    packageManifestPath: `${J_H_PACKAGE_ROOT}/PACKAGE.sha256`,
+    packageManifestSha256:
+      "641fbaf075a2553d6847ef8e68784793d93e4dc39f8117ac3c6e6361dbbd0c46",
+    packageFileCount: 9,
+    expectedFiles: J_H_PACKAGE_FILES,
+    bundlePath: `${J_H_PACKAGE_ROOT}/repository.bundle`,
+    bundleSha256:
+      "be193bf7b2d9d6afc7437bc4c66b61e2c0a9d36bf9b0b232c11484a2c660034c",
+    bundleSizeBytes: 192263446,
+    sourceFreezePath: `${J_H_PACKAGE_ROOT}/SOURCE-FREEZE.json`,
+    sourceFreezeSha256:
+      "072bf50ba44eba9e1add894ea5c4efb128ce5e16019b9cd053a227b472182241",
+    benprbManifestPath:
+      `${J_H_PACKAGE_ROOT}/BENPRB-RETAINED-FIXTURE-MANIFEST.json`,
+    benprbManifestSha256:
+      "7dba3cf1e98547270270896769e6791fcecb4d3e5c0f4e7eab56b13a7b5e3996",
+    restoreVerificationPath:
+      `${J_H_PACKAGE_ROOT}/RESTORE-VERIFICATION.json`,
+    restoreVerificationSha256:
+      "3a2085854e2237bbac66f87ed3e72240c9284dd201342b8afc1dbc0ab6d9aead",
+    mirrorRefsSha256:
+      "c99f55e346bc3c57992afdc00902bc002fbc81893780d97c9841dff52de036f1",
+    objectInventorySha256:
+      "9adaa0117a9d83c720a1aae50b725d74c59ca47ad3bd0492fd121c4139278f9b"
+  },
+  retainedSources: {
+    restoreMirror: {
+      path: J_H_SOURCE_MIRROR,
+      headSha: J_H_SOURCE_FREEZE.mirrorSource.headSha,
+      treeSha: J_H_SOURCE_FREEZE.mirrorSource.treeSha,
+      fsckFullStrictExitCode: 0
+    },
+    restoreCheckout: {
+      path: J_H_SOURCE_CHECKOUT,
+      headSha: J_H_SOURCE_FREEZE.checkoutSource.headSha,
+      treeSha: J_H_SOURCE_FREEZE.checkoutSource.treeSha,
+      indexEntriesSha256: J_H_SOURCE_FREEZE.checkoutSource.indexEntriesSha256,
+      statusPorcelainV1Sha256: J_H_EMPTY_SHA256,
+      fsckFullStrictExitCode: 0
+    },
+    benprb: {
+      path: J_H_BENPRB_SOURCE,
+      headSha: J_H_BENPRB_MANIFEST.headSha,
+      treeSha: J_H_BENPRB_MANIFEST.treeSha,
+      indexEntriesSha256: J_H_BENPRB_MANIFEST.indexEntriesSha256,
+      statusPorcelainV1Sha256: J_H_EMPTY_SHA256,
+      fsckFullStrictExitCode: 0
+    },
+    verificationRoot: {
+      path: J_H_VERIFICATION_ROOT,
+      mirrorHeadSha: J_H_RESTORE_VERIFICATION.mirrorClone.headSha,
+      mirrorTreeSha: J_H_RESTORE_VERIFICATION.mirrorClone.treeSha,
+      checkoutHeadSha: J_H_RESTORE_VERIFICATION.checkoutClone.headSha,
+      checkoutTreeSha: J_H_RESTORE_VERIFICATION.checkoutClone.treeSha,
+      checkoutIndexEntriesSha256:
+        J_H_RESTORE_VERIFICATION.checkoutClone.indexEntriesSha256,
+      checkoutStatusPorcelainV1Sha256: J_H_EMPTY_SHA256
+    }
+  },
+  ownerAuthorizationMessageSha256:
+    "2cfaff474edb59e6adc8fdb9d6d920ba28008fcd6fae71645d86cdb71b03c3e0",
+  authorizationBoundary: J_H_AUTHORIZATION_BOUNDARY
+});
+const I_H_J_EVIDENCE_SUMMARY = Object.freeze({
+  schemaVersion: J_H_EVIDENCE.schemaVersion,
+  packageManifestSha256:
+    J_H_EVIDENCE.newPackage.packageManifestSha256,
+  originalEvidenceMissingObserved: true,
+  sourceMutationAuthorized: false,
+  sourceDeletionAuthorized: false,
+  sourceMoveAuthorized: false
+});
+const I_H_INTAKE = Object.freeze({
+  schemaVersion: "sena-i-h-dedicated-landing-candidate/v1",
+  status: "staged-candidate-pending-freeze-and-independent-review",
+  recordedAt: I_H_RECORDED_AT,
+  sourceHBinding: {
+    protectedBaseCommitSha: H_GOVERNANCE_SOURCE,
+    protectedBaseTreeSha: H_GOVERNANCE_SOURCE_TREE,
+    stagedTreeSha: I_H_SOURCE_STAGED_TREE,
+    exactPaths: PR86_DELIVERY_PATHS,
+    blobShas: I_H_SOURCE_BLOBS,
+    fileSha256: I_H_SOURCE_SHA256,
+    ...I_H_SOURCE_INDEX_IDENTITY
+  },
+  operator: {
+    taskId: I_H_TASK,
+    branch: I_H_BRANCH,
+    worktreePath: I_H_WORKTREE,
+    headSha: H_GOVERNANCE_SOURCE,
+    stagedPaths: PR86_DELIVERY_PATHS
+  },
+  preservedHOperator: {
+    taskId: PR86_DELIVERY_TASK,
+    branch: H_GOVERNANCE_OPERATOR_BRANCH,
+    worktreePath: H_GOVERNANCE_OPERATOR_WORKTREE,
+    observation: I_H_PRESERVED_OPERATOR_OBSERVATION
+  },
+  gCandidate: protectedActivationNativeStructuredClone(
+    H_GOVERNANCE_INTAKE.gCandidate
+  ),
+  ownerAuthorizationMessageSha256: I_H_OWNER_AUTHORIZATION_SHA256,
+  completedHIndependentReview: I_H_COMPLETED_H_REVIEW,
+  jEvidenceCustody: I_H_J_EVIDENCE_SUMMARY,
+  independentReview: {
+    required: true,
+    completed: false,
+    exactFrozenCandidateRequired: true,
+    activationAuthorized: false
+  },
+  authorizationBoundary: I_H_AUTHORIZATION_BOUNDARY
+});
+
+let jHEvidenceCustodyCacheKey = null;
+const J_H_EXTERNAL_REPOSITORY_GIT_ENVIRONMENT = Object.freeze([
+  ...GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT,
+  "GIT_PREFIX",
+  "GIT_IMPLICIT_WORK_TREE"
+]);
+
+function jHExternalGit(args, options = {}) {
+  return git(args, {
+    ...options,
+    unsetEnv: J_H_EXTERNAL_REPOSITORY_GIT_ENVIRONMENT
+  });
+}
+
+function jHExternalGitText(args, options = {}) {
+  return String(jHExternalGit(args, options).stdout ?? "");
+}
+
+function jHExactStandaloneGitDirectoryAllowed(path) {
+  try {
+    const objectsPath = join(path, "objects");
+    const headPath = join(path, "HEAD");
+    return Boolean(
+      typeof path === "string" &&
+        resolve(path) === path &&
+        realpathSync(path) === path &&
+        lstatSync(path).isDirectory() &&
+        !lstatSync(path).isSymbolicLink() &&
+        realpathSync(objectsPath) === objectsPath &&
+        lstatSync(objectsPath).isDirectory() &&
+        !lstatSync(objectsPath).isSymbolicLink() &&
+        realpathSync(headPath) === headPath &&
+        lstatSync(headPath).isFile() &&
+        !lstatSync(headPath).isSymbolicLink() &&
+        !existsSync(join(path, "commondir")) &&
+        !existsSync(join(path, "objects", "info", "alternates"))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function jHExactCheckoutRootAllowed(path) {
+  try {
+    const indexPath = join(path, ".git", "index");
+    return Boolean(
+      typeof path === "string" &&
+        resolve(path) === path &&
+        realpathSync(path) === path &&
+        lstatSync(path).isDirectory() &&
+        !lstatSync(path).isSymbolicLink() &&
+        jHExactStandaloneGitDirectoryAllowed(join(path, ".git")) &&
+        realpathSync(indexPath) === indexPath &&
+        lstatSync(indexPath).isFile() &&
+        !lstatSync(indexPath).isSymbolicLink()
+    );
+  } catch {
+    return false;
+  }
+}
+
+function jHLineCount(bytes, delimiter = "\n") {
+  return String(bytes ?? "")
+    .split(delimiter)
+    .filter(Boolean).length;
+}
+
+function jHSortedUniqueLineBuffer(bytes) {
+  const lines = String(bytes ?? "")
+    .split("\n")
+    .filter(Boolean)
+    .sort((left, right) =>
+      Buffer.compare(Buffer.from(left), Buffer.from(right))
+    );
+  const unique = [...new Set(lines)];
+  return Buffer.from(unique.length > 0 ? `${unique.join("\n")}\n` : "");
+}
+
+export function jHMirrorFacts(path) {
+  if (!jHExactStandaloneGitDirectoryAllowed(path)) {
+    throw new Error("J mirror path is not an exact standalone Git directory");
+  }
+  const local = (args, options = {}) =>
+    jHExternalGit([`--git-dir=${path}`, ...args], options);
+  const text = (args, options = {}) =>
+    String(local(args, options).stdout ?? "").trim();
+  if (text(["rev-parse", "--is-bare-repository"]) !== "true") {
+    throw new Error("J mirror is not bare");
+  }
+  const refs = jHSortedUniqueLineBuffer(
+    local(
+      ["for-each-ref", "--format=%(objectname) %(refname)"],
+      { binary: true }
+    ).stdout
+  );
+  const reachable = jHSortedUniqueLineBuffer(
+    local(["rev-list", "--objects", "--all", "HEAD"], {
+      binary: true
+    }).stdout
+  );
+  const fsck = local(["fsck", "--full", "--strict"], {
+    allowFailure: true
+  });
+  return {
+    path,
+    bare: true,
+    headSha: text(["rev-parse", "HEAD"]),
+    treeSha: text(["rev-parse", "HEAD^{tree}"]),
+    refCount: jHLineCount(refs),
+    refsSha256: sha256Buffer(refs),
+    reachableObjectCount: jHLineCount(reachable),
+    reachableObjectInventorySha256: sha256Buffer(reachable),
+    fsckFullStrictExitCode: fsck.status
+  };
+}
+
+export function jHMirrorSnapshotAllowed(path, expected) {
+  try {
+    return Boolean(
+      pr85PlainJsonData(expected) &&
+        isDeepStrictEqual(jHMirrorFacts(path), expected)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function jHCheckoutFacts(path) {
+  if (!jHExactCheckoutRootAllowed(path)) {
+    throw new Error("J checkout path is not an exact standalone repository");
+  }
+  const gitDirectory = join(path, ".git");
+  const local = (args, options = {}) =>
+    jHExternalGit(
+      [
+        `--git-dir=${gitDirectory}`,
+        `--work-tree=${path}`,
+        "-c",
+        `core.worktree=${path}`,
+        ...args
+      ],
+      options
+    );
+  const text = (args, options = {}) =>
+    String(local(args, options).stdout ?? "").trim();
+  const tracked = local(["ls-files", "-z"], { binary: true }).stdout;
+  const fsck = local(["fsck", "--full", "--strict"], {
+    allowFailure: true
+  });
+  return {
+    path,
+    headSha: text(["rev-parse", "HEAD"]),
+    treeSha: text(["rev-parse", "HEAD^{tree}"]),
+    trackedPathCount: jHLineCount(tracked, "\0"),
+    indexEntriesSha256: sha256Buffer(
+      local(["ls-files", "--stage", "-z"], { binary: true }).stdout
+    ),
+    statusPorcelainV1Sha256: sha256Buffer(
+      local(
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        { binary: true }
+      ).stdout
+    ),
+    fsckFullStrictExitCode: fsck.status
+  };
+}
+
+export function jHCheckoutSnapshotAllowed(path, expected) {
+  try {
+    return Boolean(
+      pr85PlainJsonData(expected) &&
+        isDeepStrictEqual(jHCheckoutFacts(path), expected)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function jHBenprbFacts(path, expectedRecordedAt) {
+  const checkout = jHCheckoutFacts(path);
+  const gitDirectory = join(path, ".git");
+  const local = (args, options = {}) =>
+    jHExternalGit(
+      [
+        `--git-dir=${gitDirectory}`,
+        `--work-tree=${path}`,
+        "-c",
+        `core.worktree=${path}`,
+        ...args
+      ],
+      options
+    );
+  const text = (args, options = {}) =>
+    String(local(args, options).stdout ?? "").trim();
+  const symbolic = local(
+    ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    { allowFailure: true }
+  );
+  const reachable = jHSortedUniqueLineBuffer(
+    local(["rev-list", "--objects", "--all", "HEAD"], {
+      binary: true
+    }).stdout
+  );
+  return {
+    schemaVersion: "sena-j-h-retained-test-fixture-manifest/v1",
+    recordedAt: expectedRecordedAt,
+    sourcePath: path,
+    gitDirectory,
+    headSha: checkout.headSha,
+    treeSha: checkout.treeSha,
+    orderedParentShas: text(["show", "-s", "--format=%P", "HEAD"])
+      .split(" ")
+      .filter(Boolean),
+    branch:
+      symbolic.status === 0
+        ? String(symbolic.stdout ?? "").trim()
+        : null,
+    detachedHead: symbolic.status !== 0,
+    trackedPathCount: checkout.trackedPathCount,
+    treeEntriesSha256: sha256Buffer(
+      local(["ls-tree", "-r", "-z", "HEAD"], { binary: true }).stdout
+    ),
+    indexEntriesSha256: checkout.indexEntriesSha256,
+    statusPorcelainV1Sha256: checkout.statusPorcelainV1Sha256,
+    reachableObjectCount: jHLineCount(reachable),
+    reachableObjectInventorySha256: sha256Buffer(reachable),
+    fsckFullStrictExitCode: checkout.fsckFullStrictExitCode,
+    sourcePresent: true,
+    sourceMutationAuthorized: false,
+    sourceDeletionAuthorized: false,
+    sourceMoveAuthorized: false,
+    cleanupAuthorized: false
+  };
+}
+
+export function jHBenprbSnapshotAllowed(path, expected) {
+  try {
+    return Boolean(
+      pr85PlainJsonData(expected) &&
+        typeof expected.recordedAt === "string" &&
+        isDeepStrictEqual(
+          jHBenprbFacts(path, expected.recordedAt),
+          expected
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+function jHEvidenceCustodyPhysicalAllowed(
+  evidence,
+  { forcePhysicalRevalidation = false } = {}
+) {
+  try {
+    if (!isDeepStrictEqual(evidence, J_H_EVIDENCE)) return false;
+    const packageObservation = evidence.newPackage;
+    const cacheKey = `${packageObservation.packageManifestSha256}:${packageObservation.restoreVerificationSha256}:${packageObservation.benprbManifestSha256}`;
+    if (
+      !forcePhysicalRevalidation &&
+      jHEvidenceCustodyCacheKey === cacheKey
+    ) {
+      return true;
+    }
+    if (
+      existsSync(J_H_ORIGINAL_PACKAGE) ||
+      existsSync(J_H_ORIGINAL_PR86_MANIFEST) ||
+      existsSync(J_H_ORIGINAL_ORPHAN_PATCH_RECORD) ||
+      !hOwnerOnlyRecoveryPackageSnapshotAllowed({
+        recoveryPackagePath: packageObservation.packageRoot,
+        packageManifestPath: packageObservation.packageManifestPath,
+        packageManifestSha256: packageObservation.packageManifestSha256,
+        packageFileCount: packageObservation.packageFileCount,
+        expectedFiles: packageObservation.expectedFiles
+      }) ||
+      !hOwnerOnlyRecoveryPackageSnapshotAllowed({
+        recoveryPackagePath: J_H_SUPERSEDED_PACKAGE_ROOT,
+        packageManifestPath: `${J_H_SUPERSEDED_PACKAGE_ROOT}/PACKAGE.sha256`,
+        packageManifestSha256:
+          J_H_EVIDENCE.supersededAttempt.packageManifestSha256,
+        packageFileCount: 9,
+        expectedFiles: J_H_PACKAGE_FILES
+      }) ||
+      statSync(packageObservation.bundlePath).size !==
+        packageObservation.bundleSizeBytes ||
+      sha256File(packageObservation.bundlePath) !==
+        packageObservation.bundleSha256 ||
+      sha256File(packageObservation.sourceFreezePath) !==
+        packageObservation.sourceFreezeSha256 ||
+      sha256File(packageObservation.benprbManifestPath) !==
+        packageObservation.benprbManifestSha256 ||
+      sha256File(packageObservation.restoreVerificationPath) !==
+        packageObservation.restoreVerificationSha256 ||
+      sha256File(`${packageObservation.packageRoot}/MIRROR-REFS.txt`) !==
+        packageObservation.mirrorRefsSha256 ||
+      sha256File(`${packageObservation.packageRoot}/OBJECT-INVENTORY.txt`) !==
+        packageObservation.objectInventorySha256 ||
+      !isDeepStrictEqual(
+        JSON.parse(readFileSync(packageObservation.sourceFreezePath, "utf8")),
+        J_H_SOURCE_FREEZE
+      ) ||
+      !isDeepStrictEqual(
+        JSON.parse(readFileSync(packageObservation.benprbManifestPath, "utf8")),
+        J_H_BENPRB_MANIFEST
+      ) ||
+      !isDeepStrictEqual(
+        JSON.parse(
+          readFileSync(packageObservation.restoreVerificationPath, "utf8")
+        ),
+        J_H_RESTORE_VERIFICATION
+      )
+    ) {
+      return false;
+    }
+
+    if (
+      !jHMirrorSnapshotAllowed(
+        J_H_SOURCE_MIRROR,
+        J_H_SOURCE_FREEZE.mirrorSource
+      ) ||
+      !jHCheckoutSnapshotAllowed(
+        J_H_SOURCE_CHECKOUT,
+        J_H_SOURCE_FREEZE.checkoutSource
+      ) ||
+      !jHBenprbSnapshotAllowed(
+        J_H_BENPRB_SOURCE,
+        J_H_BENPRB_MANIFEST
+      ) ||
+      !jHMirrorSnapshotAllowed(
+        `${J_H_VERIFICATION_ROOT}/mirror.git`,
+        {
+          ...J_H_SOURCE_FREEZE.mirrorSource,
+          path: `${J_H_VERIFICATION_ROOT}/mirror.git`
+        }
+      ) ||
+      !jHCheckoutSnapshotAllowed(
+        `${J_H_VERIFICATION_ROOT}/repo`,
+        J_H_RESTORE_VERIFICATION.checkoutClone
+      )
+    ) {
+      return false;
+    }
+    jHExternalGit([
+      `--git-dir=${J_H_SOURCE_CHECKOUT}/.git`,
+      `--work-tree=${J_H_SOURCE_CHECKOUT}`,
+      "-c",
+      `core.worktree=${J_H_SOURCE_CHECKOUT}`,
+      "bundle",
+      "verify",
+      packageObservation.bundlePath
+    ]);
+    jHEvidenceCustodyCacheKey = cacheKey;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+let iHSourceCache = null;
+function iHDedicatedLandingPortableSourceReconstructionAllowed() {
+  try {
+    if (
+      process.env.CI !== "true" ||
+      process.env.GITHUB_ACTIONS !== "true" ||
+      process.env.GITHUB_REPOSITORY !== "HUDongpin/SENA" ||
+      !["pull_request", "push"].includes(
+        process.env.GITHUB_EVENT_NAME ?? ""
+      ) ||
+      resolve(CONTROL_ROOT) === "/Volumes/Starship/SENA" ||
+      protectedMainAdvanceObjectSha(`${I_H_SOURCE_STAGED_TREE}^{tree}`)
+    ) {
+      return false;
+    }
+    if (
+      protectedMainAdvanceObjectSha(`${K_I_SOURCE_COMMIT}^{tree}`) !==
+        K_I_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(K_I_SOURCE_COMMIT), [
+        H_GOVERNANCE_SOURCE
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(
+          H_GOVERNANCE_SOURCE,
+          K_I_SOURCE_COMMIT
+        ),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      return false;
+    }
+    return PR86_DELIVERY_PATHS.every((path, index) => {
+      const blob = protectedMainAdvanceObjectSha(
+        `${K_I_SOURCE_COMMIT}:${path}`
+      );
+      return Boolean(
+        blob === K_I_SOURCE_BLOBS[index] &&
+          sha256Buffer(git(["cat-file", "blob", blob]).stdout) ===
+            K_I_SOURCE_SHA256[index]
+      );
+    });
+  } catch {
+    return false;
+  }
+}
+
+function iHDedicatedLandingSource() {
+  if (!iHSourceCache) {
+    const expected = hGovernanceExpectedCandidate(hGovernanceProtectedSource());
+    if (
+      protectedMainAdvanceObjectSha(`${I_H_SOURCE_STAGED_TREE}^{tree}`) !==
+        I_H_SOURCE_STAGED_TREE
+    ) {
+      if (!iHDedicatedLandingPortableSourceReconstructionAllowed()) {
+        throw new Error("rule=i-h-dedicated-landing-source-invalid");
+      }
+      iHSourceCache = expected;
+      return protectedActivationNativeStructuredClone(iHSourceCache);
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${I_H_SOURCE_STAGED_TREE}:${path}`
+      );
+      if (
+        blob !== I_H_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          I_H_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=i-h-dedicated-landing-source-invalid");
+      }
+    }
+    const source = JSON.parse(
+      String(git(["cat-file", "blob", I_H_SOURCE_BLOBS[0]]).stdout)
+    );
+    if (
+      !isDeepStrictEqual(source, expected)
+    ) {
+      throw new Error("rule=i-h-dedicated-landing-source-invalid");
+    }
+    iHSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(iHSourceCache);
+}
+
+function iHDedicatedLandingExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const oldOperator = expected.workItems.find(
+    (item) => item.taskId === PR86_DELIVERY_TASK
+  );
+  const oldOperatorBranch = expected.branches.find(
+    (branch) => branch.name === H_GOVERNANCE_OPERATOR_BRANCH
+  );
+  if (!oldOperator || !oldOperatorBranch || !expected.hGovernanceIntake) {
+    throw new Error("rule=i-h-dedicated-landing-source-invalid");
+  }
+
+  expected.updatedAt = I_H_RECORDED_AT;
+  oldOperator.laneType = "read-only";
+  oldOperator.disposition = "preservation-review";
+  oldOperator.dirtyState = "staged-h-exact-three-path-preservation";
+  oldOperator.expectedCloseAt =
+    "owner-gated:historical-pr86-h-candidate-preservation";
+  oldOperator.iHPreservationObservation =
+    protectedActivationNativeStructuredClone(
+      I_H_PRESERVED_OPERATOR_OBSERVATION
+    );
+  oldOperator.evidenceState = {
+    local:
+      "Historical PR86 checkout is read-only and preserves the exact independently reviewed H three-path staged tree.",
+    ci: "No new PR86 or H remote CI is authorized or claimed by I.",
+    merged:
+      "Historical PR86/PR87 lifecycle remains immutable; H is uncommitted and is not landed.",
+    deployed: "No deployment is authorized or performed.",
+    live:
+      "Local preservation custody only; source writes, push, merge, cleanup and provider mutation remain prohibited."
+  };
+  oldOperatorBranch.disposition = "preservation-review";
+  oldOperatorBranch.closeout =
+    "Historical PR86 checkout preserves the exact reviewed H staged tree read-only; I moves future governance work to a dedicated local candidate lane without landing H.";
+
+  expected.hGovernanceIntake.status =
+    "independent-review-approved-preserved-by-dedicated-landing-candidate";
+  expected.hGovernanceIntake.independentReview =
+    protectedActivationNativeStructuredClone(I_H_COMPLETED_H_REVIEW);
+
+  const dedicatedItem = {
+    taskId: I_H_TASK,
+    threadId: "01a05865-c301-7223-b74d-96e228b8a435",
+    repo: source.repo,
+    cwd: I_H_WORKTREE,
+    owner: "Codex SENA I-H dedicated landing candidate writer",
+    ownerKey: "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
+    ownerLane: "SENA-A01 exact H dedicated landing candidate",
+    laneType: "feature",
+    branch: I_H_BRANCH,
+    worktreePath: I_H_WORKTREE,
+    baseSha: H_GOVERNANCE_SOURCE,
+    headSha: H_GOVERNANCE_SOURCE,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 0 },
+    allowedPaths: [...PR86_DELIVERY_PATHS],
+    createdAt: I_H_RECORDED_AT,
+    lastHeartbeatAt: I_H_RECORDED_AT,
+    lastObservedAt: I_H_RECORDED_AT,
+    nextReviewAt: I_H_NEXT_REVIEW_AT,
+    expectedCloseAt:
+      "owner-gated:i-h-exact-freeze-independent-review-and-separate-landing-authorization",
+    prNumber: null,
+    noPrReason:
+      "I is a local three-path stage-only candidate; commit, push, PR, CI, Ready, merge and deployment are not authorized.",
+    dirtyState: "staged-i-h-dedicated-landing-candidate",
+    sensitivePaths: [],
+    disposition: "active",
+    freezeException: null,
+    evidenceState: {
+      local:
+        "Dedicated local I lane stages only the exact governance registry, verifier and governance-test paths over protected Q.",
+      ci: "Remote CI is not authorized or claimed.",
+      merged: "I is not committed, pushed, proposed or merged.",
+      deployed: "No deployment is authorized or performed.",
+      live:
+        "Local stage-only custody; final freeze and independent review are required before any later owner decision."
+    }
+  };
+  const dedicatedBranch = {
+    name: I_H_BRANCH,
+    owner: dedicatedItem.owner,
+    ownerKey: dedicatedItem.ownerKey,
+    baseSha: H_GOVERNANCE_SOURCE,
+    headSha: H_GOVERNANCE_SOURCE,
+    upstream: null,
+    upstreamState: "not-applicable",
+    upstreamCacheState: "not-applicable",
+    remotePresent: false,
+    remoteHeadSha: null,
+    remoteObservedAt: I_H_RECORDED_AT,
+    pr: null,
+    noPrReason: dedicatedItem.noPrReason,
+    prHeadSha: null,
+    prState: null,
+    prBase: "main",
+    prIsDraft: false,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: I_H_RECORDED_AT,
+    lastObservedAt: I_H_RECORDED_AT,
+    lastCommitAt: "2026-09-08T02:29:37+08:00",
+    nextReviewAt: I_H_NEXT_REVIEW_AT,
+    expectedCloseAt: dedicatedItem.expectedCloseAt,
+    disposition: "active",
+    closeout:
+      "Dedicated I lane is local and stage-only; no commit, push, PR, CI, Ready, merge, deployment or cleanup authority exists."
+  };
+  const itemIndex = expected.workItems.findIndex(
+    (item) => item.taskId === PR86_DELIVERY_TASK
+  );
+  const branchIndex = expected.branches.findIndex(
+    (branch) => branch.name === H_GOVERNANCE_OPERATOR_BRANCH
+  );
+  expected.workItems.splice(itemIndex, 0, dedicatedItem);
+  expected.branches.splice(branchIndex, 0, dedicatedBranch);
+  expected.iHDedicatedLandingCandidate =
+    protectedActivationNativeStructuredClone(I_H_INTAKE);
+  expected.jHEvidenceCustodyReconstruction =
+    protectedActivationNativeStructuredClone(J_H_EVIDENCE);
+  return expected;
+}
+
+function iHDedicatedLandingTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  const source = iHDedicatedLandingSource();
+  const expected = iHDedicatedLandingExpectedCandidate(source);
+  return Boolean(
+    pr85PlainJsonData(sourceRegistry) &&
+      pr85PlainJsonData(candidateRegistry) &&
+      isDeepStrictEqual(sourceRegistry, source) &&
+      isDeepStrictEqual(candidateRegistry, expected)
+  );
+}
+
+export function validateIHDedicatedLandingCandidateTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const portableCiReconstruction =
+      iHDedicatedLandingPortableSourceReconstructionAllowed();
+    if (
+      !iHDedicatedLandingTransitionStructurallyAllowed(
+        sourceRegistry,
+        candidateRegistry
+      ) ||
+      (!portableCiReconstruction &&
+        !jHEvidenceCustodyPhysicalAllowed(
+          candidateRegistry.jHEvidenceCustodyReconstruction
+        ))
+    ) {
+      throw new Error();
+    }
+    return {
+      sourceStagedTreeSha: I_H_SOURCE_STAGED_TREE,
+      originalEvidenceMissingObserved: true,
+      reconstructedEvidenceBound: true,
+      operatorTaskId: I_H_TASK,
+      operatorBranch: I_H_BRANCH,
+      operatorWorktree: I_H_WORKTREE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      ...I_H_AUTHORIZATION_BOUNDARY
+    };
+  } catch (cause) {
+    throw new Error("rule=i-h-dedicated-landing-transition-invalid", {
+      cause
+    });
+  }
+}
+
+export function jHEvidenceCustodyReconstructionAllowed(
+  registry,
+  options = {}
+) {
+  try {
+    const operationalRegistry =
+      iHDedicatedLandingOperationalRegistry(registry);
+    return Boolean(
+      iHDedicatedLandingTransitionStructurallyAllowed(
+        iHDedicatedLandingSource(),
+        operationalRegistry
+      ) &&
+        jHEvidenceCustodyPhysicalAllowed(
+          registry.jHEvidenceCustodyReconstruction,
+          options
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function iHDedicatedLandingHistoricalProjection(registry) {
+  const operationalRegistry =
+    iHDedicatedLandingOperationalRegistry(registry);
+  const source = iHDedicatedLandingSource();
+  validateIHDedicatedLandingCandidateTransition(source, operationalRegistry);
+  return source;
+}
+
+function iHDedicatedLandingOperationalRegistry(registry) {
+  let operationalRegistry = registry;
+  if (operationalRegistry?.nMPr88FinalAuthorization) {
+    operationalRegistry =
+      nMPr88FinalAuthorizationHistoricalProjection(operationalRegistry);
+  }
+  if (operationalRegistry?.mLPortableJEvidenceCiRemediation) {
+    operationalRegistry =
+      mLPortableJEvidenceCiHistoricalProjection(operationalRegistry);
+  }
+  if (operationalRegistry?.lKDraftPrCiRemediation) {
+    operationalRegistry =
+      lKDraftPrCiRemediationHistoricalProjection(operationalRegistry);
+  }
+  if (operationalRegistry?.kILandingLifecycleAuthorization) {
+    operationalRegistry =
+      kILandingLifecycleHistoricalProjection(operationalRegistry);
+  }
+  return operationalRegistry;
+}
+
+// K records the owner's explicit all-downstream-action decision without
+// collapsing the safety gates for later lifecycle phases. The first K state
+// consumes the already-created exact I commit and authorizes only a one-ref,
+// create-only push of the dedicated branch. PR creation, CI, Ready, merge,
+// deployment, G writes, and cleanup remain individually receipt-gated.
+const K_I_SOURCE_COMMIT = "1db8c607d09f90175e20a3e6be47b53c0b96e086";
+const K_I_SOURCE_TREE = "72825d73d253d15b9bcf1ff6becbc006d36ebda3";
+const K_I_SOURCE_BLOBS = [
+  "b50f3a4ec9f7fbb84758a7a1e0dbb3e80ad19331",
+  "28bfa1b5c8f9296720b2cbe8397a96c9bd4349a0",
+  "35a9b1b038626f641471b034d2b61f900beee8ac"
+];
+const K_I_SOURCE_SHA256 = [
+  "c2bbef9ad9d21bc89b66cd9784e92c7ce9a72bd8acc98667b895330d0075a2b7",
+  "31814f19f56c37567ce6c9c17d964dfe7a649936c10fee560e16492e4c7e876e",
+  "e037e92ab7676544dc5bb95d8253c9471e2c1ede9468d82cb2349fa570eb8303"
+];
+const K_I_RECORDED_AT = "2026-09-08T14:55:09Z";
+const K_I_NEXT_REVIEW_AT = "2026-09-10T14:55:09Z";
+const K_I_OWNER_SCOPE = Object.freeze({
+  userMessageItemId: "451828751",
+  authorized: [
+    "exact-i-tree-commit",
+    "push",
+    "pull-request-create",
+    "remote-ci",
+    "ready-for-review",
+    "protected-merge",
+    "deployment",
+    "g-product-write",
+    "branch-worktree-evidence-cleanup"
+  ],
+  executionMode: "gated-sequential-preserve-first"
+});
+const K_I_OWNER_SCOPE_SHA256 =
+  "53aa632eec403eae9ec971a4315770280f190d2a15ae6017f38f753e7ec573cc";
+const K_I_AUTHORIZATION_BOUNDARY = Object.freeze({
+  initialPushAuthorizedNow: true,
+  draftPrCreationAuthorizedAfterPush: true,
+  remoteCiAuthorized: true,
+  readyOwnerAuthorized: true,
+  protectedMergeOwnerAuthorized: true,
+  deploymentOwnerAuthorized: true,
+  gProductWriteOwnerAuthorized: true,
+  cleanupOwnerAuthorized: true,
+  readyRequiresCurrentRequiredChecks: true,
+  mergeRequiresCurrentRequiredChecksAndMainCurrentness: true,
+  deploymentRequiresLandedMainAndTargetVerification: true,
+  gProductWriteRequiresLandedGovernanceAndFreshGCurrentness: true,
+  cleanupRequiresSemanticDispositionAndRecoveryProof: true,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let kISourceCache = null;
+function kILandingLifecycleSource() {
+  if (!kISourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${K_I_SOURCE_COMMIT}^{tree}`) !==
+        K_I_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(K_I_SOURCE_COMMIT), [
+        H_GOVERNANCE_SOURCE
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(
+          H_GOVERNANCE_SOURCE,
+          K_I_SOURCE_COMMIT
+        ),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${K_I_SOURCE_COMMIT}:${path}`
+      );
+      if (
+        blob !== K_I_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          K_I_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(K_I_SOURCE_COMMIT).parsed;
+    if (
+      !iHDedicatedLandingTransitionStructurallyAllowed(
+        iHDedicatedLandingSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+    }
+    kISourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(kISourceCache);
+}
+
+function kILandingLifecycleExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch || !expected.iHDedicatedLandingCandidate) {
+    throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+  }
+  const noPrReason =
+    "Owner-authorized initial push has not yet created the draft PR.";
+  const expectedCloseAt =
+    "owner-gated:initial-push-then-draft-pr-ci-ready-protected-merge";
+  expected.updatedAt = K_I_RECORDED_AT;
+  Object.assign(item, {
+    headSha: K_I_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 },
+    lastHeartbeatAt: K_I_RECORDED_AT,
+    lastObservedAt: K_I_RECORDED_AT,
+    nextReviewAt: K_I_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    noPrReason,
+    dirtyState: "staged-k-i-owner-authorized-initial-push",
+    evidenceState: {
+      local:
+        "Exact reviewed I tree is committed as 1db8c607; K stages only the three governance paths for the gated landing lifecycle.",
+      ci: "Remote CI is owner-authorized but has not started.",
+      merged:
+        "Ready and protected merge are owner-authorized only after current required checks pass.",
+      deployed:
+        "Deployment is owner-authorized only after landed-main and target-specific verification.",
+      live:
+        "The dedicated remote branch is absent before the exact one-ref initial push."
+    }
+  });
+  Object.assign(branch, {
+    headSha: K_I_SOURCE_COMMIT,
+    remoteObservedAt: K_I_RECORDED_AT,
+    noPrReason,
+    lastOwnerHeartbeatAt: K_I_RECORDED_AT,
+    lastObservedAt: K_I_RECORDED_AT,
+    lastCommitAt: "2026-09-08T22:32:22+08:00",
+    nextReviewAt: K_I_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    closeout:
+      "Owner-authorized K initial-push successor is staged; the remote branch remains absent until the exact one-ref push."
+  });
+  expected.iHDedicatedLandingCandidate.status =
+    "exact-reviewed-tree-committed-owner-authorized-for-gated-lifecycle";
+  expected.iHDedicatedLandingCandidate.independentReview = {
+    required: true,
+    completed: true,
+    reviewedStagedTreeSha: K_I_SOURCE_TREE,
+    reviewedCommitSha: K_I_SOURCE_COMMIT,
+    verdict: "approved-ready-for-owner-decision",
+    criticalFindingCount: 0,
+    importantFindingCount: 0,
+    minorFindingCount: 0,
+    actionAuthorityGranted: false,
+    activationAuthorized: false
+  };
+  expected.kILandingLifecycleAuthorization = {
+    schemaVersion: "sena-k-i-landing-lifecycle-authorization/v1",
+    status: "initial-push-authorized",
+    recordedAt: K_I_RECORDED_AT,
+    source: {
+      commitSha: K_I_SOURCE_COMMIT,
+      treeSha: K_I_SOURCE_TREE,
+      orderedParentShas: [H_GOVERNANCE_SOURCE],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...K_I_SOURCE_BLOBS],
+      fileSha256: [...K_I_SOURCE_SHA256]
+    },
+    ownerAuthorization: {
+      mode: "explicit-owner-conversation-authorization",
+      userMessageItemId: K_I_OWNER_SCOPE.userMessageItemId,
+      canonicalScope: [...K_I_OWNER_SCOPE.authorized],
+      executionMode: K_I_OWNER_SCOPE.executionMode,
+      canonicalScopeSha256: K_I_OWNER_SCOPE_SHA256
+    },
+    consumedCommit: {
+      authorized: true,
+      commitSha: K_I_SOURCE_COMMIT,
+      treeSha: K_I_SOURCE_TREE,
+      parentSha: H_GOVERNANCE_SOURCE,
+      nativePreCommitPassed: true
+    },
+    initialPushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: ZERO_SHA,
+      exactlyOneRef: true,
+      createOnly: true
+    },
+    authorizationBoundary: {
+      ...K_I_AUTHORIZATION_BOUNDARY
+    }
+  };
+  return expected;
+}
+
+function kILandingLifecycleTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = kILandingLifecycleSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          kILandingLifecycleExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateKILandingLifecycleAuthorizationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !kILandingLifecycleTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=k-i-landing-lifecycle-transition-invalid");
+  }
+  return {
+    sourceCommitSha: K_I_SOURCE_COMMIT,
+    sourceTreeSha: K_I_SOURCE_TREE,
+    operatorBranch: I_H_BRANCH,
+    ...K_I_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function kILandingLifecycleHistoricalProjection(registry) {
+  const source = kILandingLifecycleSource();
+  validateKILandingLifecycleAuthorizationTransition(source, registry);
+  return source;
+}
+
+export function kILandingInitialPushFactsAllowed(registry, facts) {
+  try {
+    validateKILandingLifecycleAuthorizationTransition(
+      kILandingLifecycleSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== K_I_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === ZERO_SHA &&
+        sameJson(facts.orderedParentShas, [K_I_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        facts.cachedMainSha === H_GOVERNANCE_SOURCE &&
+        facts.rootMainSha === H_GOVERNANCE_SOURCE &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function kILandingInitialPushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const branchResult = git(
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { allowFailure: true }
+    );
+    const branch =
+      branchResult.status === 0
+        ? String(branchResult.stdout ?? "").trim()
+        : null;
+    const currentHeadSha = gitText(["rev-parse", "HEAD"]).trim();
+    const update = updates[0];
+    return kILandingInitialPushFactsAllowed(registry, {
+      branch,
+      currentHeadSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        K_I_SOURCE_COMMIT,
+        update.localSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+function kILandingCommittedInitialPushBarrierAllowed(registry) {
+  try {
+    validateKILandingLifecycleAuthorizationTransition(
+      kILandingLifecycleSource(),
+      registry
+    );
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== K_I_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          K_I_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(K_I_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          H_GOVERNANCE_SOURCE &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function kILandingIndexFactsAllowed(registry, facts) {
+  try {
+    validateKILandingLifecycleAuthorizationTransition(
+      kILandingLifecycleSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: K_I_SOURCE_COMMIT,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function kILandingCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(facts && kILandingIndexFactsAllowed(registry, facts));
+}
+
+const L_K_SOURCE_COMMIT = "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f";
+const L_K_SOURCE_TREE = "ad6733d7ab1805f1336fda063bf41f4ebd660528";
+const L_K_SOURCE_BLOBS = [
+  "cdab47abe72d5c0da5bc8b928f86fe63c8928ec0",
+  "7b8a322d6150b3818f9adc78fca5cd99d67d61c7",
+  "335b75f4fd4c2e87582043c801af6c7932022502"
+];
+const L_K_SOURCE_SHA256 = [
+  "e1d424708cedf402ff3fd88b2d83aa0f39d424d866f306fd7ee2335396cee118",
+  "3eb39bf24c3ab0cd034c9e139644b9b8db165dcdf8f4a06b8dcb5c6fe9a87f3b",
+  "defb4de9d32b557a54c6ad143b8da23f389d4200c31b426c2dfe2ac8a808893f"
+];
+const L_K_RECORDED_AT = "2026-09-08T16:52:40Z";
+const L_K_NEXT_REVIEW_AT = "2026-09-10T16:52:40Z";
+const L_K_PR_BINDING = Object.freeze({
+  number: 88,
+  url: "https://github.com/HUDongpin/SENA/pull/88",
+  state: "OPEN",
+  draft: true,
+  headRef: I_H_BRANCH,
+  headSha: L_K_SOURCE_COMMIT,
+  baseRef: "main",
+  createdAt: "2026-09-08T16:45:05Z"
+});
+const L_K_AUTHORIZATION_BOUNDARY = Object.freeze({
+  branchUpdateCommitAuthorizedAfterGates: true,
+  branchUpdatePushAuthorizedNow: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let lKSourceCache = null;
+function lKDraftPrCiRemediationSource() {
+  if (!lKSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${L_K_SOURCE_COMMIT}^{tree}`) !==
+        L_K_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(L_K_SOURCE_COMMIT), [
+        K_I_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(
+          K_I_SOURCE_COMMIT,
+          L_K_SOURCE_COMMIT
+        ),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=l-k-draft-pr-ci-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${L_K_SOURCE_COMMIT}:${path}`
+      );
+      if (
+        blob !== L_K_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          L_K_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=l-k-draft-pr-ci-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(L_K_SOURCE_COMMIT).parsed;
+    if (
+      !kILandingLifecycleTransitionStructurallyAllowed(
+        kILandingLifecycleSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=l-k-draft-pr-ci-source-invalid");
+    }
+    lKSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(lKSourceCache);
+}
+
+function lKDraftPrCiRemediationExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  const lifecycle = expected.kILandingLifecycleAuthorization;
+  if (!item || !branch || !lifecycle) {
+    throw new Error("rule=l-k-draft-pr-ci-source-invalid");
+  }
+  const expectedCloseAt =
+    "owner-gated:pr88-ci-remediation-then-ready-protected-merge";
+  expected.updatedAt = L_K_RECORDED_AT;
+  Object.assign(item, {
+    headSha: L_K_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 2, behind: 0 },
+    lastHeartbeatAt: L_K_RECORDED_AT,
+    lastObservedAt: L_K_RECORDED_AT,
+    nextReviewAt: L_K_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    prNumber: 88,
+    noPrReason: null,
+    prIsDraft: true,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-l-k-pr88-ci-portability-remediation",
+    evidenceState: {
+      local:
+        "K initial-push commit b54bec52 is clean and exactly matches the remote PR head; L stages only the three governance paths.",
+      ci:
+        "PR #88 build passed; repository-security failed because the fresh runner correctly lacked the local-only H staged tree object. L adds a strict GitHub Actions reconstruction path.",
+      merged:
+        "PR #88 remains OPEN and Draft; Ready and protected merge are not yet effective.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Remote branch and Draft PR #88 are exact at b54bec52 before the one-ref L update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: L_K_SOURCE_COMMIT,
+    upstream: `origin/${I_H_BRANCH}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: L_K_SOURCE_COMMIT,
+    remoteObservedAt: L_K_RECORDED_AT,
+    pr: 88,
+    noPrReason: null,
+    prHeadSha: L_K_SOURCE_COMMIT,
+    prState: "OPEN",
+    prBase: "main",
+    prIsDraft: true,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: L_K_RECORDED_AT,
+    lastObservedAt: L_K_RECORDED_AT,
+    lastCommitAt: "2026-09-09T00:15:00+08:00",
+    nextReviewAt: L_K_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at b54bec52; L repairs fresh-runner source portability and authorizes only the exact branch update."
+  });
+  lifecycle.status = "draft-pr-bound-ci-remediation-authorized";
+  lifecycle.draftPrBinding = {
+    ...L_K_PR_BINDING
+  };
+  Object.assign(lifecycle.authorizationBoundary, {
+    initialPushAuthorizedNow: false,
+    branchUpdatePushAuthorizedNow: true,
+    ciRemediationAuthorized: true
+  });
+  expected.lKDraftPrCiRemediation = {
+    schemaVersion: "sena-l-k-draft-pr-ci-remediation/v1",
+    status: "draft-pr-bound-portability-fix-staged",
+    recordedAt: L_K_RECORDED_AT,
+    source: {
+      commitSha: L_K_SOURCE_COMMIT,
+      treeSha: L_K_SOURCE_TREE,
+      orderedParentShas: [K_I_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...L_K_SOURCE_BLOBS],
+      fileSha256: [...L_K_SOURCE_SHA256]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: L_K_SOURCE_COMMIT,
+      baseSha: H_GOVERNANCE_SOURCE,
+      mergeable: "MERGEABLE"
+    },
+    observedChecks: {
+      build: {
+        runId: 34252971447,
+        jobId: 102151647784,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34252855112,
+          jobId: 102151263378,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34252971465,
+          jobId: 102151647868,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-source-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-reconstruction",
+      localPhysicalHObjectRequirementPreserved: true,
+      portableRequiresExactRepositoryAndEvent: true,
+      portableRequiresReachableICommitTreeAndBlobs: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: L_K_SOURCE_COMMIT,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      ...L_K_AUTHORIZATION_BOUNDARY
+    }
+  };
+  return expected;
+}
+
+function lKDraftPrCiRemediationTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = lKDraftPrCiRemediationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          lKDraftPrCiRemediationExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateLKDraftPrCiRemediationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !lKDraftPrCiRemediationTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=l-k-draft-pr-ci-remediation-transition-invalid");
+  }
+  return {
+    sourceCommitSha: L_K_SOURCE_COMMIT,
+    sourceTreeSha: L_K_SOURCE_TREE,
+    pullRequestNumber: 88,
+    ...L_K_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function lKDraftPrCiRemediationHistoricalProjection(registry) {
+  const source = lKDraftPrCiRemediationSource();
+  validateLKDraftPrCiRemediationTransition(source, registry);
+  return source;
+}
+
+export function lKBranchUpdatePushFactsAllowed(registry, facts) {
+  try {
+    validateLKDraftPrCiRemediationTransition(
+      lKDraftPrCiRemediationSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== L_K_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === L_K_SOURCE_COMMIT &&
+        sameJson(facts.orderedParentShas, [L_K_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        facts.cachedMainSha === H_GOVERNANCE_SOURCE &&
+        facts.rootMainSha === H_GOVERNANCE_SOURCE &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function lKBranchUpdatePushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const branchResult = git(
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { allowFailure: true }
+    );
+    const branch =
+      branchResult.status === 0
+        ? String(branchResult.stdout ?? "").trim()
+        : null;
+    const currentHeadSha = gitText(["rev-parse", "HEAD"]).trim();
+    const update = updates[0];
+    return lKBranchUpdatePushFactsAllowed(registry, {
+      branch,
+      currentHeadSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        L_K_SOURCE_COMMIT,
+        update.localSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function lKDraftPrCiIndexFactsAllowed(registry, facts) {
+  try {
+    validateLKDraftPrCiRemediationTransition(
+      lKDraftPrCiRemediationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: L_K_SOURCE_COMMIT,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function lKDraftPrCiCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(facts && lKDraftPrCiIndexFactsAllowed(registry, facts));
+}
+
+function lKCommittedBranchUpdateBarrierAllowed(registry) {
+  try {
+    validateLKDraftPrCiRemediationTransition(
+      lKDraftPrCiRemediationSource(),
+      registry
+    );
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== L_K_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          L_K_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(L_K_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          H_GOVERNANCE_SOURCE &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+const M_L_SOURCE_COMMIT = "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d";
+const M_L_SOURCE_TREE = "0236973317eec972b49d0bb5af9a27eb0784f9db";
+const M_L_SOURCE_BLOBS = [
+  "3e5ba0e0378dba3f8220150f8ecf6708812ddae0",
+  "5a2bf72e9dd051aa2bb2698c535911e4aa11c477",
+  "e7ac26e71f72b3979e196f27fdff961c6cd27e2b"
+];
+const M_L_SOURCE_SHA256 = [
+  "26ff3aeb39f84982d43f4992dc22accd909db95fd25bd2be3f5d09859c548b3a",
+  "325a88a3a1a20a4decc81793ee185fb22c007a1d6d6cbea12cae45bb81c9aae1",
+  "5ae9e8b0066d595d424feec5b1fdd27edc0447e4c7dc3f7b12e0f1a6f1804c8d"
+];
+const M_L_RECORDED_AT = "2026-09-08T18:02:49Z";
+const M_L_NEXT_REVIEW_AT = "2026-09-10T18:02:49Z";
+const M_L_AUTHORIZATION_BOUNDARY = Object.freeze({
+  branchUpdateCommitAuthorizedAfterGates: true,
+  branchUpdatePushAuthorizedNow: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let mLSourceCache = null;
+function mLPortableJEvidenceCiRemediationSource() {
+  if (!mLSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${M_L_SOURCE_COMMIT}^{tree}`) !==
+        M_L_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(M_L_SOURCE_COMMIT), [
+        L_K_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(
+          L_K_SOURCE_COMMIT,
+          M_L_SOURCE_COMMIT
+        ),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=m-l-portable-j-ci-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${M_L_SOURCE_COMMIT}:${path}`
+      );
+      if (
+        blob !== M_L_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          M_L_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=m-l-portable-j-ci-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(M_L_SOURCE_COMMIT).parsed;
+    if (
+      !lKDraftPrCiRemediationTransitionStructurallyAllowed(
+        lKDraftPrCiRemediationSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=m-l-portable-j-ci-source-invalid");
+    }
+    mLSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(mLSourceCache);
+}
+
+function mLPortableJEvidenceCiExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch) {
+    throw new Error("rule=m-l-portable-j-ci-source-invalid");
+  }
+  const expectedCloseAt =
+    "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge";
+  expected.updatedAt = M_L_RECORDED_AT;
+  Object.assign(item, {
+    headSha: M_L_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 3, behind: 0 },
+    lastHeartbeatAt: M_L_RECORDED_AT,
+    lastObservedAt: M_L_RECORDED_AT,
+    nextReviewAt: M_L_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    dirtyState: "staged-m-l-portable-j-ci-remediation",
+    evidenceState: {
+      local:
+        "L commit 6a1127db is clean and exact at the remote PR head; M stages only the three governance paths.",
+      ci:
+        "PR #88 build passed; both repository-security runs reached exact registry validation and failed only because the GitHub runner cannot read local J physical paths.",
+      merged:
+        "PR #88 remains OPEN and Draft; Ready and merge remain ineffective.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Remote branch and Draft PR #88 are exact at 6a1127db before the one-ref M update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: M_L_SOURCE_COMMIT,
+    remoteHeadSha: M_L_SOURCE_COMMIT,
+    remoteObservedAt: M_L_RECORDED_AT,
+    prHeadSha: M_L_SOURCE_COMMIT,
+    lastOwnerHeartbeatAt: M_L_RECORDED_AT,
+    lastObservedAt: M_L_RECORDED_AT,
+    lastCommitAt: "2026-09-09T01:49:30+08:00",
+    nextReviewAt: M_L_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at 6a1127db; M permits only strict portable substitution for unavailable J host evidence."
+  });
+  expected.mLPortableJEvidenceCiRemediation = {
+    schemaVersion: "sena-m-l-portable-j-evidence-ci-remediation/v1",
+    status: "portable-j-ci-fix-staged",
+    recordedAt: M_L_RECORDED_AT,
+    source: {
+      commitSha: M_L_SOURCE_COMMIT,
+      treeSha: M_L_SOURCE_TREE,
+      orderedParentShas: [L_K_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...M_L_SOURCE_BLOBS],
+      fileSha256: [...M_L_SOURCE_SHA256]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: M_L_SOURCE_COMMIT,
+      baseSha: H_GOVERNANCE_SOURCE
+    },
+    observedChecks: {
+      build: {
+        runId: 34260416942,
+        jobId: 102176680378,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34260410659,
+          jobId: 102176660505,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34260416788,
+          jobId: 102176679298,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-transition-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-j-substitution",
+      localJPhysicalRevalidationPreserved: true,
+      portableRequiresLocalOnlyHTreeAbsent: true,
+      portableRequiresExactReachableICommitTreeAndBlobs: true,
+      portableDoesNotClaimRunnerHostCustody: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: M_L_SOURCE_COMMIT,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      ...M_L_AUTHORIZATION_BOUNDARY
+    }
+  };
+  return expected;
+}
+
+function mLPortableJEvidenceCiTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = mLPortableJEvidenceCiRemediationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          mLPortableJEvidenceCiExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateMLPortableJEvidenceCiRemediationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !mLPortableJEvidenceCiTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=m-l-portable-j-ci-transition-invalid");
+  }
+  return {
+    sourceCommitSha: M_L_SOURCE_COMMIT,
+    sourceTreeSha: M_L_SOURCE_TREE,
+    pullRequestNumber: 88,
+    ...M_L_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function mLPortableJEvidenceCiHistoricalProjection(registry) {
+  const source = mLPortableJEvidenceCiRemediationSource();
+  validateMLPortableJEvidenceCiRemediationTransition(source, registry);
+  return source;
+}
+
+function mLBranchUpdatePushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    validateMLPortableJEvidenceCiRemediationTransition(
+      mLPortableJEvidenceCiRemediationSource(),
+      registry
+    );
+    const update = updates[0];
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      update.localRef === `refs/heads/${I_H_BRANCH}` &&
+        update.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        update.remoteSha === M_L_SOURCE_COMMIT &&
+        update.localSha === headSha &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          M_L_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(M_L_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE
+    );
+  } catch {
+    return false;
+  }
+}
+
+function mLPortableJEvidenceCiIndexFactsAllowed(registry, facts) {
+  try {
+    validateMLPortableJEvidenceCiRemediationTransition(
+      mLPortableJEvidenceCiRemediationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: M_L_SOURCE_COMMIT,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function mLPortableJEvidenceCiCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(facts && mLPortableJEvidenceCiIndexFactsAllowed(registry, facts));
+}
+
+function mLCommittedBranchUpdateBarrierAllowed(registry) {
+  try {
+    validateMLPortableJEvidenceCiRemediationTransition(
+      mLPortableJEvidenceCiRemediationSource(),
+      registry
+    );
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== M_L_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          M_L_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(M_L_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+const N_M_SOURCE_COMMIT = "26a13f040c5b3834e6fda6a9c004d511d8c572fb";
+const N_M_SOURCE_TREE = "ff53849c4351ffa0acb6460adb29b6e48651f962";
+const N_M_SOURCE_BLOBS = [
+  "b1461ea63354a4cfad8f179a133266c4c6c9640b",
+  "e9bcf502f834e0810c6308ef8b593826578053b4",
+  "d0a0fd872fc39d0f70df4c8e682e65aa6264e902"
+];
+const N_M_SOURCE_SHA256 = [
+  "a8ba54e595faf709aee2862081c8133f7b4de563caa5164250569a4856d5fa78",
+  "dc837079b41ebeb6e27480d736f138be7cd0fe5e28a827b512ad3fb4c9134da5",
+  "439f19bd52030f04161466308c1be8b1c699c416745072bd3bcad4e8bcbca8b6"
+];
+const N_M_RECORDED_AT = "2026-09-08T19:06:08Z";
+const N_M_NEXT_REVIEW_AT = "2026-09-10T19:06:08Z";
+const N_M_INITIAL_BUILD = Object.freeze({
+  event: "pull_request",
+  runId: 34266721411,
+  runAttempt: 1,
+  jobId: 102197814481,
+  conclusion: "SUCCESS",
+  annotationsEmpty: true
+});
+const N_M_INITIAL_SECURITY = Object.freeze([
+  Object.freeze({
+    event: "push",
+    runId: 34266717233,
+    runAttempt: 1,
+    jobId: 102197800401,
+    conclusion: "SUCCESS",
+    annotationsEmpty: true
+  }),
+  Object.freeze({
+    event: "pull_request",
+    runId: 34266721387,
+    runAttempt: 1,
+    jobId: 102197814791,
+    conclusion: "SUCCESS",
+    annotationsEmpty: true
+  })
+]);
+const N_M_REQUIRED_EXECUTION = Object.freeze([
+  "commit-and-push-one-exact-three-path-final-authorization-successor",
+  "verify-final-head-build-and-both-repository-security-checks-at-latest-attempt-with-zero-annotations",
+  "mark-pr88-ready-only-after-exact-final-head-provider-readback",
+  "protected-merge-pr88-with-exact-head-lease-and-no-admin-bypass",
+  "verify-post-main-build-security-rule-suite-and-commit-bound-live-audit",
+  "only-after-landed-governance-and-fresh-g-currentness-authorize-g-product-integration",
+  "keep-deployment-and-cleanup-gated-on-their-own-evidence"
+]);
+const N_M_AUTHORIZATION_BOUNDARY = Object.freeze({
+  finalAuthorizationCommitAuthorizedAfterGates: true,
+  finalAuthorizationPushAuthorizedNow: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedAfterFinalHeadChecks: true,
+  protectedMergeAuthorizedAfterFinalHeadChecks: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let nMSourceCache = null;
+function nMPr88FinalAuthorizationSource() {
+  if (!nMSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${N_M_SOURCE_COMMIT}^{tree}`) !==
+        N_M_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(N_M_SOURCE_COMMIT), [
+        M_L_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(M_L_SOURCE_COMMIT, N_M_SOURCE_COMMIT),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=n-m-pr88-final-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(`${N_M_SOURCE_COMMIT}:${path}`);
+      if (
+        blob !== N_M_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          N_M_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=n-m-pr88-final-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(N_M_SOURCE_COMMIT).parsed;
+    if (
+      !mLPortableJEvidenceCiTransitionStructurallyAllowed(
+        mLPortableJEvidenceCiRemediationSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=n-m-pr88-final-source-invalid");
+    }
+    nMSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(nMSourceCache);
+}
+
+function nMPr88FinalAuthorizationExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch || !expected.mLPortableJEvidenceCiRemediation) {
+    throw new Error("rule=n-m-pr88-final-source-invalid");
+  }
+  const expectedCloseAt =
+    "owner-gated:pr88-final-head-ci-then-ready-protected-merge";
+  expected.updatedAt = N_M_RECORDED_AT;
+  Object.assign(item, {
+    headSha: N_M_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 4, behind: 0 },
+    lastHeartbeatAt: N_M_RECORDED_AT,
+    lastObservedAt: N_M_RECORDED_AT,
+    nextReviewAt: N_M_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    prNumber: 88,
+    noPrReason: null,
+    prIsDraft: true,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-n-m-pr88-final-authorization",
+    evidenceState: {
+      local:
+        "M commit 26a13f04 is clean and exact at the remote PR head; N stages only the three governance paths.",
+      ci:
+        "Exact M head 26a13f04 passed build and both repository-security checks at attempt 1 with zero annotations.",
+      merged:
+        "PR #88 remains OPEN and Draft; N must pass its own fresh exact-head checks before Ready or protected merge.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Remote branch and Draft PR #88 are exact at 26a13f04 before the one-ref N update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: N_M_SOURCE_COMMIT,
+    upstream: `origin/${I_H_BRANCH}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: N_M_SOURCE_COMMIT,
+    remoteObservedAt: N_M_RECORDED_AT,
+    pr: 88,
+    noPrReason: null,
+    prHeadSha: N_M_SOURCE_COMMIT,
+    prState: "OPEN",
+    prBase: "main",
+    prIsDraft: true,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: N_M_RECORDED_AT,
+    lastObservedAt: N_M_RECORDED_AT,
+    lastCommitAt: "2026-09-09T02:49:25+08:00",
+    nextReviewAt: N_M_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    disposition: "active",
+    closeout:
+      "Draft PR #88 is bound at exact green M head 26a13f04; N records its receipts and gates Ready/merge on fresh N checks.",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN"
+  });
+  expected.nMPr88FinalAuthorization = {
+    schemaVersion: "sena-n-m-pr88-final-authorization/v1",
+    status: "final-authorization-staged-pending-own-checks",
+    recordedAt: N_M_RECORDED_AT,
+    source: {
+      commitSha: N_M_SOURCE_COMMIT,
+      treeSha: N_M_SOURCE_TREE,
+      orderedParentShas: [M_L_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...N_M_SOURCE_BLOBS],
+      fileSha256: [...N_M_SOURCE_SHA256]
+    },
+    initialHeadCompletionEvidence: {
+      headSha: N_M_SOURCE_COMMIT,
+      treeSha: N_M_SOURCE_TREE,
+      build: { ...N_M_INITIAL_BUILD },
+      repositorySecurity: N_M_INITIAL_SECURITY.map((entry) => ({ ...entry })),
+      requiredChecksPassed: true,
+      annotationsEmpty: true
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headRef: I_H_BRANCH,
+      headSha: N_M_SOURCE_COMMIT,
+      baseRef: "main",
+      baseSha: H_GOVERNANCE_SOURCE,
+      mergeable: "MERGEABLE",
+      mergeStateStatus: "CLEAN"
+    },
+    finalUpdatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: N_M_SOURCE_COMMIT,
+      exactlyOneRef: true,
+      force: false
+    },
+    requiredExecution: [...N_M_REQUIRED_EXECUTION],
+    authorizationBoundary: { ...N_M_AUTHORIZATION_BOUNDARY }
+  };
+  return expected;
+}
+
+function nMPr88FinalAuthorizationTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = nMPr88FinalAuthorizationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          nMPr88FinalAuthorizationExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateNMPr88FinalAuthorizationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !nMPr88FinalAuthorizationTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=n-m-pr88-final-authorization-transition-invalid");
+  }
+  return {
+    sourceCommitSha: N_M_SOURCE_COMMIT,
+    sourceTreeSha: N_M_SOURCE_TREE,
+    pullRequestNumber: 88,
+    ...N_M_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function nMPr88FinalAuthorizationHistoricalProjection(registry) {
+  const source = nMPr88FinalAuthorizationSource();
+  validateNMPr88FinalAuthorizationTransition(source, registry);
+  return source;
+}
+
+export function nMPr88FinalPushFactsAllowed(registry, facts) {
+  try {
+    validateNMPr88FinalAuthorizationTransition(
+      nMPr88FinalAuthorizationSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== N_M_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === N_M_SOURCE_COMMIT &&
+        sameJson(facts.orderedParentShas, [N_M_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        facts.cachedMainSha === H_GOVERNANCE_SOURCE &&
+        facts.rootMainSha === H_GOVERNANCE_SOURCE &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateNMPr88InitialHeadLiveEvidence(
+  registry,
+  options = {}
+) {
+  validateNMPr88FinalAuthorizationTransition(
+    nMPr88FinalAuthorizationSource(),
+    registry
+  );
+  const evidence = registry.nMPr88FinalAuthorization
+    .initialHeadCompletionEvidence;
+  const githubTransport = options.githubTransport ?? null;
+  const runs = [
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/runs/${evidence.build.runId}`,
+      githubTransport
+    ),
+    ...evidence.repositorySecurity.map((entry) =>
+      postPr83GithubApiJson(
+        `repos/HUDongpin/SENA/actions/runs/${entry.runId}`,
+        githubTransport
+      )
+    )
+  ];
+  const declared = [evidence.build, ...evidence.repositorySecurity];
+  const jobs = declared.map((entry) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/jobs/${entry.jobId}`,
+      githubTransport
+    )
+  );
+  const annotations = declared.map((entry) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/check-runs/${entry.jobId}/annotations`,
+      githubTransport
+    )
+  );
+  const pullRequest = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/pulls/88",
+    githubTransport
+  );
+  const remoteRef = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/git/ref/heads/${I_H_BRANCH}`,
+    githubTransport
+  );
+  const mainRef = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/git/ref/heads/main",
+    githubTransport
+  );
+  const expectedRunKinds = [
+    ["build-gate", "pull_request"],
+    ["repo-security-gate", "push"],
+    ["repo-security-gate", "pull_request"]
+  ];
+  const expectedJobNames = ["build", "repository-security", "repository-security"];
+  if (
+    evidence.headSha !== N_M_SOURCE_COMMIT ||
+    evidence.treeSha !== N_M_SOURCE_TREE ||
+    evidence.requiredChecksPassed !== true ||
+    evidence.annotationsEmpty !== true ||
+    new Set(declared.map((entry) => entry.runId)).size !== 3 ||
+    new Set(declared.map((entry) => entry.jobId)).size !== 3 ||
+    runs.some((run, index) =>
+      !isPlainRecord(run) ||
+      run.id !== declared[index].runId ||
+      run.name !== expectedRunKinds[index][0] ||
+      run.event !== expectedRunKinds[index][1] ||
+      run.head_sha !== N_M_SOURCE_COMMIT ||
+      run.head_branch !== I_H_BRANCH ||
+      run.head_repository?.full_name !== "HUDongpin/SENA" ||
+      run.run_attempt !== declared[index].runAttempt ||
+      run.status !== "completed" ||
+      run.conclusion !== "success" ||
+      declared[index].conclusion !== "SUCCESS" ||
+      declared[index].annotationsEmpty !== true
+    ) ||
+    jobs.some((job, index) =>
+      !isPlainRecord(job) ||
+      job.id !== declared[index].jobId ||
+      job.run_id !== declared[index].runId ||
+      job.run_attempt !== declared[index].runAttempt ||
+      job.name !== expectedJobNames[index] ||
+      job.head_sha !== N_M_SOURCE_COMMIT ||
+      job.status !== "completed" ||
+      job.conclusion !== "success"
+    ) ||
+    annotations.some((entry) => !Array.isArray(entry) || entry.length !== 0) ||
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== 88 ||
+    pullRequest.state !== "open" ||
+    pullRequest.draft !== true ||
+    pullRequest.merged !== false ||
+    pullRequest.head?.sha !== N_M_SOURCE_COMMIT ||
+    pullRequest.head?.ref !== I_H_BRANCH ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.sha !== H_GOVERNANCE_SOURCE ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.mergeable !== true ||
+    pullRequest.mergeable_state !== "clean" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !== `refs/heads/${I_H_BRANCH}` ||
+    remoteRef.object?.sha !== N_M_SOURCE_COMMIT ||
+    !isPlainRecord(mainRef) ||
+    mainRef.ref !== "refs/heads/main" ||
+    mainRef.object?.sha !== H_GOVERNANCE_SOURCE ||
+    protectedMainAdvanceObjectSha("origin/main^{commit}") !==
+      H_GOVERNANCE_SOURCE ||
+    protectedMainAdvanceObjectSha("refs/heads/main") !== H_GOVERNANCE_SOURCE
+  ) {
+    throw new Error("rule=n-m-pr88-initial-head-live-evidence-invalid");
+  }
+  return {
+    headSha: N_M_SOURCE_COMMIT,
+    buildRunId: evidence.build.runId,
+    repositorySecurityRunIds: evidence.repositorySecurity.map(
+      (entry) => entry.runId
+    ),
+    checkJobIds: declared.map((entry) => entry.jobId),
+    annotationsEmpty: true,
+    pullRequestNumber: 88,
+    pullRequestDraft: true,
+    mergeable: true
+  };
+}
+
+export function validateNMPr88FinalHeadReadiness(
+  registry,
+  finalHeadSha,
+  options = {}
+) {
+  validateNMPr88FinalAuthorizationTransition(
+    nMPr88FinalAuthorizationSource(),
+    registry
+  );
+  const expectedDraft = options.expectedDraft ?? true;
+  const githubTransport = options.githubTransport ?? null;
+  if (
+    typeof expectedDraft !== "boolean" ||
+    !isSha(finalHeadSha) ||
+    finalHeadSha === N_M_SOURCE_COMMIT ||
+    !sameJson(protectedMainAdvanceCommitParents(finalHeadSha), [
+      N_M_SOURCE_COMMIT
+    ]) ||
+    !sameJson(
+      protectedMainAdvanceChangedPaths(N_M_SOURCE_COMMIT, finalHeadSha),
+      PR86_DELIVERY_PATHS
+    ) ||
+    !isDeepStrictEqual(loadRegistryFromCommit(finalHeadSha).parsed, registry) ||
+    protectedMainAdvanceObjectSha("origin/main^{commit}") !==
+      H_GOVERNANCE_SOURCE ||
+    protectedMainAdvanceObjectSha("refs/heads/main") !== H_GOVERNANCE_SOURCE
+  ) {
+    throw new Error("rule=n-m-pr88-final-head-readiness-invalid");
+  }
+  const checkJobIds = validateProtectedWorkflowChecks(
+    finalHeadSha,
+    I_H_BRANCH,
+    [
+      ["build-gate", "pull_request", "build"],
+      ["repo-security-gate", "push", "repository-security"],
+      ["repo-security-gate", "pull_request", "repository-security"]
+    ],
+    githubTransport
+  );
+  const pullRequest = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/pulls/88",
+    githubTransport
+  );
+  const remoteRef = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/git/ref/heads/${I_H_BRANCH}`,
+    githubTransport
+  );
+  const mainRef = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/git/ref/heads/main",
+    githubTransport
+  );
+  if (
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== 88 ||
+    pullRequest.state !== "open" ||
+    pullRequest.draft !== expectedDraft ||
+    pullRequest.merged !== false ||
+    pullRequest.head?.sha !== finalHeadSha ||
+    pullRequest.head?.ref !== I_H_BRANCH ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.sha !== H_GOVERNANCE_SOURCE ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.mergeable !== true ||
+    pullRequest.mergeable_state !== "clean" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !== `refs/heads/${I_H_BRANCH}` ||
+    remoteRef.object?.sha !== finalHeadSha ||
+    !isPlainRecord(mainRef) ||
+    mainRef.ref !== "refs/heads/main" ||
+    mainRef.object?.sha !== H_GOVERNANCE_SOURCE ||
+    protectedMainAdvanceObjectSha("origin/main^{commit}") !==
+      H_GOVERNANCE_SOURCE
+  ) {
+    throw new Error("rule=n-m-pr88-final-head-readiness-invalid");
+  }
+  return {
+    headSha: finalHeadSha,
+    treeSha: protectedMainAdvanceObjectSha(`${finalHeadSha}^{tree}`),
+    registryBlobSha: protectedMainAdvanceObjectSha(
+      `${finalHeadSha}:${REGISTRY_REPO_PATH}`
+    ),
+    checkJobIds,
+    annotationsEmpty: true,
+    pullRequestNumber: 88,
+    pullRequestDraft: expectedDraft,
+    mergeable: true,
+    protectedMainSha: H_GOVERNANCE_SOURCE
+  };
+}
+
+function nMPr88FinalPushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const branchResult = git(
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { allowFailure: true }
+    );
+    const branch =
+      branchResult.status === 0
+        ? String(branchResult.stdout ?? "").trim()
+        : null;
+    const currentHeadSha = gitText(["rev-parse", "HEAD"]).trim();
+    const update = updates[0];
+    return nMPr88FinalPushFactsAllowed(registry, {
+      branch,
+      currentHeadSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        N_M_SOURCE_COMMIT,
+        update.localSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function nMPr88FinalIndexFactsAllowed(registry, facts) {
+  try {
+    validateNMPr88FinalAuthorizationTransition(
+      nMPr88FinalAuthorizationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: N_M_SOURCE_COMMIT,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function nMPr88FinalCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  try {
+    return Boolean(
+      facts &&
+        nMPr88FinalIndexFactsAllowed(registry, facts) &&
+        validateNMPr88InitialHeadLiveEvidence(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function nMPr88CommittedFinalBarrierAllowed(registry) {
+  try {
+    validateNMPr88FinalAuthorizationTransition(
+      nMPr88FinalAuthorizationSource(),
+      registry
+    );
+    validateNMPr88InitialHeadLiveEvidence(registry);
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== N_M_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          N_M_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(N_M_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          H_GOVERNANCE_SOURCE &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function iHDedicatedLandingIndexFactsAllowed(registry, facts) {
+  try {
+    validateIHDedicatedLandingCandidateTransition(
+      iHDedicatedLandingSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: H_GOVERNANCE_SOURCE,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function iHDedicatedLandingIndexSnapshotsMatch(initial, final) {
+  return hGovernanceIntakeIndexSnapshotsMatch(initial, final);
+}
+
+function iHDedicatedLandingCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(
+    facts && iHDedicatedLandingIndexFactsAllowed(registry, facts)
+  );
+}
+
+function iHDedicatedLandingRecoveryPackageAllowed(registry, options = {}) {
+  try {
+    return jHEvidenceCustodyReconstructionAllowed(registry, options);
+  } catch {
+    return false;
+  }
+}
+
+function iHDedicatedLandingGHostCustodyAllowed(registry) {
+  try {
+    return hGovernanceGHostCustodyAllowed(registry);
+  } catch {
+    return false;
+  }
+}
+
+function iHDedicatedLandingPreservedHHostFacts(registry) {
+  try {
+    const operationalRegistry =
+      iHDedicatedLandingOperationalRegistry(registry);
+    validateIHDedicatedLandingCandidateTransition(
+      iHDedicatedLandingSource(),
+      operationalRegistry
+    );
+    const item = registry.workItems.find(
+      (entry) => entry.taskId === PR86_DELIVERY_TASK
+    );
+    const marker = markerInfo(item.worktreePath);
+    const registered = parseWorktreeList().find(
+      (entry) => entry.path === item.worktreePath
+    );
+    if (
+      !marker.valid ||
+      marker.kind !== "gitdir-file" ||
+      lstatSync(join(item.worktreePath, ".git")).isSymbolicLink() ||
+      registered?.branch !== item.branch ||
+      registered?.headSha !== H_GOVERNANCE_SOURCE
+    ) {
+      return null;
+    }
+    const unsetEnv = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_PREFIX"
+    ];
+    const local = (args, binary = false) =>
+      git(
+        [
+          `--git-dir=${marker.target}`,
+          `--work-tree=${item.worktreePath}`,
+          "-c",
+          `core.worktree=${item.worktreePath}`,
+          ...args
+        ],
+        { unsetEnv, binary }
+      );
+    const localText = (args) => String(local(args).stdout ?? "").trim();
+    const localBinarySha256 = (args) =>
+      sha256Buffer(local(args, true).stdout);
+    const stagedPaths = localText([
+      "diff",
+      "--cached",
+      "--name-only",
+      "--diff-filter=ACMRTD",
+      "--no-renames",
+      "-z"
+    ])
+      .split("\0")
+      .filter(Boolean);
+    const unstagedPaths = localText([
+      "diff",
+      "--name-only",
+      "--diff-filter=ACMRTD",
+      "--no-renames",
+      "-z"
+    ])
+      .split("\0")
+      .filter(Boolean);
+    const untrackedPaths = localText([
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "-z"
+    ])
+      .split("\0")
+      .filter(Boolean);
+    const facts = {
+      headSha: localText(["rev-parse", "HEAD"]),
+      headTreeSha: localText(["rev-parse", "HEAD^{tree}"]),
+      stagedTreeSha: localText(["write-tree"]),
+      stagedBlobEntriesSha256: localBinarySha256([
+        "ls-files",
+        "--stage",
+        "-z",
+        "--",
+        ...PR86_DELIVERY_PATHS
+      ]),
+      canonicalDiffSha256: localBinarySha256([
+        "diff",
+        "--cached",
+        "--binary",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        "--"
+      ]),
+      fullIndexDiffSha256: localBinarySha256([
+        "diff",
+        "--cached",
+        "--binary",
+        "--full-index",
+        "--no-ext-diff",
+        "--no-textconv",
+        "HEAD",
+        "--"
+      ]),
+      indexEntriesSha256: localBinarySha256([
+        "ls-files",
+        "--stage",
+        "-z"
+      ]),
+      statusSha256: localBinarySha256([
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all"
+      ]),
+      stagedPathCount: stagedPaths.length,
+      unstagedPathCount: unstagedPaths.length,
+      untrackedPathCount: untrackedPaths.length,
+      unmergedPathCount: localText(["ls-files", "--unmerged", "-z"])
+        .split("\0")
+        .filter(Boolean).length,
+      exactPaths: stagedPaths,
+      sourceWritesAuthorized: false,
+      pushAuthorized: false,
+      mergeAuthorized: false,
+      cleanupAuthorized: false
+    };
+    return isDeepStrictEqual(facts, I_H_PRESERVED_OPERATOR_OBSERVATION)
+      ? facts
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+export function iHDedicatedLandingPreservedHHostCustodyAllowed(registry) {
+  return Boolean(iHDedicatedLandingPreservedHHostFacts(registry));
+}
+
 export function pr86DeliveryRetainedHostObservationAllowed(registry, taskId, facts) {
   try {
-    validatePr86DeliveryCloseoutSnapshot(registry);
+    validatePr86DeliveryOperationalSnapshot(registry);
     if (!registry.pr86DeliveryCloseout.retainedTaskIds.includes(taskId)) return false;
     const item = registry.workItems.find((entry) => entry.taskId === taskId);
     return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
@@ -12391,7 +16320,7 @@ export function pr86DeliveryRetainedHostObservationAllowed(registry, taskId, fac
 
 function appendPr86DeliveryRetainedCustodyErrors(registry, errors) {
   if (!registry?.pr86DeliveryCloseout) return;
-  try { validatePr86DeliveryCloseoutSnapshot(registry); }
+  try { validatePr86DeliveryOperationalSnapshot(registry); }
   catch { errors.push("rule=pr86-delivery-closeout-snapshot-invalid"); return; }
   for (const taskId of registry.pr86DeliveryCloseout.retainedTaskIds) {
     try {
@@ -12420,7 +16349,7 @@ function appendPr86DeliveryRetainedCustodyErrors(registry, errors) {
 
 function pr86DeliveryHistoricalObservation(registry) {
   return registry?.pr86DeliveryCloseout
-    ? validatePr86DeliveryCloseoutSnapshot(registry).historicalRegistry : registry;
+    ? validatePr86DeliveryOperationalSnapshot(registry).historicalRegistry : registry;
 }
 
 export function validateMobilePilotSourceEvidence(registry, options = {}) {
@@ -15634,8 +19563,125 @@ function protectedMainPr86DeliveryMergeTimeCandidate(descriptor, options) {
   };
 }
 
+export function validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+  descriptor,
+  options = {}
+) {
+  try {
+    const {
+      mergeTimeRegistry,
+      currentObservationRegistry,
+      mergeCommitSha,
+      orderedParentShas,
+      secondParentSha,
+      mergeTreeSha,
+      registryBlobSha
+    } = descriptor ?? {};
+    validateNMPr88FinalAuthorizationTransition(
+      nMPr88FinalAuthorizationSource(),
+      mergeTimeRegistry
+    );
+    if (
+      !isSha(mergeCommitSha) ||
+      !isSha(secondParentSha) ||
+      secondParentSha === N_M_SOURCE_COMMIT ||
+      !sameJson(orderedParentShas, [H_GOVERNANCE_SOURCE, secondParentSha]) ||
+      !sameJson(protectedMainAdvanceCommitParents(mergeCommitSha), orderedParentShas) ||
+      !sameJson(protectedMainAdvanceCommitParents(secondParentSha), [
+        N_M_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(N_M_SOURCE_COMMIT, secondParentSha),
+        PR86_DELIVERY_PATHS
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(H_GOVERNANCE_SOURCE, secondParentSha) ?? [],
+        PR86_DELIVERY_PATHS
+      ) ||
+      !isSha(mergeTreeSha) ||
+      !isSha(registryBlobSha) ||
+      protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !== mergeTreeSha ||
+      protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !== mergeTreeSha ||
+      protectedMainAdvanceObjectSha(`${mergeCommitSha}:${REGISTRY_REPO_PATH}`) !==
+        registryBlobSha ||
+      protectedMainAdvanceObjectSha(`${secondParentSha}:${REGISTRY_REPO_PATH}`) !==
+        registryBlobSha ||
+      !sameJson(
+        protectedMainAdvanceRegistryFromCommit(secondParentSha),
+        mergeTimeRegistry
+      )
+    ) {
+      return false;
+    }
+    if (options.mergeTimeOnly === true) return true;
+    if (
+      !sameJson(currentObservationRegistry, mergeTimeRegistry) ||
+      protectedMainAdvanceObjectSha("origin/main^{commit}") !== mergeCommitSha
+    ) {
+      return false;
+    }
+    const evidence = validateProtectedFinalHeadLiveGitHubEvidence(
+      descriptor,
+      88,
+      PR88_GITHUB_BINDING,
+      options
+    );
+    if (
+      Array.isArray(options.ruleSuiteReceiptCollector) &&
+      evidence?.ruleSuiteReceipt
+    ) {
+      options.ruleSuiteReceiptCollector.push(evidence.ruleSuiteReceipt);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function validatePr88DedicatedGovernanceFinalHeadLiveGitHubEvidence(
+  descriptor,
+  options = {}
+) {
+  if (
+    !validatePr88DedicatedGovernanceProtectedMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    throw new Error("rule=pr88-dedicated-governance-protected-merge-evidence-invalid");
+  }
+  return validateProtectedFinalHeadLiveGitHubEvidence(
+    descriptor,
+    88,
+    PR88_GITHUB_BINDING,
+    options
+  );
+}
+
+function protectedMainPr88DedicatedGovernanceMergeTimeCandidate(
+  descriptor,
+  options
+) {
+  if (
+    !validatePr88DedicatedGovernanceProtectedMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    return null;
+  }
+  return {
+    kind: "pr88-dedicated-governance",
+    expectedPaths: PR86_DELIVERY_PATHS,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+        { ...descriptor, currentObservationRegistry },
+        options
+      );
+    }
+  };
+}
+
 function validatePr86DeliverySourceEvidence(registry, options = {}) {
-  const { historicalRegistry } = validatePr86DeliveryCloseoutSnapshot(registry);
+  const { historicalRegistry } = validatePr86DeliveryOperationalSnapshot(registry);
   const source = pr86DeliveryMergeDescriptor(PR86_DELIVERY_SOURCE);
   if (!sameJson(source.mergeTimeRegistry, historicalRegistry)) throw new Error("rule=pr86-delivery-protected-source-invalid");
   // Exact protected P is the accepted historical authority boundary. Fresh P
@@ -15648,14 +19694,81 @@ function validatePr86DeliverySourceEvidence(registry, options = {}) {
 
 export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options = {}) {
   try {
-    validatePr86DeliveryCloseoutSnapshot(registry);
+    validatePr86DeliveryOperationalSnapshot(registry);
     if (!isSha(headSha) || protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha) return null;
     validatePr86DeliverySourceEvidence(registry, options);
     let treeSha = PR86_DELIVERY_SOURCE_TREE;
     let closeoutReviewedHeadSha = null;
-    if (headSha !== PR86_DELIVERY_SOURCE) {
+    let dedicatedLandingReviewedHeadSha = null;
+    if (
+      headSha !== PR86_DELIVERY_SOURCE &&
+      headSha !== H_GOVERNANCE_SOURCE &&
+      registry.nMPr88FinalAuthorization
+    ) {
+      const historicalCloseout = pr86DeliveryMergeDescriptor(
+        H_GOVERNANCE_SOURCE
+      );
+      const projectedProtectedSource = (
+        iHDedicatedLandingHistoricalProjection(registry),
+        hGovernanceProtectedSource()
+      );
+      if (
+        !isDeepStrictEqual(
+          projectedProtectedSource,
+          historicalCloseout.mergeTimeRegistry
+        ) ||
+        !validatePr86DeliveryProtectedMergeDescriptor(
+          historicalCloseout,
+          { mergeTimeOnly: true }
+        )
+      ) {
+        return null;
+      }
+      const historicalEvidence = validateProtectedFinalHeadLiveGitHubEvidence(
+        historicalCloseout,
+        pr86DeliveryItem(historicalCloseout.mergeTimeRegistry).prNumber,
+        PR86_DELIVERY_GITHUB_BINDING,
+        options
+      );
+      if (
+        Array.isArray(options.ruleSuiteReceiptCollector) &&
+        historicalEvidence?.ruleSuiteReceipt
+      ) {
+        options.ruleSuiteReceiptCollector.push(
+          historicalEvidence.ruleSuiteReceipt
+        );
+      }
+      const dedicatedSuccessor = pr86DeliveryMergeDescriptor(headSha);
+      if (
+        !validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+          {
+            ...dedicatedSuccessor,
+            currentObservationRegistry: registry
+          },
+          options
+        )
+      ) {
+        return null;
+      }
+      treeSha = dedicatedSuccessor.mergeTreeSha;
+      closeoutReviewedHeadSha = historicalCloseout.secondParentSha;
+      dedicatedLandingReviewedHeadSha = dedicatedSuccessor.secondParentSha;
+    } else if (headSha !== PR86_DELIVERY_SOURCE) {
       const successor = pr86DeliveryMergeDescriptor(headSha);
-      if (!validatePr86DeliveryProtectedMergeDescriptor({ ...successor, currentObservationRegistry: registry }, options)) return null;
+      const currentObservationRegistry = registry.hGovernanceIntake
+        ? successor.mergeTimeRegistry
+        : registry;
+      if (
+        registry.hGovernanceIntake &&
+        !isDeepStrictEqual(
+          registry.iHDedicatedLandingCandidate
+            ? (iHDedicatedLandingHistoricalProjection(registry),
+              hGovernanceProtectedSource())
+            : hGovernanceIntakeHistoricalProjection(registry),
+          successor.mergeTimeRegistry
+        )
+      ) return null;
+      if (!validatePr86DeliveryProtectedMergeDescriptor({ ...successor, currentObservationRegistry }, options)) return null;
       treeSha = successor.mergeTreeSha;
       closeoutReviewedHeadSha = successor.secondParentSha;
     }
@@ -15666,7 +19779,11 @@ export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options 
     return bindMobilePilotReleaseProof({
       taskId: MOBILE_PILOT_TASK, effectiveRole: "read-only-pr86-delivery-currentness",
       mergeCommitSha: headSha, sourceMergeCommitSha: PR86_DELIVERY_SOURCE,
-      reviewedHeadSha: PR86_DELIVERY_REVIEWED_MOBILE, treeSha, closeoutReviewedHeadSha,
+      reviewedHeadSha: PR86_DELIVERY_REVIEWED_MOBILE, treeSha,
+      closeoutReviewedHeadSha,
+      ...(dedicatedLandingReviewedHeadSha
+        ? { dedicatedLandingReviewedHeadSha }
+        : {}),
       sourceWritesAuthorized: false, pushAuthorized: false
     }, registry, "commit");
   } catch { return null; }
@@ -15681,7 +19798,7 @@ function pr86DeliveryCurrentProofMatches(registry, proof) {
 
 export function validatePr86DeliveryWriterCurrentness(registry, options = {}) {
   try {
-    validatePr86DeliveryCloseoutSnapshot(registry);
+    validatePr86DeliveryOperationalSnapshot(registry);
     const localSourceCurrent = () => gitText(["symbolic-ref", "--quiet", "--short", "HEAD"]).trim() === PR86_DELIVERY_BRANCH &&
       protectedMainAdvanceObjectSha("origin/main^{commit}") === PR86_DELIVERY_SOURCE &&
       mobilePilotOrdinaryDescendant(PR86_DELIVERY_SOURCE, protectedMainAdvanceObjectSha("HEAD^{commit}"), PR86_DELIVERY_PATHS);
@@ -15701,7 +19818,8 @@ export function pr86DeliveryAuditObservationProofAllowed(registry, toSha, contex
     return Boolean(binding?.level === "host" && pr86DeliveryCurrentProofMatches(registry, proof) &&
       proof.sourceMergeCommitSha === PR86_DELIVERY_SOURCE && proof.mergeCommitSha === toSha &&
       proof.hostObservation && proof.retainedSourceCustody &&
-      (toSha === PR86_DELIVERY_SOURCE || proof.closeoutCustody));
+      (toSha === PR86_DELIVERY_SOURCE || proof.closeoutCustody) &&
+      (!proof.dedicatedLandingReviewedHeadSha || proof.dedicatedLandingCustody));
   } catch { return false; }
 }
 
@@ -15709,7 +19827,9 @@ export function pr86DeliveryReadOnlyHeadObservationAllowed(registry, proof, bran
   try {
     if (!pr86DeliveryCurrentProofMatches(registry, proof)) return false;
     const expected = branchName === MOBILE_PILOT_BRANCH ? proof.reviewedHeadSha
-      : branchName === PR86_DELIVERY_BRANCH ? proof.closeoutReviewedHeadSha : null;
+      : branchName === PR86_DELIVERY_BRANCH ? proof.closeoutReviewedHeadSha
+      : branchName === I_H_BRANCH ? proof.dedicatedLandingReviewedHeadSha
+      : null;
     return isSha(expected) && observedHeadSha === expected &&
       protectedMainAdvanceObjectSha(`refs/remotes/origin/${branchName}`) === expected;
   } catch { return false; }
@@ -15725,7 +19845,18 @@ export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostP
     if (!pr86DeliveryAuditObservationProofAllowed(registry, initialHostProof.mergeCommitSha,
       { active: true, proof: refreshed })) return null;
     const lanes = [[MOBILE_PILOT_BRANCH, 86, PR86_DELIVERY_SOURCE]];
-    if (refreshed.closeoutReviewedHeadSha) lanes.push([PR86_DELIVERY_BRANCH, pr86DeliveryItem(registry).prNumber, refreshed.mergeCommitSha]);
+    if (refreshed.closeoutReviewedHeadSha) {
+      lanes.push([
+        PR86_DELIVERY_BRANCH,
+        pr86DeliveryItem(registry).prNumber,
+        refreshed.dedicatedLandingReviewedHeadSha
+          ? H_GOVERNANCE_SOURCE
+          : refreshed.mergeCommitSha
+      ]);
+    }
+    if (refreshed.dedicatedLandingReviewedHeadSha) {
+      lanes.push([I_H_BRANCH, 88, refreshed.mergeCommitSha]);
+    }
     for (const [branch, prNumber, mergeSha] of lanes) {
       const remote = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${branch}`, options.githubTransport);
       const pr = postPr83GithubApiJson(`repos/HUDongpin/SENA/pulls/${prNumber}`, options.githubTransport);
@@ -15779,6 +19910,33 @@ function resolvePr86DeliveryCloseoutRetainedCustody(registry, proof) {
     const marker = markerInfo(item.worktreePath);
     const registered = parseWorktreeList().find((entry) => entry.path === item.worktreePath);
     if (!marker.valid || !registered || lstatSync(join(item.worktreePath, ".git")).isSymbolicLink()) return null;
+    if (registry.hGovernanceIntake) {
+      if (registry.iHDedicatedLandingCandidate) {
+        const preservedHFacts =
+          iHDedicatedLandingPreservedHHostFacts(registry);
+        return pr86DeliveryCurrentProofMatches(registry, proof) &&
+          registered.branch === H_GOVERNANCE_OPERATOR_BRANCH &&
+          registered.headSha === H_GOVERNANCE_SOURCE &&
+          preservedHFacts
+          ? {
+              schemaVersion:
+                "sena-i-h-preserved-h-index-custody/v1",
+              ...preservedHFacts
+            }
+          : null;
+      }
+      const hFacts = hGovernanceCurrentIndexFacts();
+      return pr86DeliveryCurrentProofMatches(registry, proof) &&
+        registered.branch === H_GOVERNANCE_OPERATOR_BRANCH &&
+        registered.headSha === H_GOVERNANCE_SOURCE &&
+        hFacts &&
+        hGovernanceIntakeIndexFactsAllowed(registry, hFacts)
+        ? {
+            schemaVersion: "sena-h-governance-intake-index-custody/v1",
+            ...hFacts
+          }
+        : null;
+    }
     const unsetEnv = ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"];
     const local = (args, allowFailure = false) => git([`--git-dir=${marker.target}`, `--work-tree=${item.worktreePath}`,
       "-c", `core.worktree=${item.worktreePath}`, ...args], { unsetEnv, allowFailure });
@@ -15796,6 +19954,133 @@ function resolvePr86DeliveryCloseoutRetainedCustody(registry, proof) {
     };
     return pr86DeliveryCloseoutRetainedHostObservationAllowed(registry, proof, facts) ? facts : null;
   } catch { return null; }
+}
+
+export function pr88DedicatedLandingRetainedHostObservationAllowed(
+  registry,
+  proof,
+  facts
+) {
+  try {
+    validateNMPr88FinalAuthorizationTransition(
+      nMPr88FinalAuthorizationSource(),
+      registry
+    );
+    return Boolean(
+      pr86DeliveryCurrentProofMatches(registry, proof) &&
+        isSha(proof.dedicatedLandingReviewedHeadSha) &&
+        pr85PlainJsonData(facts) &&
+        isDeepStrictEqual(facts, {
+          repo: registry.repo,
+          worktreePath: I_H_WORKTREE,
+          gitDirectory: I_H_GIT_DIRECTORY,
+          gitCommonDirectory: join(registry.repo, ".git"),
+          markerKind: "gitdir-file",
+          markerValid: true,
+          markerIsSymlink: false,
+          registeredWorktreePath: I_H_WORKTREE,
+          registeredBranch: I_H_BRANCH,
+          registeredHeadSha: proof.dedicatedLandingReviewedHeadSha,
+          branch: I_H_BRANCH,
+          headSha: proof.dedicatedLandingReviewedHeadSha,
+          headTreeSha: proof.treeSha,
+          indexTreeSha: proof.treeSha,
+          sourceClean: true,
+          cachedNamedRemoteSha: proof.dedicatedLandingReviewedHeadSha
+        })
+    );
+  } catch {
+    return false;
+  }
+}
+
+function resolvePr88DedicatedLandingRetainedCustody(registry, proof) {
+  try {
+    if (!isSha(proof.dedicatedLandingReviewedHeadSha)) return null;
+    const marker = markerInfo(I_H_WORKTREE);
+    const registered = parseWorktreeList().find(
+      (entry) => entry.path === I_H_WORKTREE
+    );
+    if (
+      !marker.valid ||
+      marker.kind !== "gitdir-file" ||
+      !registered ||
+      lstatSync(join(I_H_WORKTREE, ".git")).isSymbolicLink()
+    ) {
+      return null;
+    }
+    const unsetEnv = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_PREFIX"
+    ];
+    const local = (args, allowFailure = false) =>
+      git(
+        [
+          `--git-dir=${marker.target}`,
+          `--work-tree=${I_H_WORKTREE}`,
+          "-c",
+          `core.worktree=${I_H_WORKTREE}`,
+          ...args
+        ],
+        { unsetEnv, allowFailure }
+      );
+    const text = (args) => String(local(args).stdout ?? "").trim();
+    const headSha = text(["rev-parse", "HEAD"]);
+    const headTreeSha = text(["rev-parse", "HEAD^{tree}"]);
+    const sourceClean =
+      text(["status", "--porcelain=v1", "--untracked-files=all"]) === "";
+    const facts = {
+      repo: realpathSync(CONTROL_ROOT),
+      worktreePath: realpathSync(I_H_WORKTREE),
+      gitDirectory: realpathSync(marker.target),
+      gitCommonDirectory: text([
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir"
+      ]),
+      markerKind: marker.kind,
+      markerValid: marker.valid,
+      markerIsSymlink: false,
+      registeredWorktreePath: registered.path,
+      registeredBranch: registered.branch,
+      registeredHeadSha: registered.headSha,
+      branch: text(["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      headSha,
+      headTreeSha,
+      indexTreeSha:
+        sourceClean &&
+        local(
+          [
+            "diff-index",
+            "--cached",
+            "--quiet",
+            proof.dedicatedLandingReviewedHeadSha,
+            "--"
+          ],
+          true
+        ).status === 0
+          ? headTreeSha
+          : null,
+      sourceClean,
+      cachedNamedRemoteSha: protectedMainAdvanceObjectSha(
+        `refs/remotes/origin/${I_H_BRANCH}`
+      )
+    };
+    return pr88DedicatedLandingRetainedHostObservationAllowed(
+      registry,
+      proof,
+      facts
+    )
+      ? facts
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 // Denial is Git-derived and does not depend on provider availability or on the
@@ -15859,6 +20144,12 @@ export function resolveMobilePilotReleaseVerification(registry, headSha, options
     if (!retainedSourceCustody) return null;
     const closeoutCustody = proof.closeoutReviewedHeadSha ? resolvePr86DeliveryCloseoutRetainedCustody(registry, proof) : null;
     if (proof.closeoutReviewedHeadSha && !closeoutCustody) return null;
+    const dedicatedLandingCustody = proof.dedicatedLandingReviewedHeadSha
+      ? resolvePr88DedicatedLandingRetainedCustody(registry, proof)
+      : null;
+    if (proof.dedicatedLandingReviewedHeadSha && !dedicatedLandingCustody) {
+      return null;
+    }
     const marker = markerInfo(item.worktreePath);
     const registered = parseWorktreeList().find((entry) => sameExistingPath(entry.path, item.worktreePath));
     if (!marker.valid || registered?.branch !== MOBILE_PILOT_BRANCH) return null;
@@ -15883,7 +20174,13 @@ export function resolveMobilePilotReleaseVerification(registry, headSha, options
     };
     return (proof.sourceMergeCommitSha ? pr86DeliveryMobileRetainedHostObservationAllowed(registry, proof, facts)
       : mobilePilotReleaseHostObservationAllowed(facts))
-      ? bindMobilePilotReleaseProof({ ...proof, hostObservation: facts, retainedSourceCustody, ...(proof.sourceMergeCommitSha ? { closeoutCustody } : {}) }, registry, "host") : null;
+      ? bindMobilePilotReleaseProof({
+          ...proof,
+          hostObservation: facts,
+          retainedSourceCustody,
+          ...(proof.sourceMergeCommitSha ? { closeoutCustody } : {}),
+          ...(dedicatedLandingCustody ? { dedicatedLandingCustody } : {})
+        }, registry, "host") : null;
   } catch { return null; }
 }
 
@@ -15899,14 +20196,15 @@ export function protectedMainMergeTimeCandidateResolution(
     protectedMainPostPr83CurrentnessMergeTimeCandidate(descriptor, options),
     protectedMainPr85IntegrationMergeTimeCandidate(descriptor, options),
     protectedMainMobilePilotMergeTimeCandidate(descriptor, options),
-    protectedMainPr86DeliveryMergeTimeCandidate(descriptor, options)
+    protectedMainPr86DeliveryMergeTimeCandidate(descriptor, options),
+    protectedMainPr88DedicatedGovernanceMergeTimeCandidate(descriptor, options)
   ]);
 }
 
 function pr86DeliveryProtectedObservationAdvance(registry, fromSha, toSha, options) {
   const rejected = (rule) => ({ allowed: false, rule, mergeCommitShas: [], failedCommitSha: isSha(toSha) ? toSha : null });
   try {
-    const { historicalRegistry } = validatePr86DeliveryCloseoutSnapshot(registry);
+    const { historicalRegistry } = validatePr86DeliveryOperationalSnapshot(registry);
     const root = historicalRegistry.workItems.find((item) => item.branch === "main");
     const main = historicalRegistry.branches.find((branch) => branch.name === "main");
     // Only inherited origins explicitly present in frozen P can use this
@@ -16220,7 +20518,7 @@ export function pr86PreservedTestFixtureInventoryMatches(manifest) {
 
 export function pr86DeliveryPreservedTestFixtureAllowed(registry, marker) {
   try {
-    validatePr86DeliveryCloseoutSnapshot(registry);
+    validatePr86DeliveryOperationalSnapshot(registry);
     const binding = registry.pr86DeliveryCloseout.preservedTestFixtureObservation;
     if (!pr85ExactRecord(marker, ["path", "markerPath", "kind", "valid"]) ||
         marker.path !== binding.repoPath || marker.markerPath !== join(binding.repoPath, ".git") ||
@@ -16240,7 +20538,15 @@ export function pr86DeliveryPreservedTestFixtureAllowed(registry, marker) {
 
 export function pr86DeliveryOrphanInstructionObservationAllowed(registry, orphanPath, expected, observed) {
   try {
-    validatePr86DeliveryCloseoutSnapshot(registry);
+    if (registry?.iHDedicatedLandingCandidate) {
+      return iHDedicatedLandingOrphanInstructionObservationAllowed(
+        registry,
+        orphanPath,
+        expected,
+        observed
+      );
+    }
+    validatePr86DeliveryOperationalSnapshot(registry);
     const binding = registry.pr86DeliveryCloseout.orphanInstructionObservation;
     if (orphanPath !== binding.orphanPath ||
         !isDeepStrictEqual(expected, { relativePath: binding.relativePath, type: "file", size: binding.beforeSize, sha256: binding.beforeSha256 }) ||
@@ -16253,6 +20559,63 @@ export function pr86DeliveryOrphanInstructionObservationAllowed(registry, orphan
     return record.scope === "Astra instruction audit fixes only" && matches?.length === 1 &&
       matches[0].before_sha256 === binding.beforeSha256 && matches[0].after_sha256 === binding.afterSha256;
   } catch { return false; }
+}
+
+export function iHDedicatedLandingOrphanInstructionObservationAllowed(
+  registry,
+  orphanPath,
+  expected,
+  observed
+) {
+  try {
+    iHDedicatedLandingHistoricalProjection(registry);
+    const binding =
+      registry.pr86DeliveryCloseout.orphanInstructionObservation;
+    const evidence =
+      registry.jHEvidenceCustodyReconstruction.originalEvidenceObservation;
+    return Boolean(
+      evidence.originalOrphanPatchRecordPath === binding.patchRecordPath &&
+        evidence.originalOrphanPatchRecordStillAbsent === true &&
+        evidence.orphanInstructionObservationAnchoredToReviewedHSource ===
+          true &&
+        evidence.originalEvidenceTreatedAsCurrent === false &&
+        !existsSync(binding.patchRecordPath) &&
+        orphanPath === binding.orphanPath &&
+        isDeepStrictEqual(expected, {
+          relativePath: binding.relativePath,
+          type: "file",
+          size: binding.beforeSize,
+          sha256: binding.beforeSha256
+        }) &&
+        isDeepStrictEqual(observed, {
+          relativePath: binding.relativePath,
+          type: "file",
+          size: binding.afterSize,
+          sha256: binding.afterSha256
+        })
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function iHDedicatedLandingBenprbFixtureMarkerAllowed(
+  registry,
+  marker
+) {
+  try {
+    iHDedicatedLandingHistoricalProjection(registry);
+    const benprb =
+      registry.jHEvidenceCustodyReconstruction.retainedSources.benprb;
+    return isDeepStrictEqual(marker, {
+      path: benprb.path,
+      markerPath: join(benprb.path, ".git"),
+      kind: "directory",
+      valid: true
+    });
+  } catch {
+    return false;
+  }
 }
 
 function verifyOrphanInventorySnapshot(inventoryReport, registry, errors) {
@@ -16636,13 +20999,111 @@ function runAudit(flags) {
     runPortableAudit(registry, validateRegistry(registry));
     return;
   }
+  const isNMPr88FinalAuthorization = Boolean(
+    registry.nMPr88FinalAuthorization
+  );
+  const isMLPortableJEvidenceCi = Boolean(
+    registry.mLPortableJEvidenceCiRemediation
+  );
+  const isLKDraftPrCiRemediation = Boolean(
+    registry.lKDraftPrCiRemediation
+  );
+  const isKILandingLifecycle = Boolean(
+    registry.kILandingLifecycleAuthorization
+  );
+  const isIHDedicatedLanding = Boolean(
+    registry.iHDedicatedLandingCandidate
+  );
+  const committedLifecyclePrePush = Boolean(
+    isKILandingLifecycle && flags.has("pre-push")
+  );
+  const exactGovernanceIndex = isNMPr88FinalAuthorization
+    ? committedLifecyclePrePush
+      ? nMPr88CommittedFinalBarrierAllowed(registry)
+      : nMPr88FinalCurrentIndexAllowed(registry)
+    : isMLPortableJEvidenceCi
+    ? committedLifecyclePrePush
+      ? mLCommittedBranchUpdateBarrierAllowed(registry)
+      : mLPortableJEvidenceCiCurrentIndexAllowed(registry)
+    : isLKDraftPrCiRemediation
+      ? committedLifecyclePrePush
+        ? lKCommittedBranchUpdateBarrierAllowed(registry)
+        : lKDraftPrCiCurrentIndexAllowed(registry)
+    : isKILandingLifecycle
+      ? committedLifecyclePrePush
+        ? kILandingCommittedInitialPushBarrierAllowed(registry)
+        : kILandingCurrentIndexAllowed(registry)
+    : isIHDedicatedLanding
+      ? iHDedicatedLandingCurrentIndexAllowed(registry)
+      : hGovernanceCurrentIndexAllowed(registry);
+  const initialGovernanceIndexSnapshot = exactGovernanceIndex
+    ? hGovernanceCurrentIndexSnapshot()
+    : null;
+  const governanceAuditFinalBarrierAllowed = () => Boolean(
+    registry.hGovernanceIntake &&
+      exactGovernanceIndex &&
+      (committedLifecyclePrePush || initialGovernanceIndexSnapshot) &&
+      (isIHDedicatedLanding
+        ? (isKILandingLifecycle
+            ? committedLifecyclePrePush
+              ? isNMPr88FinalAuthorization
+                ? nMPr88CommittedFinalBarrierAllowed(registry)
+                : isMLPortableJEvidenceCi
+                ? mLCommittedBranchUpdateBarrierAllowed(registry)
+                : isLKDraftPrCiRemediation
+                  ? lKCommittedBranchUpdateBarrierAllowed(registry)
+                : kILandingCommittedInitialPushBarrierAllowed(registry)
+              : isNMPr88FinalAuthorization
+                ? nMPr88FinalCurrentIndexAllowed(registry) &&
+                  iHDedicatedLandingIndexSnapshotsMatch(
+                    initialGovernanceIndexSnapshot,
+                    hGovernanceCurrentIndexSnapshot()
+                  )
+                : isMLPortableJEvidenceCi
+                ? mLPortableJEvidenceCiCurrentIndexAllowed(registry) &&
+                  iHDedicatedLandingIndexSnapshotsMatch(
+                    initialGovernanceIndexSnapshot,
+                    hGovernanceCurrentIndexSnapshot()
+                  )
+                : isLKDraftPrCiRemediation
+                  ? lKDraftPrCiCurrentIndexAllowed(registry) &&
+                    iHDedicatedLandingIndexSnapshotsMatch(
+                      initialGovernanceIndexSnapshot,
+                      hGovernanceCurrentIndexSnapshot()
+                    )
+                  : kILandingCurrentIndexAllowed(registry) &&
+                    iHDedicatedLandingIndexSnapshotsMatch(
+                      initialGovernanceIndexSnapshot,
+                      hGovernanceCurrentIndexSnapshot()
+                    )
+            : iHDedicatedLandingCurrentIndexAllowed(registry) &&
+              iHDedicatedLandingIndexSnapshotsMatch(
+                initialGovernanceIndexSnapshot,
+                hGovernanceCurrentIndexSnapshot()
+              )) &&
+          jHEvidenceCustodyReconstructionAllowed(registry, {
+            forcePhysicalRevalidation: true
+          }) &&
+          iHDedicatedLandingGHostCustodyAllowed(registry) &&
+          iHDedicatedLandingPreservedHHostCustodyAllowed(registry)
+        : hGovernanceCurrentIndexAllowed(registry) &&
+          hGovernanceIntakeIndexSnapshotsMatch(
+            initialGovernanceIndexSnapshot,
+            hGovernanceCurrentIndexSnapshot()
+          ) &&
+          hGovernanceIntakeRecoveryPackageAllowed(registry, {
+            forcePhysicalRevalidation: true
+          }) &&
+          hGovernanceGHostCustodyAllowed(registry))
+  );
   const mobileHead = protectedMainAdvanceObjectSha(`refs/heads/${MOBILE_PILOT_BRANCH}`);
   const mobileMerge = mobilePilotProtectedMergeAncestor(mobileHead, MOBILE_PILOT_BRANCH);
   let mobileRelease = mobileMerge ? resolveMobilePilotReleaseVerification(registry, mobileHead) : null;
   const auditContext = registry.pr86DeliveryCloseout ? { active: true, proof: mobileRelease } : null;
   const observationOptions = auditContext ? { [PR86_DELIVERY_AUDIT_CONTEXT]: auditContext } : {};
   const readOnlyReleaseTasks = new Set([...(mobileRelease ? [mobileRelease.taskId] : []),
-    ...(mobileRelease?.closeoutCustody ? [PR86_DELIVERY_TASK] : [])]);
+    ...(mobileRelease?.closeoutCustody ? [PR86_DELIVERY_TASK] : []),
+    ...(mobileRelease?.dedicatedLandingCustody ? [I_H_TASK] : [])]);
   const validation = validateMobilePilotHostAuditRegistry(registry, mobileRelease);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   const registered = parseWorktreeList();
@@ -16677,6 +21138,9 @@ function runAudit(flags) {
     if (!marker.valid && registryOrphans.has(path)) warnings.push(`preserved invalid .git pointer: ${path}`);
     if (marker.valid && !registeredPaths.has(path) && !registryOrphans.has(path)) {
       if (pr86DeliveryPreservedTestFixtureAllowed(registry, marker)) warnings.push(`preserved read-only test fixture: ${path}`);
+      else if (iHDedicatedLandingBenprbFixtureMarkerAllowed(registry, marker)) {
+        warnings.push(`J-bound preserved read-only BENPrB fixture: ${path}`);
+      }
       else errors.push(`valid disk worktree marker is absent from Git registry and governance registry: ${path}`);
     }
   }
@@ -16890,7 +21354,18 @@ function runAudit(flags) {
 
   if (flags.has("pre-commit") || flags.has("pre-push")) {
     if (mobilePilotCurrentCheckoutMerge()) errors.push("mobile pilot release-verification checkout is read-only and cannot be pushed");
-    if (pr86DeliveryCurrentCheckoutMerged()) errors.push("PR86 closeout checkout is read-only after its one protected merge");
+    const exactGovernanceAtWriteBarrier =
+      governanceAuditFinalBarrierAllowed();
+    if (pr86DeliveryCurrentCheckoutMerged() && !exactGovernanceAtWriteBarrier) {
+      errors.push("PR86 closeout checkout is read-only after its one protected merge");
+    }
+    if (registry.hGovernanceIntake && !exactGovernanceAtWriteBarrier) {
+      errors.push(
+        isIHDedicatedLanding
+          ? "rule=i-h-dedicated-landing-index-identity-invalid"
+          : "rule=h-governance-intake-index-identity-invalid"
+      );
+    }
     const currentWorktree = registeredByPath.get(canonicalExistingPath(REPO_ROOT));
     const currentItem = workItemsByPath.get(canonicalExistingPath(REPO_ROOT));
     const currentBranchRecord = currentWorktree?.branch ? registryBranches.get(currentWorktree.branch) : null;
@@ -17118,6 +21593,39 @@ function runAudit(flags) {
         appendHostPhysicalCustodyErrors(registry, errors);
       }
     }
+  }
+
+  if (
+    registry.hGovernanceIntake &&
+    (flags.has("pre-commit") || flags.has("pre-push")) &&
+    !governanceAuditFinalBarrierAllowed() &&
+    !errors.includes(
+      isNMPr88FinalAuthorization
+        ? "rule=n-m-pr88-final-authorization-barrier-invalid"
+        : isMLPortableJEvidenceCi
+        ? "rule=m-l-portable-j-ci-final-barrier-invalid"
+        : isLKDraftPrCiRemediation
+          ? "rule=l-k-draft-pr-ci-final-barrier-invalid"
+        : isKILandingLifecycle
+          ? "rule=k-i-landing-lifecycle-final-barrier-invalid"
+        : isIHDedicatedLanding
+          ? "rule=i-h-dedicated-landing-final-barrier-invalid"
+        : "rule=h-governance-intake-final-barrier-invalid"
+    )
+  ) {
+    errors.push(
+      isNMPr88FinalAuthorization
+        ? "rule=n-m-pr88-final-authorization-barrier-invalid"
+        : isMLPortableJEvidenceCi
+        ? "rule=m-l-portable-j-ci-final-barrier-invalid"
+        : isLKDraftPrCiRemediation
+          ? "rule=l-k-draft-pr-ci-final-barrier-invalid"
+        : isKILandingLifecycle
+          ? "rule=k-i-landing-lifecycle-final-barrier-invalid"
+        : isIHDedicatedLanding
+          ? "rule=i-h-dedicated-landing-final-barrier-invalid"
+        : "rule=h-governance-intake-final-barrier-invalid"
+    );
   }
 
   const report = {

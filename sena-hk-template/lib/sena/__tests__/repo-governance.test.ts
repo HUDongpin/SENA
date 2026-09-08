@@ -5825,7 +5825,11 @@ describe("SENA repository governance", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
-    const branch = registry.branches.find(isActiveWriter);
+    const branch = registry.branches.find(
+      (entry: { name?: string }) =>
+        entry.name === "codex/sena-convergence-q-currentness-20260908"
+    );
+    expect(branch).toBeDefined();
     const ref = `refs/heads/${branch.name}`;
     const head = runGit(projectRoot, ["rev-parse", ref]);
     const before = branch.remotePresent ? branch.remoteHeadSha : "0".repeat(40);
@@ -5875,7 +5879,7 @@ describe("SENA repository governance", () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(`rule=${rule}`);
     }
-  });
+  }, 120_000);
 
   it("binds work-item ownership to the branch ledger and forces stale ownerless-PR work into review", () => {
     const root = temporaryRoot("registry-lifecycle");
@@ -7369,10 +7373,7 @@ require("node:module").syncBuiltinESMExports();
       "show",
       "40e8906b106d8d3d49e1f06b59a81cd77ca2ead3:coordination/repo-governance/active-work.json"
     ]));
-    const observedRegistry = JSON.parse(readFileSync(
-      join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-      "utf8"
-    ));
+    const observedRegistry = pr86DeliveryObservationSourceForTest();
     const observedLifecycle = observedRegistry.workItems.find(
       (entry: { taskId?: string }) =>
         entry.taskId === "SENA-A01-REPO-GOVERNANCE-20260827"
@@ -7943,7 +7944,7 @@ process.stdout.write(JSON.stringify(value));
     expect(mismatchedContext.stderr).toContain(
       "rule=post-pr82-topology-heartbeat-final-evidence-context-mismatch"
     );
-  });
+  }, 120_000);
 
   it("fails closed across the protected currentness repair lifecycle", async () => {
     const governance = await import(pathToFileURL(governanceScript).href);
@@ -14167,10 +14168,17 @@ function postPr83BinaryDiffSha256ForTest(
       "--",
       ...POST_PR83_PATHS_FOR_TEST
     ],
-    { cwd: root, encoding: null, env: process.env }
+    {
+      cwd: root,
+      encoding: null,
+      env: process.env,
+      maxBuffer: 64 * 1024 * 1024
+    }
   );
   if (result.status !== 0 || !Buffer.isBuffer(result.stdout)) {
-    throw new Error(`post-PR83 binary diff failed: ${String(result.stderr)}`);
+    throw new Error(
+      `post-PR83 binary diff failed status=${String(result.status)} code=${String((result.error as NodeJS.ErrnoException | undefined)?.code)}: ${String(result.stderr)}`
+    );
   }
   return createHash("sha256").update(result.stdout).digest("hex");
 }
@@ -15628,7 +15636,7 @@ describe("post-PR83 protected currentness correction", () => {
         governance.validatePostPr83CurrentnessForwardSnapshot(drifted)
       ).toThrow("rule=post-pr83-currentness-forward-snapshot-invalid");
     }
-  });
+  }, 120_000);
 
   it("recognizes the exact historical PR83 protected merge without candidate self-authorization", async () => {
     const governance = await import(`${pathToFileURL(governanceScript).href}?post-pr83-historical-merge=${Date.now()}`);
@@ -16865,17 +16873,28 @@ describe("post-PR83 protected currentness correction", () => {
 const PR86_PROTECTED_FOR_TEST = "b9c25385453ee4da26e261c945dd125b0cd856ab";
 const PR86_CLOSEOUT_BRANCH_FOR_TEST = "codex/sena-pr86-delivery-closeout-20260907";
 
+function pr86DeliveryObservationSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      "e366df35d8304ddc0c2b5d963301b8a9324e2975:coordination/repo-governance/active-work.json"
+    ])
+  );
+}
+
 describe("PR86 retained test fixture custody", () => {
-  it("recognizes only the exact preserved test fixture without granting writer authority", async () => {
+  it("keeps the lost PR86 manifest strict and admits BENPrB only through the exact J binding", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     expect(typeof governance.pr86DeliveryPreservedTestFixtureAllowed).toBe("function");
     const registry = JSON.parse(readFileSync(join(projectRoot, POST_PR83_PATHS_FOR_TEST[0]), "utf8"));
     const binding = registry.pr86DeliveryCloseout.preservedTestFixtureObservation;
     expect(binding).toMatchObject({ sourceWritesAuthorized: false, pushAuthorized: false, mergeAuthorized: false, cleanupAuthorized: false });
     const marker = { path: binding.repoPath, markerPath: `${binding.repoPath}/.git`, kind: "directory", valid: true };
-    expect(governance.pr86DeliveryPreservedTestFixtureAllowed(registry, marker)).toBe(true);
+    expect(governance.pr86DeliveryPreservedTestFixtureAllowed(registry, marker)).toBe(false);
+    expect(governance.iHDedicatedLandingBenprbFixtureMarkerAllowed(registry, marker)).toBe(true);
     for (const fields of [{ path: `${binding.repoPath}-foreign` }, { kind: "gitdir-file" }, { valid: false }, { markerPath: `${binding.repoPath}/other` }]) {
       expect(governance.pr86DeliveryPreservedTestFixtureAllowed(registry, { ...marker, ...fields })).toBe(false);
+      expect(governance.iHDedicatedLandingBenprbFixtureMarkerAllowed(registry, { ...marker, ...fields })).toBe(false);
     }
     for (const key of ["manifestSha256", "manifestPath", "rootPath", "sourceOwnerTaskId"]) {
       const altered = structuredClone(registry); altered.pr86DeliveryCloseout.preservedTestFixtureObservation[key] = "foreign";
@@ -16886,7 +16905,7 @@ describe("PR86 retained test fixture custody", () => {
   it("rejects actual fixture byte, unlisted-path, type and root-alias drift", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     expect(typeof governance.pr86PreservedTestFixtureInventoryMatches).toBe("function");
-    const root = temporaryRoot("preserved-fixture-custody");
+    const root = realpathSync(temporaryRoot("preserved-fixture-custody"));
     mkdirSync(join(root, ".git")); writeFileSync(join(root, "payload.txt"), "AAAA");
     const identity = (path: string) => {
       const info = lstatSync(path, { bigint: true });
@@ -16928,7 +16947,7 @@ async function createPr86DeliveryCloseoutFixture() {
   runGit(root, ["checkout", "-q", "-b", PR86_CLOSEOUT_BRANCH_FOR_TEST, PR86_PROTECTED_FOR_TEST]);
   runGit(root, ["config", "user.name", "SENA closeout fixture"]);
   runGit(root, ["config", "user.email", "closeout@example.invalid"]);
-  const registry = JSON.parse(readFileSync(join(projectRoot, POST_PR83_PATHS_FOR_TEST[0]), "utf8"));
+  const registry = pr86DeliveryObservationSourceForTest();
   for (const path of POST_PR83_PATHS_FOR_TEST.slice(1)) copyFileSync(join(projectRoot, path), join(root, path));
   const save = () => writeFileSync(join(root, POST_PR83_PATHS_FOR_TEST[0]), `${JSON.stringify(registry, null, 2)}\n`);
   save(); runGit(root, ["add", ...POST_PR83_PATHS_FOR_TEST]);
@@ -17005,7 +17024,9 @@ describe("PR86 delivery closeout observation successor", () => {
     const child = { exitCode: 0, env: {}, stdout: { write: (value: string) => { stdout += value; } }, stderr: { write: (value: string) => { stderr += value; } } };
     runInNewContext(`${source.slice(start, end)}\nrunPushPolicy(flags);`, {
       flags: new Set(), process: child, ZERO_SHA: "0".repeat(40), PR86_DELIVERY_BRANCH: PR86_CLOSEOUT_BRANCH_FOR_TEST,
+      I_H_BRANCH: I_H_BRANCH_FOR_TEST,
       mobilePilotCurrentCheckoutMerge: () => null, pr86DeliveryCurrentCheckoutMerged: () => null,
+      git: () => ({ status: 0, stdout: PR86_CLOSEOUT_BRANCH_FOR_TEST }),
       readFileSync: () => "controlled pre-push input", flagValues: () => [], parsePrePushUpdates: () => [update],
       isSha: (value: string) => /^[0-9a-f]{40}$/.test(value), gitObjectExists: () => true,
       loadRegistryFromCommit: () => ({ parsed: registry }), validateRegistry: () => ({ errors: [] }),
@@ -17317,7 +17338,7 @@ describe("PR86 delivery closeout observation successor", () => {
 
   it("requires exact retained host identities, dirty names, stage entries and no unstaged source drift", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
-    const registry = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    const registry = pr86DeliveryObservationSourceForTest();
     expect(typeof governance.pr86DeliveryRetainedHostObservationAllowed).toBe("function");
     for (const item of registry.workItems.slice(-3, -1)) {
       const facts = {
@@ -17343,7 +17364,7 @@ describe("PR86 delivery closeout observation successor", () => {
 
   it("rejects historical rewrites, authority additions, foreign records and retained custody drift", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
-    const original = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    const original = pr86DeliveryObservationSourceForTest();
     const mutations = [
       (r: any) => r.workItems[0].lastHeartbeatAt = r.updatedAt,
       (r: any) => r.workItems[0].headSha = r.pr86DeliveryCloseout.sourceCommitSha,
@@ -17382,11 +17403,3066 @@ describe("PR86 delivery closeout observation successor", () => {
   it("accepts the exact protected-source observation without granting bootstrap authority", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     expect(typeof governance.validatePr86DeliveryCloseoutSnapshot).toBe("function");
-    const registry = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    const registry = pr86DeliveryObservationSourceForTest();
     const proof = governance.validatePr86DeliveryCloseoutSnapshot(registry);
     expect(proof).toMatchObject({ sourceCommitSha: "b9c25385453ee4da26e261c945dd125b0cd856ab", bootstrapAuthorized: false });
     expect(proof.historicalRegistry).toEqual(JSON.parse(runGit(projectRoot, ["show", "b9c25385453ee4da26e261c945dd125b0cd856ab:coordination/repo-governance/active-work.json"])));
     expect(() => governance.validateMobilePilotSuccessorSnapshot(registry)).toThrow("rule=mobile-pilot-snapshot-invalid");
     expect(governance.validateRegistry(registry).errors).toEqual([]);
   });
+});
+
+const H_GOVERNANCE_SOURCE_FOR_TEST =
+  "e366df35d8304ddc0c2b5d963301b8a9324e2975";
+const H_GOVERNANCE_SOURCE_TREE_FOR_TEST =
+  "4238ab19c321cdf7f0d154f133af49a9e93ed696";
+const H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST =
+  "codex/sena-pr86-delivery-closeout-20260907";
+const H_GOVERNANCE_G_BRANCH_FOR_TEST =
+  "codex/sena-convergence-q-currentness-20260908";
+const H_GOVERNANCE_PATHS_FOR_TEST = [
+  "coordination/repo-governance/active-work.json",
+  "scripts/verify-sena-repo-governance.mjs",
+  "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+];
+
+function hGovernanceSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${H_GOVERNANCE_SOURCE_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function hGovernanceCandidateForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      "8657ad8da77348afe46bbd74cefe5d7818f966ad:coordination/repo-governance/active-work.json"
+    ])
+  );
+}
+
+function hTemporaryRoot(label: string) {
+  const root = mkdtempSync(join(realpathSync("/private/tmp"), `sena-h-${label}-`));
+  expect(root.startsWith("/private/tmp/")).toBe(true);
+  expect(root.startsWith(`${projectRoot}/`)).toBe(false);
+  tempRoots.push(root);
+  return root;
+}
+
+describe("H-G governance intake successor", () => {
+  it("keeps the superseded H transition fail-closed after its original physical evidence disappears", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.validateHGovernanceIntakeTransition).toBe(
+      "function"
+    );
+    const source = hGovernanceSourceForTest();
+    const candidate = hGovernanceCandidateForTest();
+    expect(() =>
+      governance.validateHGovernanceIntakeTransition(source, candidate)
+    ).toThrow("rule=h-governance-intake-transition-invalid");
+    expect(() =>
+      governance.hGovernanceIntakeHistoricalProjection(candidate)
+    ).toThrow("rule=h-governance-intake-transition-invalid");
+    expect(candidate.hGovernanceIntake.authorizationBoundary).toMatchObject({
+      bootstrapAuthorized: false,
+      candidateCommitAuthorized: false,
+      candidatePushAuthorized: false,
+      prAuthorized: false,
+      ciAuthorized: false,
+      readyAuthorized: false,
+      mergeAuthorized: false,
+      deploymentAuthorized: false,
+      cleanupAuthorized: false
+    });
+    expect(() =>
+      governance.validatePr86DeliveryCloseoutSnapshot(candidate)
+    ).toThrow("rule=pr86-delivery-closeout-snapshot-invalid");
+    expect(
+      governance.validatePr86DeliveryCloseoutSnapshot(source)
+        .bootstrapAuthorized
+    ).toBe(false);
+    expect(
+      governance.hGovernanceIntakeRecoveryPackageAllowed(candidate, {
+        forcePhysicalRevalidation: true
+      })
+    ).toBe(false);
+  });
+
+  it("rejects source drift, historical rewrites, path substitution, identity drift, authority escalation, and array reordering", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const source = hGovernanceSourceForTest();
+    const candidate = hGovernanceCandidateForTest();
+    const sourceMutations = [
+      (value: any) => (value.updatedAt = candidate.updatedAt),
+      (value: any) => value.releaseReceipts.pop(),
+      (value: any) => (value.pr86DeliveryCloseout.sourceCommitSha = "a".repeat(40))
+    ];
+    for (const mutate of sourceMutations) {
+      const changed = structuredClone(source);
+      mutate(changed);
+      expect(() =>
+        governance.validateHGovernanceIntakeTransition(changed, candidate)
+      ).toThrow("rule=h-governance-intake-transition-invalid");
+    }
+    const candidateMutations = [
+      (value: any) => value.releaseReceipts.pop(),
+      (value: any) => (value.policy.maxWriteWorktrees += 1),
+      (value: any) => (value.pr86DeliveryCloseout.sourceCommitSha = "a".repeat(40)),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => value.branches.reverse(),
+      (value: any) => (value.extra = true),
+      (value: any) => value.workItems.find((item: any) => item.branch === H_GOVERNANCE_G_BRANCH_FOR_TEST).allowedPaths.reverse(),
+      (value: any) => value.workItems.find((item: any) => item.branch === H_GOVERNANCE_G_BRANCH_FOR_TEST).allowedPaths.push("**"),
+      (value: any) => (value.workItems.find((item: any) => item.branch === H_GOVERNANCE_G_BRANCH_FOR_TEST).candidateIdentity.stagedTreeSha = "a".repeat(40)),
+      (value: any) => (value.workItems.find((item: any) => item.taskId === "SENA-EVIDENCEFLOW-V1-20260828").lastHeartbeatAt = value.updatedAt),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.candidateCommitAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.candidatePushAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.prAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.ciAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.readyAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.mergeAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.deploymentAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.authorizationBoundary.cleanupAuthorized = true),
+      (value: any) => (value.hGovernanceIntake.cleanupEvidence.removedExactPath += "-foreign")
+    ];
+    for (const mutate of candidateMutations) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateHGovernanceIntakeTransition(source, changed)
+      ).toThrow("rule=h-governance-intake-transition-invalid");
+    }
+  });
+
+  it("freezes EvidenceFlow read-only and binds the exact G staged candidate with explicit digest algorithms", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = hGovernanceCandidateForTest();
+    const evidenceFlow = candidate.workItems.find(
+      (item: any) => item.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
+    );
+    const evidenceFlowBranch = candidate.branches.find(
+      (branch: any) => branch.name === "codex/sena-evidenceflow-v1-20260828"
+    );
+    expect(evidenceFlow).toMatchObject({
+      laneType: "read-only",
+      disposition: "preservation-review",
+      headSha: "434a1aac542e60e793afef77fb35104cdb470d53",
+      aheadBehind: { baseRef: "origin/main", ahead: 16, behind: 127 },
+      lastHeartbeatAt: "2026-08-31T05:47:35Z",
+      hPreservationObservation: {
+        treeSha: "66d986701619acc9281e61c7d62bbafd924981f1",
+        stagedPathCount: 0,
+        unstagedTrackedPathCount: 76,
+        untrackedPathCount: 10,
+        fullDiffSha256: "e6c725cfe31c8c30a6e0798de5ca2c4e2d343225085552224887d58b65ffa8c1",
+        statusPorcelainV1Sha256: "037d472704beb72408363f5b81bfe5be132405e5fc74edae9047dfdf265c708b",
+        sourceWritesAuthorized: false,
+        pushAuthorized: false,
+        mergeAuthorized: false,
+        cleanupAuthorized: false
+      }
+    });
+    expect(evidenceFlowBranch.disposition).toBe("preservation-review");
+    expect(evidenceFlowBranch.lastOwnerHeartbeatAt).toBe(
+      "2026-08-31T05:47:35Z"
+    );
+    const gItem = candidate.workItems.find(
+      (item: any) => item.branch === H_GOVERNANCE_G_BRANCH_FOR_TEST
+    );
+    expect(gItem).toMatchObject({
+      baseSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      headSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      disposition: "active",
+      laneType: "feature",
+      candidateIdentity: {
+        stagedTreeSha: "f1468029f6a309b46894a2c557b03fe8514e5e85",
+        canonicalDiffSha256: "bcebf91738203a12c667c57f2f3613d95f926581c07cf33fddf4f35d7425c17d",
+        fullIndexDiffSha256: "b2c7602b427a70eac037010e85b56943eeff4ff09b210f3a44d64ad63a6d9827",
+        indexEntriesSha256: "70f44cf195b0be4fa338692a024dda092ad55a865ce81de826c495484d75faf9",
+        statusSha256: "5f9d1b5c9f34d0e2c9defa563d30c218eefae430ae37cbd897f528aeeb97fab1",
+        stagedPathCount: 152,
+        unstagedPathCount: 0,
+        untrackedPathCount: 0,
+        unmergedPathCount: 0,
+        canonicalDiffCommand: "git diff --cached --binary --no-ext-diff --no-textconv HEAD --",
+        fullIndexDiffCommand: "git diff --cached --binary --full-index --no-ext-diff --no-textconv HEAD --",
+        indexEntriesCommand: "git ls-files --stage -z",
+        statusCommand: "git status --porcelain=v1 -z --untracked-files=all"
+      }
+    });
+    const prior = hGovernanceSourceForTest().workItems.find(
+      (item: any) => item.taskId === "SENA-CONVERGENCE-CURRENTNESS-20260907"
+    );
+    expect(gItem.allowedPaths).toEqual(prior.allowedPaths);
+    expect(gItem.allowedPaths).toHaveLength(152);
+    expect(
+      candidate.workItems
+        .filter((item: any) => ["active", "ready-for-pr"].includes(item.disposition))
+        .map((item: any) => item.taskId)
+    ).toEqual([
+      "SENA-MOBILE-RESEARCH-PILOT-20260905",
+      "SENA-G-Q-CURRENTNESS-20260908",
+      "SENA-PR86-DELIVERY-CLOSEOUT-20260907"
+    ]);
+  });
+
+  it("rejects the superseded H package after its exact owner-only path disappears", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = hGovernanceCandidateForTest();
+    expect(typeof governance.hGovernanceIntakeRecoveryPackageAllowed).toBe(
+      "function"
+    );
+    expect(governance.hGovernanceIntakeRecoveryPackageAllowed(candidate)).toBe(false);
+    const altered = structuredClone(candidate);
+    altered.hGovernanceIntake.cleanupEvidence.packageManifestSha256 =
+      "a".repeat(64);
+    expect(governance.hGovernanceIntakeRecoveryPackageAllowed(altered)).toBe(
+      false
+    );
+    expect(
+      existsSync(candidate.hGovernanceIntake.cleanupEvidence.removedExactPath)
+    ).toBe(false);
+    expect(
+      existsSync(
+        candidate.pr86DeliveryCloseout.preservedTestFixtureObservation.repoPath
+      )
+    ).toBe(true);
+  });
+
+  it("denies the exact H index after evidence loss while the PR86 push policy remains denied", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = hGovernanceCandidateForTest();
+    const facts = {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath:
+        "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
+      gitDirectory:
+        "/Volumes/Starship/SENA/.git/worktrees/sena-pr86-delivery-closeout-20260907",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST,
+      headSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    expect(typeof governance.hGovernanceIntakeIndexFactsAllowed).toBe(
+      "function"
+    );
+    expect(
+      governance.hGovernanceIntakeIndexFactsAllowed(candidate, facts)
+    ).toBe(false);
+    for (const change of [
+      { branch: H_GOVERNANCE_G_BRANCH_FOR_TEST },
+      { headSha: "a".repeat(40) },
+      { cachedOriginMainSha: "a".repeat(40) },
+      { rootMainSha: "a".repeat(40) },
+      { stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(0, 2) },
+      { stagedPaths: [...H_GOVERNANCE_PATHS_FOR_TEST, "foreign"] },
+      { unstagedPaths: [H_GOVERNANCE_PATHS_FOR_TEST[0]] },
+      { untrackedPaths: ["foreign"] },
+      { unmerged: true },
+      { markerIsSymlink: true }
+    ]) {
+      expect(
+        governance.hGovernanceIntakeIndexFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+    const push = runNode(
+      governanceScript,
+      ["push-policy", "--remote-name", "origin"],
+      {
+        cwd: "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
+        input: `refs/heads/${H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST} ${H_GOVERNANCE_SOURCE_FOR_TEST} refs/heads/${H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST} ${"7fd9e29c34ee7c1573dc81f4824124faadbae279"}\n`,
+        env: {
+          SENA_GOVERNANCE_TARGET_ROOT:
+            "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907"
+        }
+      }
+    );
+    expect(push.status).not.toBe(0);
+    expect(push.stderr).toContain(
+      "rule=pr86-delivery-closeout-push-denied"
+    );
+  });
+
+  it("rejects same-path stage-0 byte or tree drift across a slow H proof", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.hGovernanceIntakeIndexSnapshotsMatch).toBe(
+      "function"
+    );
+    const initial = {
+      stagedTreeSha: "1".repeat(40),
+      stagedBlobEntriesSha256: "2".repeat(64),
+      canonicalDiffSha256: "3".repeat(64),
+      fullIndexDiffSha256: "4".repeat(64),
+      indexEntriesSha256: "5".repeat(64),
+      statusSha256: "6".repeat(64),
+      stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    expect(
+      governance.hGovernanceIntakeIndexSnapshotsMatch(initial, {
+        ...structuredClone(initial)
+      })
+    ).toBe(true);
+    for (const change of [
+      { stagedTreeSha: "a".repeat(40) },
+      { stagedBlobEntriesSha256: "a".repeat(64) },
+      { canonicalDiffSha256: "a".repeat(64) },
+      { fullIndexDiffSha256: "a".repeat(64) },
+      { indexEntriesSha256: "a".repeat(64) },
+      { statusSha256: "a".repeat(64) },
+      { stagedPaths: [...H_GOVERNANCE_PATHS_FOR_TEST].reverse() },
+      { unstagedPaths: [H_GOVERNANCE_PATHS_FOR_TEST[0]] },
+      { untrackedPaths: ["foreign"] },
+      { unmerged: true }
+    ]) {
+      expect(
+        governance.hGovernanceIntakeIndexSnapshotsMatch(initial, {
+          ...structuredClone(initial),
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("re-samples the H index after slow source proof before write-policy can pass", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("function runWritePolicy(flags) {");
+    const end = source.indexOf("\nfunction isIsoTimestamp(", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const initialSnapshot = {
+      stagedTreeSha: "1".repeat(40),
+      stagedBlobEntriesSha256: "2".repeat(64),
+      canonicalDiffSha256: "3".repeat(64),
+      fullIndexDiffSha256: "4".repeat(64),
+      indexEntriesSha256: "5".repeat(64),
+      statusSha256: "6".repeat(64),
+      stagedPaths: ["allowed.ts"],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    let observedSnapshot = structuredClone(initialSnapshot);
+    let stdout = "";
+    let stderr = "";
+    const childProcess = {
+      exitCode: 0,
+      stdout: { write: (value: string) => { stdout += value; } },
+      stderr: { write: (value: string) => { stderr += value; } }
+    };
+    const item = {
+      taskId: "SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+      worktreePath: "/fixture",
+      branch: H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST,
+      disposition: "active",
+      ownerKey: "fixture-owner",
+      allowedPaths: ["allowed.ts"]
+    };
+    const registry = {
+      hGovernanceIntake: {},
+      pr86DeliveryCloseout: {},
+      workItems: [item],
+      branches: [{
+        name: item.branch,
+        disposition: item.disposition,
+        ownerKey: item.ownerKey
+      }]
+    };
+    runInNewContext(`${source.slice(start, end)}\nrunWritePolicy(flags);`, {
+      flags: new Set(["registry-from-index", "staged"]),
+      process: childProcess,
+      REPO_ROOT: "/fixture",
+      PR86_DELIVERY_BRANCH: H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST,
+      ACTIVE_WRITE_DISPOSITIONS: new Set(["active"]),
+      stagedChangedPaths: () => ["allowed.ts"],
+      mobilePilotCurrentCheckoutMerge: () => null,
+      pr86DeliveryCurrentCheckoutMerged: () => "merged",
+      loadRegistryForFlags: () => ({ parsed: registry }),
+      hGovernanceCurrentIndexAllowed: () => true,
+      hGovernanceCurrentIndexSnapshot: () => structuredClone(observedSnapshot),
+      hGovernanceIntakeIndexSnapshotsMatch: (before: any, after: any) =>
+        JSON.stringify(before) === JSON.stringify(after),
+      hGovernanceIntakeRecoveryPackageAllowed: () => true,
+      hGovernanceGHostCustodyAllowed: () => true,
+      validateRegistry: () => ({ errors: [] }),
+      appendHostPhysicalCustodyErrors: () => {},
+      mobilePilotItem: () => item,
+      validateMobilePilotSourceEvidence: () => {
+        observedSnapshot = {
+          ...structuredClone(initialSnapshot),
+          stagedBlobEntriesSha256: "a".repeat(64)
+        };
+      },
+      validatePr80RepairIndexTransition: () => false,
+      validateEvidenceFlowCurrentnessIndexTransition: () => false,
+      validateProtectedCurrentnessRepairIndexTransition: () => false,
+      validatePostPr83CurrentnessIndexTransition: () => false,
+      sameExistingPath: () => true,
+      pr86DeliveryItem: () => item,
+      validatePr86DeliveryWriterCurrentness: () => true,
+      git: () => ({ status: 0, stdout: item.branch }),
+      gitText: () => "",
+      pathIsAllowed: () => true,
+      addFinding: (findings: any[], finding: any) => findings.push(finding),
+      safePathForLog: (value: string) => value,
+      safeSourceForLog: (value: string) => value
+    });
+    expect(childProcess.exitCode).toBe(1);
+    expect(stdout).not.toContain("SENA_WRITE_POLICY pass");
+    expect(stderr).toContain(
+      "rule=h-governance-intake-final-barrier-invalid"
+    );
+  });
+
+  it("re-reads owner-only recovery package bytes and modes at a forced final barrier", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.hOwnerOnlyRecoveryPackageSnapshotAllowed).toBe(
+      "function"
+    );
+    const holder = hTemporaryRoot("recovery-revalidation");
+    const packageRoot = join(holder, "package");
+    mkdirSync(packageRoot, { mode: 0o700 });
+    chmodSync(packageRoot, 0o700);
+    const payloadPath = join(packageRoot, "payload.bin");
+    const manifestPath = join(packageRoot, "PACKAGE.sha256");
+    writeFileSync(payloadPath, "frozen-payload", { mode: 0o600 });
+    chmodSync(payloadPath, 0o600);
+    const payloadSha256 = sha256File(payloadPath);
+    writeFileSync(
+      manifestPath,
+      `${payloadSha256}  payload.bin\n`,
+      { mode: 0o600 }
+    );
+    chmodSync(manifestPath, 0o600);
+    const observation = {
+      recoveryPackagePath: packageRoot,
+      packageManifestPath: manifestPath,
+      packageManifestSha256: sha256File(manifestPath),
+      packageFileCount: 2,
+      expectedFiles: ["PACKAGE.sha256", "payload.bin"]
+    };
+    expect(
+      governance.hOwnerOnlyRecoveryPackageSnapshotAllowed(observation)
+    ).toBe(true);
+    writeFileSync(payloadPath, "drifted-payload", { mode: 0o600 });
+    expect(
+      governance.hOwnerOnlyRecoveryPackageSnapshotAllowed(observation)
+    ).toBe(false);
+    writeFileSync(payloadPath, "frozen-payload", { mode: 0o600 });
+    chmodSync(payloadPath, 0o644);
+    expect(
+      governance.hOwnerOnlyRecoveryPackageSnapshotAllowed(observation)
+    ).toBe(false);
+    expect(
+      governance.hGovernanceIntakeRecoveryPackageAllowed(
+        hGovernanceCandidateForTest(),
+        { forcePhysicalRevalidation: true }
+      )
+    ).toBe(false);
+  });
+
+  it("recognizes only a future three-path protected H successor descriptor without activating it", async () => {
+    const holder = hTemporaryRoot("protected-successor");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      "main",
+      "--no-tags",
+      projectRoot,
+      root
+    ]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      H_GOVERNANCE_SOURCE_FOR_TEST
+    );
+    runGit(root, ["config", "user.name", "SENA H successor test"]);
+    runGit(root, ["config", "user.email", "h-successor@example.invalid"]);
+    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, relative), join(root, relative));
+    }
+    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
+    runGit(root, ["commit", "-q", "-m", "exact H governance successor"]);
+    const headSha = runGit(root, ["rev-parse", "HEAD"]);
+    const treeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+    const mergeSha = runGit(root, [
+      "commit-tree",
+      treeSha,
+      "-p",
+      H_GOVERNANCE_SOURCE_FOR_TEST,
+      "-p",
+      headSha,
+      "-m",
+      "prospective protected H merge"
+    ]);
+    const oldTarget = process.env.SENA_GOVERNANCE_TARGET_ROOT;
+    process.env.SENA_GOVERNANCE_TARGET_ROOT = root;
+    let governance: any;
+    try {
+      governance = await import(
+        `${pathToFileURL(governanceScript).href}?h-protected=${Date.now()}-${Math.random()}`
+      );
+    } finally {
+      if (oldTarget === undefined)
+        delete process.env.SENA_GOVERNANCE_TARGET_ROOT;
+      else process.env.SENA_GOVERNANCE_TARGET_ROOT = oldTarget;
+    }
+    const descriptor = {
+      mergeTimeRegistry: hGovernanceCandidateForTest(),
+      mergeCommitSha: mergeSha,
+      orderedParentShas: [H_GOVERNANCE_SOURCE_FOR_TEST, headSha],
+      secondParentSha: headSha,
+      mergeTreeSha: treeSha,
+      registryBlobSha: runGit(root, [
+        "rev-parse",
+        `${headSha}:coordination/repo-governance/active-work.json`
+      ])
+    };
+    expect(
+      governance.validateHGovernanceIntakeProtectedSuccessorDescriptor(
+        descriptor
+      )
+    ).toBe(false);
+    for (const change of [
+      { orderedParentShas: [...descriptor.orderedParentShas].reverse() },
+      { secondParentSha: H_GOVERNANCE_SOURCE_FOR_TEST },
+      { mergeTreeSha: "a".repeat(40) },
+      { registryBlobSha: "a".repeat(40) }
+    ]) {
+      expect(
+        governance.validateHGovernanceIntakeProtectedSuccessorDescriptor({
+          ...descriptor,
+          ...change
+        })
+      ).toBe(false);
+    }
+  }, 120_000);
+});
+
+const I_H_SOURCE_STAGED_TREE_FOR_TEST =
+  "8657ad8da77348afe46bbd74cefe5d7818f966ad";
+const I_H_TASK_FOR_TEST =
+  "SENA-I-H-DEDICATED-LANDING-CANDIDATE-20260908";
+const I_H_BRANCH_FOR_TEST =
+  "codex/sena-h-governance-intake-20260908";
+const I_H_WORKTREE_FOR_TEST =
+  "/Volumes/Starship/SENA/.worktrees/sena-h-governance-intake-20260908";
+
+function iHSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${I_H_SOURCE_STAGED_TREE_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function iHCandidateForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      "1db8c607d09f90175e20a3e6be47b53c0b96e086:coordination/repo-governance/active-work.json"
+    ])
+  );
+}
+
+describe("I-H dedicated landing candidate", () => {
+  it("accepts only the exact independently reviewed H-to-I dedicated-lane transition without granting downstream authority", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateIHDedicatedLandingCandidateTransition
+    ).toBe("function");
+    const source = iHSourceForTest();
+    const candidate = iHCandidateForTest();
+    const proof = governance.validateIHDedicatedLandingCandidateTransition(
+      source,
+      candidate
+    );
+    expect(proof).toMatchObject({
+      sourceStagedTreeSha: I_H_SOURCE_STAGED_TREE_FOR_TEST,
+      originalEvidenceMissingObserved: true,
+      reconstructedEvidenceBound: true,
+      operatorTaskId: I_H_TASK_FOR_TEST,
+      operatorBranch: I_H_BRANCH_FOR_TEST,
+      operatorWorktree: I_H_WORKTREE_FOR_TEST,
+      stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      candidateCommitAuthorized: false,
+      candidatePushAuthorized: false,
+      prAuthorized: false,
+      ciAuthorized: false,
+      readyAuthorized: false,
+      mergeAuthorized: false,
+      deploymentAuthorized: false,
+      cleanupAuthorized: false
+    });
+    expect(
+      governance.iHDedicatedLandingHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(() =>
+      governance.validateHGovernanceIntakeTransition(
+        hGovernanceSourceForTest(),
+        candidate
+      )
+    ).toThrow("rule=h-governance-intake-transition-invalid");
+    expect(() =>
+      governance.validateHGovernanceIntakeTransition(
+        hGovernanceSourceForTest(),
+        source
+      )
+    ).toThrow("rule=h-governance-intake-transition-invalid");
+
+    const oldOperator = candidate.workItems.find(
+      (item: any) => item.taskId === "SENA-PR86-DELIVERY-CLOSEOUT-20260907"
+    );
+    const oldOperatorBranch = candidate.branches.find(
+      (branch: any) =>
+        branch.name === "codex/sena-pr86-delivery-closeout-20260907"
+    );
+    const dedicatedItem = candidate.workItems.find(
+      (item: any) => item.taskId === I_H_TASK_FOR_TEST
+    );
+    const dedicatedBranch = candidate.branches.find(
+      (branch: any) => branch.name === I_H_BRANCH_FOR_TEST
+    );
+    expect(oldOperator).toMatchObject({
+      laneType: "read-only",
+      disposition: "preservation-review",
+      iHPreservationObservation: {
+        headSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+        stagedTreeSha: I_H_SOURCE_STAGED_TREE_FOR_TEST,
+        stagedPathCount: 3,
+        unstagedPathCount: 0,
+        untrackedPathCount: 0,
+        unmergedPathCount: 0,
+        sourceWritesAuthorized: false,
+        pushAuthorized: false,
+        mergeAuthorized: false,
+        cleanupAuthorized: false
+      }
+    });
+    expect(oldOperatorBranch.disposition).toBe("preservation-review");
+    expect(dedicatedItem).toMatchObject({
+      taskId: I_H_TASK_FOR_TEST,
+      branch: I_H_BRANCH_FOR_TEST,
+      worktreePath: I_H_WORKTREE_FOR_TEST,
+      baseSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      headSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      laneType: "feature",
+      disposition: "active",
+      allowedPaths: H_GOVERNANCE_PATHS_FOR_TEST
+    });
+    expect(dedicatedBranch).toMatchObject({
+      name: I_H_BRANCH_FOR_TEST,
+      headSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      remotePresent: false,
+      disposition: "active"
+    });
+    expect(candidate.hGovernanceIntake.independentReview).toMatchObject({
+      required: true,
+      completed: true,
+      reviewedStagedTreeSha: I_H_SOURCE_STAGED_TREE_FOR_TEST,
+      verdict: "approved-ready-for-owner-decision",
+      criticalFindingCount: 0,
+      importantFindingCount: 0,
+      minorFindingCount: 1,
+      actionAuthorityGranted: false,
+      activationAuthorized: false
+    });
+    expect(candidate.iHDedicatedLandingCandidate).toMatchObject({
+      schemaVersion: "sena-i-h-dedicated-landing-candidate/v1",
+      status: "staged-candidate-pending-freeze-and-independent-review",
+      ownerAuthorizationMessageSha256:
+        "fb516e8b900bd645d986c5b064d3ec19034350e110f11f5bd4826a0f59e3e218",
+      independentReview: {
+        required: true,
+        completed: false,
+        exactFrozenCandidateRequired: true,
+        activationAuthorized: false
+      },
+      jEvidenceCustody: {
+        schemaVersion: "sena-j-h-evidence-custody-reconstruction/v1",
+        packageManifestSha256:
+          "641fbaf075a2553d6847ef8e68784793d93e4dc39f8117ac3c6e6361dbbd0c46",
+        originalEvidenceMissingObserved: true,
+        sourceMutationAuthorized: false,
+        sourceDeletionAuthorized: false,
+        sourceMoveAuthorized: false
+      }
+    });
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+  });
+
+  it("requires the exact owner-only J package, fresh restore proof, and retained BENPrB manifest", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.jHEvidenceCustodyReconstructionAllowed
+    ).toBe("function");
+    const candidate = iHCandidateForTest();
+    expect(
+      governance.jHEvidenceCustodyReconstructionAllowed(candidate, {
+        forcePhysicalRevalidation: true
+      })
+    ).toBe(true);
+    expect(candidate.jHEvidenceCustodyReconstruction).toMatchObject({
+      schemaVersion: "sena-j-h-evidence-custody-reconstruction/v1",
+      status: "owner-only-reconstructed-and-independently-restored",
+      ownerAuthorizationMessageSha256:
+        "2cfaff474edb59e6adc8fdb9d6d920ba28008fcd6fae71645d86cdb71b03c3e0",
+      newPackage: {
+        packageManifestSha256:
+          "641fbaf075a2553d6847ef8e68784793d93e4dc39f8117ac3c6e6361dbbd0c46",
+        packageFileCount: 9,
+        bundleSha256:
+          "be193bf7b2d9d6afc7437bc4c66b61e2c0a9d36bf9b0b232c11484a2c660034c",
+        bundleSizeBytes: 192263446,
+        sourceFreezeSha256:
+          "072bf50ba44eba9e1add894ea5c4efb128ce5e16019b9cd053a227b472182241",
+        benprbManifestSha256:
+          "7dba3cf1e98547270270896769e6791fcecb4d3e5c0f4e7eab56b13a7b5e3996",
+        restoreVerificationSha256:
+          "3a2085854e2237bbac66f87ed3e72240c9284dd201342b8afc1dbc0ab6d9aead"
+      },
+      authorizationBoundary: {
+        commitAuthorized: false,
+        pushAuthorized: false,
+        prAuthorized: false,
+        ciAuthorized: false,
+        mergeAuthorized: false,
+        deploymentAuthorized: false,
+        cleanupAuthorized: false,
+        evidenceDeletionAuthorized: false,
+        sourceMutationAuthorized: false,
+        sourceDeletionAuthorized: false,
+        sourceMoveAuthorized: false
+      }
+    });
+    for (const mutate of [
+      (value: any) =>
+        (value.jHEvidenceCustodyReconstruction.newPackage.packageManifestSha256 =
+          "a".repeat(64)),
+      (value: any) =>
+        (value.jHEvidenceCustodyReconstruction.newPackage.bundleSizeBytes += 1),
+      (value: any) =>
+        (value.jHEvidenceCustodyReconstruction.retainedSources.benprb.headSha =
+          "a".repeat(40)),
+      (value: any) =>
+        (value.jHEvidenceCustodyReconstruction.authorizationBoundary.sourceMoveAuthorized =
+          true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(
+        governance.jHEvidenceCustodyReconstructionAllowed(changed, {
+          forcePhysicalRevalidation: true
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("isolates every J repository proof from caller-controlled Git environment", async () => {
+    const candidate = iHCandidateForTest();
+    const poisonRoot = realpathSync(hTemporaryRoot("j-git-env-poison"));
+    const poisonGit = join(poisonRoot, "git");
+    const poisonIndex = join(poisonRoot, "index");
+    const poisonObjects = join(poisonRoot, "objects");
+    runGit(poisonRoot, ["init", "--bare", "-q", poisonGit]);
+    copyFileSync(
+      runGit(projectRoot, [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-path",
+        "index"
+      ]),
+      poisonIndex
+    );
+    mkdirSync(poisonObjects);
+    const keys = [
+      "SENA_GOVERNANCE_CONTROL_ROOT",
+      "SENA_GOVERNANCE_TARGET_ROOT",
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_PREFIX"
+    ];
+    const before = new Map(keys.map((key) => [key, process.env[key]]));
+    Object.assign(process.env, {
+      SENA_GOVERNANCE_CONTROL_ROOT: candidate.repo,
+      SENA_GOVERNANCE_TARGET_ROOT: projectRoot,
+      GIT_DIR: poisonGit,
+      GIT_WORK_TREE: projectRoot,
+      GIT_COMMON_DIR: poisonGit,
+      GIT_INDEX_FILE: poisonIndex,
+      GIT_OBJECT_DIRECTORY: poisonObjects,
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(candidate.repo, ".git", "objects"),
+      GIT_PREFIX: "foreign-prefix/"
+    });
+    try {
+      const governance: any = await import(
+        `${pathToFileURL(governanceScript).href}?j-git-env=${Date.now()}-${Math.random()}`
+      );
+      const packageObservation = candidate.jHEvidenceCustodyReconstruction.newPackage;
+      const sourceFreeze = JSON.parse(
+        readFileSync(packageObservation.sourceFreezePath, "utf8")
+      );
+      const benprbManifest = JSON.parse(
+        readFileSync(packageObservation.benprbManifestPath, "utf8")
+      );
+      const restoreVerification = JSON.parse(
+        readFileSync(packageObservation.restoreVerificationPath, "utf8")
+      );
+      expect(
+        governance.jHMirrorFacts(sourceFreeze.mirrorSource.path)
+      ).toEqual(sourceFreeze.mirrorSource);
+      expect(
+        governance.jHCheckoutSnapshotAllowed(
+          sourceFreeze.checkoutSource.path,
+          sourceFreeze.checkoutSource
+        )
+      ).toBe(true);
+      expect(
+        governance.jHBenprbSnapshotAllowed(
+          benprbManifest.sourcePath,
+          benprbManifest
+        )
+      ).toBe(true);
+      expect(
+        governance.jHMirrorSnapshotAllowed(
+          restoreVerification.mirrorClone.path,
+          {
+            ...sourceFreeze.mirrorSource,
+            path: restoreVerification.mirrorClone.path
+          }
+        )
+      ).toBe(true);
+      expect(
+        governance.jHCheckoutSnapshotAllowed(
+          restoreVerification.checkoutClone.path,
+          restoreVerification.checkoutClone
+        )
+      ).toBe(true);
+      expect(
+        governance.jHEvidenceCustodyReconstructionAllowed(candidate, {
+          forcePhysicalRevalidation: true
+        })
+      ).toBe(true);
+    } finally {
+      for (const key of keys) {
+        const value = before.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
+  it("rejects added or dropped mirror refs, attached BENPrB branches, and symlink aliases in disposable custody fixtures", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.jHMirrorSnapshotAllowed).toBe("function");
+    expect(typeof governance.jHBenprbSnapshotAllowed).toBe("function");
+    const holder = realpathSync(hTemporaryRoot("j-complete-repository-facts"));
+    const source = join(holder, "source");
+    const mirror = join(holder, "mirror.git");
+    const benprb = join(holder, "benprb");
+    mkdirSync(source);
+    runGit(source, ["init", "-q"]);
+    runGit(source, ["config", "user.name", "SENA J facts test"]);
+    runGit(source, ["config", "user.email", "j-facts@example.invalid"]);
+    runGit(source, ["branch", "-M", "main"]);
+    writeFileSync(join(source, "payload.txt"), "frozen\n");
+    runGit(source, ["add", "payload.txt"]);
+    runGit(source, ["commit", "-q", "-m", "frozen fixture"]);
+    runGit(holder, ["clone", "-q", "--bare", "--no-local", source, mirror]);
+    runGit(holder, ["clone", "-q", "--no-local", source, benprb]);
+    runGit(benprb, ["checkout", "-q", "--detach", "HEAD"]);
+
+    const gitBytes = (root: string, args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], {
+        encoding: null,
+        env: process.env
+      });
+      expect(result.status).toBe(0);
+      return result.stdout as Buffer;
+    };
+    const sha256 = (bytes: Buffer | string) =>
+      createHash("sha256").update(bytes).digest("hex");
+    const sortedUniqueLines = (bytes: Buffer) => {
+      const lines = bytes
+        .toString("utf8")
+        .split("\n")
+        .filter(Boolean)
+        .sort((left, right) =>
+          Buffer.compare(Buffer.from(left), Buffer.from(right))
+        );
+      return Buffer.from(`${[...new Set(lines)].join("\n")}\n`);
+    };
+    const headSha = runGit(source, ["rev-parse", "HEAD"]);
+    const treeSha = runGit(source, ["rev-parse", "HEAD^{tree}"]);
+    const refsBytes = gitBytes(mirror, [
+      "for-each-ref",
+      "--sort=refname",
+      "--format=%(objectname) %(refname)"
+    ]);
+    const mirrorReachable = sortedUniqueLines(
+      gitBytes(mirror, ["rev-list", "--objects", "--all", "HEAD"])
+    );
+    const mirrorExpected = {
+      path: mirror,
+      bare: true,
+      headSha,
+      treeSha,
+      refCount: refsBytes.toString("utf8").trim().split("\n").length,
+      refsSha256: sha256(refsBytes),
+      reachableObjectCount: mirrorReachable
+        .toString("utf8")
+        .trim()
+        .split("\n").length,
+      reachableObjectInventorySha256: sha256(mirrorReachable),
+      fsckFullStrictExitCode: 0
+    };
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirror, mirrorExpected)
+    ).toBe(true);
+    runGit(mirror, ["update-ref", "refs/heads/extra", headSha]);
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirror, mirrorExpected)
+    ).toBe(false);
+    runGit(mirror, ["update-ref", "-d", "refs/heads/extra"]);
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirror, mirrorExpected)
+    ).toBe(true);
+    runGit(mirror, ["update-ref", "-d", "refs/heads/main"]);
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirror, mirrorExpected)
+    ).toBe(false);
+    runGit(mirror, ["update-ref", "refs/heads/main", headSha]);
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirror, mirrorExpected)
+    ).toBe(true);
+    const mirrorAlias = join(holder, "mirror-alias.git");
+    symlinkSync(mirror, mirrorAlias);
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirrorAlias, {
+        ...mirrorExpected,
+        path: mirrorAlias
+      })
+    ).toBe(false);
+    const externalMirrorObjects = join(holder, "external-mirror-objects");
+    cpSync(join(mirror, "objects"), externalMirrorObjects, {
+      recursive: true
+    });
+    rmSync(join(mirror, "objects"), { recursive: true });
+    symlinkSync(externalMirrorObjects, join(mirror, "objects"));
+    expect(
+      governance.jHMirrorSnapshotAllowed(mirror, mirrorExpected)
+    ).toBe(false);
+
+    const benReachable = sortedUniqueLines(
+      gitBytes(benprb, ["rev-list", "--objects", "--all", "HEAD"])
+    );
+    const parents = runGit(benprb, ["show", "-s", "--format=%P", "HEAD"])
+      .split(" ")
+      .filter(Boolean);
+    const benExpected = {
+      schemaVersion: "sena-j-h-retained-test-fixture-manifest/v1",
+      recordedAt: "fixture",
+      sourcePath: benprb,
+      gitDirectory: join(benprb, ".git"),
+      headSha,
+      treeSha,
+      orderedParentShas: parents,
+      branch: null,
+      detachedHead: true,
+      trackedPathCount: 1,
+      treeEntriesSha256: sha256(
+        gitBytes(benprb, ["ls-tree", "-r", "-z", "HEAD"])
+      ),
+      indexEntriesSha256: sha256(
+        gitBytes(benprb, ["ls-files", "--stage", "-z"])
+      ),
+      statusPorcelainV1Sha256: sha256(Buffer.alloc(0)),
+      reachableObjectCount: benReachable
+        .toString("utf8")
+        .trim()
+        .split("\n").length,
+      reachableObjectInventorySha256: sha256(benReachable),
+      fsckFullStrictExitCode: 0,
+      sourcePresent: true,
+      sourceMutationAuthorized: false,
+      sourceDeletionAuthorized: false,
+      sourceMoveAuthorized: false,
+      cleanupAuthorized: false
+    };
+    expect(
+      governance.jHBenprbSnapshotAllowed(benprb, benExpected)
+    ).toBe(true);
+    runGit(benprb, ["checkout", "-q", "-b", "unauthorized-branch"]);
+    expect(
+      governance.jHBenprbSnapshotAllowed(benprb, benExpected)
+    ).toBe(false);
+    runGit(benprb, ["checkout", "-q", "--detach", headSha]);
+    expect(
+      governance.jHBenprbSnapshotAllowed(benprb, benExpected)
+    ).toBe(true);
+    const externalBenIndex = join(holder, "external-ben-index");
+    copyFileSync(join(benprb, ".git", "index"), externalBenIndex);
+    rmSync(join(benprb, ".git", "index"));
+    symlinkSync(externalBenIndex, join(benprb, ".git", "index"));
+    expect(
+      governance.jHBenprbSnapshotAllowed(benprb, benExpected)
+    ).toBe(false);
+  });
+
+  it("rejects an owner-only package manifest that duplicates one allowed file while omitting another", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const holder = hTemporaryRoot("j-manifest-set-equality");
+    const packageRoot = join(holder, "package");
+    mkdirSync(packageRoot, { mode: 0o700 });
+    chmodSync(packageRoot, 0o700);
+    const firstPath = join(packageRoot, "first.bin");
+    const secondPath = join(packageRoot, "second.bin");
+    const manifestPath = join(packageRoot, "PACKAGE.sha256");
+    writeFileSync(firstPath, "first", { mode: 0o600 });
+    writeFileSync(secondPath, "second", { mode: 0o600 });
+    chmodSync(firstPath, 0o600);
+    chmodSync(secondPath, 0o600);
+    const firstSha = sha256File(firstPath);
+    writeFileSync(
+      manifestPath,
+      `${firstSha}  first.bin\n${firstSha}  first.bin\n`,
+      { mode: 0o600 }
+    );
+    chmodSync(manifestPath, 0o600);
+    expect(
+      governance.hOwnerOnlyRecoveryPackageSnapshotAllowed({
+        recoveryPackagePath: packageRoot,
+        packageManifestPath: manifestPath,
+        packageManifestSha256: sha256File(manifestPath),
+        packageFileCount: 3,
+        expectedFiles: ["PACKAGE.sha256", "first.bin", "second.bin"]
+      })
+    ).toBe(false);
+  });
+
+  it("rejects H-source drift, I registry rewrites, authority escalation, and array reordering", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const source = iHSourceForTest();
+    const candidate = iHCandidateForTest();
+    for (const mutate of [
+      (value: any) => (value.updatedAt = candidate.updatedAt),
+      (value: any) => value.releaseReceipts.pop(),
+      (value: any) => (value.hGovernanceIntake.status = "rewritten")
+    ]) {
+      const changed = structuredClone(source);
+      mutate(changed);
+      expect(() =>
+        governance.validateIHDedicatedLandingCandidateTransition(
+          changed,
+          candidate
+        )
+      ).toThrow("rule=i-h-dedicated-landing-transition-invalid");
+    }
+    for (const mutate of [
+      (value: any) => value.releaseReceipts.pop(),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => value.branches.reverse(),
+      (value: any) => (value.extra = true),
+      (value: any) =>
+        (value.workItems.find(
+          (item: any) => item.taskId === I_H_TASK_FOR_TEST
+        ).allowedPaths = ["**"]),
+      (value: any) =>
+        (value.workItems.find(
+          (item: any) => item.taskId === "SENA-PR86-DELIVERY-CLOSEOUT-20260907"
+        ).disposition = "active"),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.candidateCommitAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.candidatePushAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.prAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.ciAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.readyAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.mergeAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.deploymentAuthorized =
+          true),
+      (value: any) =>
+        (value.iHDedicatedLandingCandidate.authorizationBoundary.cleanupAuthorized =
+          true),
+      (value: any) =>
+        (value.jHEvidenceCustodyReconstruction.authorizationBoundary.commitAuthorized =
+          true),
+      (value: any) =>
+        (value.jHEvidenceCustodyReconstruction.authorizationBoundary.evidenceDeletionAuthorized =
+          true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateIHDedicatedLandingCandidateTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=i-h-dedicated-landing-transition-invalid");
+    }
+  });
+
+  it("permits only the exact I three-path stage-0 identity and unconditionally denies an I push", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = iHCandidateForTest();
+    const facts = {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE_FOR_TEST,
+      gitDirectory:
+        "/Volumes/Starship/SENA/.git/worktrees/sena-h-governance-intake-20260908",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH_FOR_TEST,
+      headSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    expect(
+      governance.iHDedicatedLandingIndexFactsAllowed(candidate, facts)
+    ).toBe(true);
+    for (const change of [
+      { branch: H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST },
+      { headSha: "a".repeat(40) },
+      { cachedOriginMainSha: "a".repeat(40) },
+      { rootMainSha: "a".repeat(40) },
+      { stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(0, 2) },
+      { stagedPaths: [...H_GOVERNANCE_PATHS_FOR_TEST, "foreign"] },
+      { unstagedPaths: [H_GOVERNANCE_PATHS_FOR_TEST[0]] },
+      { untrackedPaths: ["foreign"] },
+      { unmerged: true },
+      { markerIsSymlink: true }
+    ]) {
+      expect(
+        governance.iHDedicatedLandingIndexFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+    const push = runNode(
+      governanceScript,
+      ["push-policy", "--remote-name", "origin"],
+      {
+        cwd: projectRoot,
+        input: `refs/heads/${I_H_BRANCH_FOR_TEST} ${H_GOVERNANCE_SOURCE_FOR_TEST} refs/heads/${I_H_BRANCH_FOR_TEST} ${"0".repeat(40)}\n`,
+        env: { SENA_GOVERNANCE_TARGET_ROOT: projectRoot }
+      }
+    );
+    expect(push.status).not.toBe(0);
+    expect(push.stderr).toContain(
+      "rule=i-h-dedicated-landing-push-denied"
+    );
+  });
+
+  it("rejects same-path I stage-0 byte or tree drift across slow J and custody proofs", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.iHDedicatedLandingIndexSnapshotsMatch
+    ).toBe("function");
+    const initial = {
+      stagedTreeSha: "1".repeat(40),
+      stagedBlobEntriesSha256: "2".repeat(64),
+      canonicalDiffSha256: "3".repeat(64),
+      fullIndexDiffSha256: "4".repeat(64),
+      indexEntriesSha256: "5".repeat(64),
+      statusSha256: "6".repeat(64),
+      stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    expect(
+      governance.iHDedicatedLandingIndexSnapshotsMatch(initial, {
+        ...structuredClone(initial)
+      })
+    ).toBe(true);
+    for (const change of [
+      { stagedTreeSha: "a".repeat(40) },
+      { stagedBlobEntriesSha256: "a".repeat(64) },
+      { canonicalDiffSha256: "a".repeat(64) },
+      { fullIndexDiffSha256: "a".repeat(64) },
+      { indexEntriesSha256: "a".repeat(64) },
+      { statusSha256: "a".repeat(64) },
+      { stagedPaths: [...H_GOVERNANCE_PATHS_FOR_TEST].reverse() },
+      { unstagedPaths: [H_GOVERNANCE_PATHS_FOR_TEST[0]] },
+      { untrackedPaths: ["foreign"] },
+      { unmerged: true }
+    ]) {
+      expect(
+        governance.iHDedicatedLandingIndexSnapshotsMatch(initial, {
+          ...structuredClone(initial),
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("re-samples the I index after slow J and physical-custody proof before write-policy can pass", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("function runWritePolicy(flags) {");
+    const end = source.indexOf("\nfunction isIsoTimestamp(", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const initialSnapshot = {
+      stagedTreeSha: "1".repeat(40),
+      stagedBlobEntriesSha256: "2".repeat(64),
+      canonicalDiffSha256: "3".repeat(64),
+      fullIndexDiffSha256: "4".repeat(64),
+      indexEntriesSha256: "5".repeat(64),
+      statusSha256: "6".repeat(64),
+      stagedPaths: ["allowed.ts"],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    let observedSnapshot = structuredClone(initialSnapshot);
+    let stdout = "";
+    let stderr = "";
+    const childProcess = {
+      exitCode: 0,
+      stdout: { write: (value: string) => { stdout += value; } },
+      stderr: { write: (value: string) => { stderr += value; } }
+    };
+    const item = {
+      taskId: I_H_TASK_FOR_TEST,
+      worktreePath: "/fixture",
+      branch: I_H_BRANCH_FOR_TEST,
+      disposition: "active",
+      ownerKey: "fixture-owner",
+      allowedPaths: ["allowed.ts"]
+    };
+    const registry = {
+      hGovernanceIntake: {},
+      iHDedicatedLandingCandidate: {},
+      pr86DeliveryCloseout: {},
+      workItems: [item],
+      branches: [{
+        name: item.branch,
+        disposition: item.disposition,
+        ownerKey: item.ownerKey
+      }]
+    };
+    runInNewContext(`${source.slice(start, end)}\nrunWritePolicy(flags);`, {
+      flags: new Set(["registry-from-index", "staged"]),
+      process: childProcess,
+      REPO_ROOT: "/fixture",
+      PR86_DELIVERY_BRANCH: H_GOVERNANCE_OPERATOR_BRANCH_FOR_TEST,
+      ACTIVE_WRITE_DISPOSITIONS: new Set(["active"]),
+      stagedChangedPaths: () => ["allowed.ts"],
+      mobilePilotCurrentCheckoutMerge: () => null,
+      pr86DeliveryCurrentCheckoutMerged: () => null,
+      loadRegistryForFlags: () => ({ parsed: registry }),
+      hGovernanceCurrentIndexAllowed: () => false,
+      iHDedicatedLandingCurrentIndexAllowed: () => true,
+      hGovernanceCurrentIndexSnapshot: () => structuredClone(observedSnapshot),
+      iHDedicatedLandingIndexSnapshotsMatch: (before: any, after: any) =>
+        JSON.stringify(before) === JSON.stringify(after),
+      jHEvidenceCustodyReconstructionAllowed: () => true,
+      iHDedicatedLandingGHostCustodyAllowed: () => true,
+      iHDedicatedLandingPreservedHHostCustodyAllowed: () => true,
+      validateRegistry: () => ({ errors: [] }),
+      appendHostPhysicalCustodyErrors: () => {},
+      mobilePilotItem: () => item,
+      validateMobilePilotSourceEvidence: () => {
+        observedSnapshot = {
+          ...structuredClone(initialSnapshot),
+          stagedBlobEntriesSha256: "a".repeat(64)
+        };
+      },
+      validatePr80RepairIndexTransition: () => false,
+      validateEvidenceFlowCurrentnessIndexTransition: () => false,
+      validateProtectedCurrentnessRepairIndexTransition: () => false,
+      validatePostPr83CurrentnessIndexTransition: () => false,
+      sameExistingPath: () => true,
+      pr86DeliveryItem: () => item,
+      validatePr86DeliveryWriterCurrentness: () => true,
+      git: () => ({ status: 0, stdout: item.branch }),
+      gitText: () => "",
+      pathIsAllowed: () => true,
+      addFinding: (findings: any[], finding: any) => findings.push(finding),
+      safePathForLog: (value: string) => value,
+      safeSourceForLog: (value: string) => value
+    });
+    expect(childProcess.exitCode).toBe(1);
+    expect(stdout).not.toContain("SENA_WRITE_POLICY pass");
+    expect(stderr).toContain(
+      "rule=i-h-dedicated-landing-final-barrier-invalid"
+    );
+  });
+
+  it("accepts only the exact H-bound orphan instruction and J-bound BENPrB marker after backup evidence loss", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = iHCandidateForTest();
+    const binding = candidate.pr86DeliveryCloseout.orphanInstructionObservation;
+    const expected = {
+      relativePath: binding.relativePath,
+      type: "file",
+      size: binding.beforeSize,
+      sha256: binding.beforeSha256
+    };
+    const observed = {
+      relativePath: binding.relativePath,
+      type: "file",
+      size: binding.afterSize,
+      sha256: binding.afterSha256
+    };
+    expect(
+      typeof governance.iHDedicatedLandingOrphanInstructionObservationAllowed
+    ).toBe("function");
+    expect(
+      governance.iHDedicatedLandingOrphanInstructionObservationAllowed(
+        candidate,
+        binding.orphanPath,
+        expected,
+        observed
+      )
+    ).toBe(true);
+    for (const change of [
+      { orphanPath: `${binding.orphanPath}-foreign` },
+      { expected: { ...expected, sha256: "a".repeat(64) } },
+      { observed: { ...observed, size: observed.size + 1 } },
+      { observed: { ...observed, sha256: "a".repeat(64) } }
+    ]) {
+      expect(
+        governance.iHDedicatedLandingOrphanInstructionObservationAllowed(
+          candidate,
+          change.orphanPath ?? binding.orphanPath,
+          change.expected ?? expected,
+          change.observed ?? observed
+        )
+      ).toBe(false);
+    }
+
+    const benprbPath =
+      candidate.jHEvidenceCustodyReconstruction.retainedSources.benprb.path;
+    const marker = {
+      path: benprbPath,
+      markerPath: `${benprbPath}/.git`,
+      kind: "directory",
+      valid: true
+    };
+    expect(
+      typeof governance.iHDedicatedLandingBenprbFixtureMarkerAllowed
+    ).toBe("function");
+    expect(
+      governance.iHDedicatedLandingBenprbFixtureMarkerAllowed(
+        candidate,
+        marker
+      )
+    ).toBe(true);
+    for (const change of [
+      { path: `${benprbPath}-foreign` },
+      { markerPath: `${benprbPath}/.git-foreign` },
+      { kind: "gitdir-file" },
+      { valid: false }
+    ]) {
+      expect(
+        governance.iHDedicatedLandingBenprbFixtureMarkerAllowed(candidate, {
+          ...marker,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+});
+
+const K_I_SOURCE_COMMIT_FOR_TEST =
+  "1db8c607d09f90175e20a3e6be47b53c0b96e086";
+const K_I_SOURCE_TREE_FOR_TEST =
+  "72825d73d253d15b9bcf1ff6becbc006d36ebda3";
+const K_I_RECORDED_AT_FOR_TEST = "2026-09-08T14:55:09Z";
+const K_I_NEXT_REVIEW_AT_FOR_TEST = "2026-09-10T14:55:09Z";
+const K_I_OWNER_SCOPE_SHA256_FOR_TEST =
+  "53aa632eec403eae9ec971a4315770280f190d2a15ae6017f38f753e7ec573cc";
+const K_I_FAKE_OUTGOING_COMMIT_FOR_TEST = "a".repeat(40);
+
+function kISourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${K_I_SOURCE_COMMIT_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function kICandidateForTest() {
+  const source = kISourceForTest();
+  const candidate = structuredClone(source);
+  const item = candidate.workItems.find(
+    (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+  );
+  const branch = candidate.branches.find(
+    (entry: any) => entry.name === I_H_BRANCH_FOR_TEST
+  );
+  const noPrReason =
+    "Owner-authorized initial push has not yet created the draft PR.";
+  const expectedCloseAt =
+    "owner-gated:initial-push-then-draft-pr-ci-ready-protected-merge";
+  candidate.updatedAt = K_I_RECORDED_AT_FOR_TEST;
+  Object.assign(item, {
+    headSha: K_I_SOURCE_COMMIT_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 },
+    lastHeartbeatAt: K_I_RECORDED_AT_FOR_TEST,
+    lastObservedAt: K_I_RECORDED_AT_FOR_TEST,
+    nextReviewAt: K_I_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    noPrReason,
+    dirtyState: "staged-k-i-owner-authorized-initial-push",
+    evidenceState: {
+      local:
+        "Exact reviewed I tree is committed as 1db8c607; K stages only the three governance paths for the gated landing lifecycle.",
+      ci: "Remote CI is owner-authorized but has not started.",
+      merged: "Ready and protected merge are owner-authorized only after current required checks pass.",
+      deployed: "Deployment is owner-authorized only after landed-main and target-specific verification.",
+      live: "The dedicated remote branch is absent before the exact one-ref initial push."
+    }
+  });
+  Object.assign(branch, {
+    headSha: K_I_SOURCE_COMMIT_FOR_TEST,
+    remoteObservedAt: K_I_RECORDED_AT_FOR_TEST,
+    noPrReason,
+    lastOwnerHeartbeatAt: K_I_RECORDED_AT_FOR_TEST,
+    lastObservedAt: K_I_RECORDED_AT_FOR_TEST,
+    lastCommitAt: "2026-09-08T22:32:22+08:00",
+    nextReviewAt: K_I_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    closeout:
+      "Owner-authorized K initial-push successor is staged; the remote branch remains absent until the exact one-ref push."
+  });
+  candidate.iHDedicatedLandingCandidate.status =
+    "exact-reviewed-tree-committed-owner-authorized-for-gated-lifecycle";
+  candidate.iHDedicatedLandingCandidate.independentReview = {
+    required: true,
+    completed: true,
+    reviewedStagedTreeSha: K_I_SOURCE_TREE_FOR_TEST,
+    reviewedCommitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+    verdict: "approved-ready-for-owner-decision",
+    criticalFindingCount: 0,
+    importantFindingCount: 0,
+    minorFindingCount: 0,
+    actionAuthorityGranted: false,
+    activationAuthorized: false
+  };
+  candidate.kILandingLifecycleAuthorization = {
+    schemaVersion: "sena-k-i-landing-lifecycle-authorization/v1",
+    status: "initial-push-authorized",
+    recordedAt: K_I_RECORDED_AT_FOR_TEST,
+    source: {
+      commitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+      treeSha: K_I_SOURCE_TREE_FOR_TEST,
+      orderedParentShas: [H_GOVERNANCE_SOURCE_FOR_TEST],
+      exactPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      blobShas: [
+        "b50f3a4ec9f7fbb84758a7a1e0dbb3e80ad19331",
+        "28bfa1b5c8f9296720b2cbe8397a96c9bd4349a0",
+        "35a9b1b038626f641471b034d2b61f900beee8ac"
+      ],
+      fileSha256: [
+        "c2bbef9ad9d21bc89b66cd9784e92c7ce9a72bd8acc98667b895330d0075a2b7",
+        "31814f19f56c37567ce6c9c17d964dfe7a649936c10fee560e16492e4c7e876e",
+        "e037e92ab7676544dc5bb95d8253c9471e2c1ede9468d82cb2349fa570eb8303"
+      ]
+    },
+    ownerAuthorization: {
+      mode: "explicit-owner-conversation-authorization",
+      userMessageItemId: "451828751",
+      canonicalScope: [
+        "exact-i-tree-commit",
+        "push",
+        "pull-request-create",
+        "remote-ci",
+        "ready-for-review",
+        "protected-merge",
+        "deployment",
+        "g-product-write",
+        "branch-worktree-evidence-cleanup"
+      ],
+      executionMode: "gated-sequential-preserve-first",
+      canonicalScopeSha256: K_I_OWNER_SCOPE_SHA256_FOR_TEST
+    },
+    consumedCommit: {
+      authorized: true,
+      commitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+      treeSha: K_I_SOURCE_TREE_FOR_TEST,
+      parentSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      nativePreCommitPassed: true
+    },
+    initialPushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      expectedRemoteOldSha: "0".repeat(40),
+      exactlyOneRef: true,
+      createOnly: true
+    },
+    authorizationBoundary: {
+      initialPushAuthorizedNow: true,
+      draftPrCreationAuthorizedAfterPush: true,
+      remoteCiAuthorized: true,
+      readyOwnerAuthorized: true,
+      protectedMergeOwnerAuthorized: true,
+      deploymentOwnerAuthorized: true,
+      gProductWriteOwnerAuthorized: true,
+      cleanupOwnerAuthorized: true,
+      readyRequiresCurrentRequiredChecks: true,
+      mergeRequiresCurrentRequiredChecksAndMainCurrentness: true,
+      deploymentRequiresLandedMainAndTargetVerification: true,
+      gProductWriteRequiresLandedGovernanceAndFreshGCurrentness: true,
+      cleanupRequiresSemanticDispositionAndRecoveryProof: true,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    }
+  };
+  return candidate;
+}
+
+describe("K-I owner-authorized landing lifecycle", () => {
+  it("accepts only the exact committed I source and one create-only initial push while keeping later actions gated", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateKILandingLifecycleAuthorizationTransition
+    ).toBe("function");
+    const source = kISourceForTest();
+    const candidate = kICandidateForTest();
+    expect(
+      JSON.parse(
+        runGit(projectRoot, [
+          "show",
+          "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f:coordination/repo-governance/active-work.json"
+        ])
+      )
+    ).toEqual(candidate);
+    const proof =
+      governance.validateKILandingLifecycleAuthorizationTransition(
+        source,
+        candidate
+      );
+    expect(proof).toMatchObject({
+      sourceCommitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+      sourceTreeSha: K_I_SOURCE_TREE_FOR_TEST,
+      operatorBranch: I_H_BRANCH_FOR_TEST,
+      initialPushAuthorizedNow: true,
+      draftPrCreationAuthorizedAfterPush: true,
+      remoteCiAuthorized: true,
+      readyOwnerAuthorized: true,
+      protectedMergeOwnerAuthorized: true,
+      deploymentOwnerAuthorized: true,
+      gProductWriteOwnerAuthorized: true,
+      cleanupOwnerAuthorized: true,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(governance.kILandingLifecycleHistoricalProjection(candidate)).toEqual(
+      source
+    );
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => (value.workItems.find(
+        (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+      ).headSha = H_GOVERNANCE_SOURCE_FOR_TEST),
+      (value: any) => (value.iHDedicatedLandingCandidate.independentReview.minorFindingCount = 1),
+      (value: any) => (value.kILandingLifecycleAuthorization.source.commitSha = H_GOVERNANCE_SOURCE_FOR_TEST),
+      (value: any) => (value.kILandingLifecycleAuthorization.ownerAuthorization.userMessageItemId = "foreign"),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.initialPushAuthorizedNow = false),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.directMainPushAuthorized = true),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateKILandingLifecycleAuthorizationTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=k-i-landing-lifecycle-transition-invalid");
+    }
+    const facts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: K_I_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: K_I_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: "0".repeat(40),
+      orderedParentShas: [K_I_SOURCE_COMMIT_FOR_TEST],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      outgoingRegistryMatches: true
+    };
+    expect(
+      governance.kILandingInitialPushFactsAllowed(candidate, facts)
+    ).toBe(true);
+    for (const change of [
+      { branch: "foreign" },
+      { currentHeadSha: "b".repeat(40) },
+      { localRef: "refs/heads/main" },
+      { remoteRef: "refs/heads/main" },
+      { remoteSha: "1".repeat(40) },
+      { orderedParentShas: [H_GOVERNANCE_SOURCE_FOR_TEST] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(0, 2) },
+      { cachedMainSha: "b".repeat(40) },
+      { rootMainSha: "b".repeat(40) },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.kILandingInitialPushFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("validates the committed K registry in a fresh GitHub Actions clone without local-only H tree objects", () => {
+    const holder = temporaryRoot("k-i-portable-ci");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+    ]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+    );
+    const localOnlyTree = spawnSync(
+      "git",
+      ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
+      { cwd: root, encoding: "utf8", env: process.env }
+    );
+    expect(localOnlyTree.status).not.toBe(0);
+    copyFileSync(
+      governanceScript,
+      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    );
+    const registry = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          GITHUB_SHA: "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f"
+        }
+      }
+    );
+    expect(registry.status).toBe(0);
+    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
+});
+
+const L_K_SOURCE_COMMIT_FOR_TEST =
+  "b54bec52d5e3d2665c189fdaacfeb3a4be5f339f";
+const L_K_SOURCE_TREE_FOR_TEST =
+  "ad6733d7ab1805f1336fda063bf41f4ebd660528";
+const L_K_RECORDED_AT_FOR_TEST = "2026-09-08T16:52:40Z";
+const L_K_NEXT_REVIEW_AT_FOR_TEST = "2026-09-10T16:52:40Z";
+const L_K_FAKE_OUTGOING_COMMIT_FOR_TEST = "b".repeat(40);
+
+function lKSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${L_K_SOURCE_COMMIT_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function lKCandidateForTest() {
+  const source = lKSourceForTest();
+  const candidate = structuredClone(source);
+  const item = candidate.workItems.find(
+    (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+  );
+  const branch = candidate.branches.find(
+    (entry: any) => entry.name === I_H_BRANCH_FOR_TEST
+  );
+  const expectedCloseAt =
+    "owner-gated:pr88-ci-remediation-then-ready-protected-merge";
+  candidate.updatedAt = L_K_RECORDED_AT_FOR_TEST;
+  Object.assign(item, {
+    headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 2, behind: 0 },
+    lastHeartbeatAt: L_K_RECORDED_AT_FOR_TEST,
+    lastObservedAt: L_K_RECORDED_AT_FOR_TEST,
+    nextReviewAt: L_K_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    prNumber: 88,
+    noPrReason: null,
+    prIsDraft: true,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-l-k-pr88-ci-portability-remediation",
+    evidenceState: {
+      local:
+        "K initial-push commit b54bec52 is clean and exactly matches the remote PR head; L stages only the three governance paths.",
+      ci: "PR #88 build passed; repository-security failed because the fresh runner correctly lacked the local-only H staged tree object. L adds a strict GitHub Actions reconstruction path.",
+      merged: "PR #88 remains OPEN and Draft; Ready and protected merge are not yet effective.",
+      deployed: "Deployment remains gated on landed-main and target verification.",
+      live: "Remote branch and Draft PR #88 are exact at b54bec52 before the one-ref L update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    upstream: `origin/${I_H_BRANCH_FOR_TEST}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    remoteObservedAt: L_K_RECORDED_AT_FOR_TEST,
+    pr: 88,
+    noPrReason: null,
+    prHeadSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    prState: "OPEN",
+    prBase: "main",
+    prIsDraft: true,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: L_K_RECORDED_AT_FOR_TEST,
+    lastObservedAt: L_K_RECORDED_AT_FOR_TEST,
+    lastCommitAt: "2026-09-09T00:15:00+08:00",
+    nextReviewAt: L_K_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at b54bec52; L repairs fresh-runner source portability and authorizes only the exact branch update."
+  });
+  candidate.kILandingLifecycleAuthorization.status =
+    "draft-pr-bound-ci-remediation-authorized";
+  candidate.kILandingLifecycleAuthorization.draftPrBinding = {
+    number: 88,
+    url: "https://github.com/HUDongpin/SENA/pull/88",
+    state: "OPEN",
+    draft: true,
+    headRef: I_H_BRANCH_FOR_TEST,
+    headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+    baseRef: "main",
+    createdAt: "2026-09-08T16:45:05Z"
+  };
+  Object.assign(
+    candidate.kILandingLifecycleAuthorization.authorizationBoundary,
+    {
+      initialPushAuthorizedNow: false,
+      branchUpdatePushAuthorizedNow: true,
+      ciRemediationAuthorized: true
+    }
+  );
+  candidate.lKDraftPrCiRemediation = {
+    schemaVersion: "sena-l-k-draft-pr-ci-remediation/v1",
+    status: "draft-pr-bound-portability-fix-staged",
+    recordedAt: L_K_RECORDED_AT_FOR_TEST,
+    source: {
+      commitSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      treeSha: L_K_SOURCE_TREE_FOR_TEST,
+      orderedParentShas: [K_I_SOURCE_COMMIT_FOR_TEST],
+      exactPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      blobShas: [
+        "cdab47abe72d5c0da5bc8b928f86fe63c8928ec0",
+        "7b8a322d6150b3818f9adc78fca5cd99d67d61c7",
+        "335b75f4fd4c2e87582043c801af6c7932022502"
+      ],
+      fileSha256: [
+        "e1d424708cedf402ff3fd88b2d83aa0f39d424d866f306fd7ee2335396cee118",
+        "3eb39bf24c3ab0cd034c9e139644b9b8db165dcdf8f4a06b8dcb5c6fe9a87f3b",
+        "defb4de9d32b557a54c6ad143b8da23f389d4200c31b426c2dfe2ac8a808893f"
+      ]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      baseSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      mergeable: "MERGEABLE"
+    },
+    observedChecks: {
+      build: {
+        runId: 34252971447,
+        jobId: 102151647784,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34252855112,
+          jobId: 102151263378,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34252971465,
+          jobId: 102151647868,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-source-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-reconstruction",
+      localPhysicalHObjectRequirementPreserved: true,
+      portableRequiresExactRepositoryAndEvent: true,
+      portableRequiresReachableICommitTreeAndBlobs: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      expectedRemoteOldSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      branchUpdateCommitAuthorizedAfterGates: true,
+      branchUpdatePushAuthorizedNow: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    }
+  };
+  return candidate;
+}
+
+describe("L-K Draft PR and CI portability remediation", () => {
+  it("binds exact PR 88 failure receipts and permits only one non-force branch update", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateLKDraftPrCiRemediationTransition
+    ).toBe("function");
+    const source = lKSourceForTest();
+    const candidate = lKCandidateForTest();
+    expect(
+      JSON.parse(
+        runGit(projectRoot, [
+          "show",
+          "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d:coordination/repo-governance/active-work.json"
+        ])
+      )
+    ).toEqual(candidate);
+    const proof = governance.validateLKDraftPrCiRemediationTransition(
+      source,
+      candidate
+    );
+    expect(proof).toMatchObject({
+      sourceCommitSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      sourceTreeSha: L_K_SOURCE_TREE_FOR_TEST,
+      pullRequestNumber: 88,
+      branchUpdatePushAuthorizedNow: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.lKDraftPrCiRemediationHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.branches.reverse(),
+      (value: any) => (value.workItems.find(
+        (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+      ).prNumber = 89),
+      (value: any) => (value.kILandingLifecycleAuthorization.draftPrBinding.draft = false),
+      (value: any) => (value.lKDraftPrCiRemediation.source.commitSha = K_I_SOURCE_COMMIT_FOR_TEST),
+      (value: any) => (value.lKDraftPrCiRemediation.observedChecks.build.conclusion = "FAILURE"),
+      (value: any) => (value.lKDraftPrCiRemediation.remediation.localPhysicalHObjectRequirementPreserved = false),
+      (value: any) => (value.lKDraftPrCiRemediation.authorizationBoundary.readyAuthorizedNow = true),
+      (value: any) => (value.lKDraftPrCiRemediation.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.lKDraftPrCiRemediation.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateLKDraftPrCiRemediationTransition(source, changed)
+      ).toThrow("rule=l-k-draft-pr-ci-remediation-transition-invalid");
+    }
+    const facts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: L_K_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: L_K_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: L_K_SOURCE_COMMIT_FOR_TEST,
+      orderedParentShas: [L_K_SOURCE_COMMIT_FOR_TEST],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      outgoingRegistryMatches: true
+    };
+    expect(governance.lKBranchUpdatePushFactsAllowed(candidate, facts)).toBe(
+      true
+    );
+    for (const change of [
+      { currentHeadSha: "c".repeat(40) },
+      { remoteSha: "0".repeat(40) },
+      { remoteRef: "refs/heads/main" },
+      { orderedParentShas: [K_I_SOURCE_COMMIT_FOR_TEST] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { cachedMainSha: "c".repeat(40) },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.lKBranchUpdatePushFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("validates the exact staged L candidate after a fresh-clone commit with no local-only H tree", () => {
+    const holder = temporaryRoot("l-k-portable-ci");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"
+    ]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"
+    );
+    copyFileSync(
+      governanceScript,
+      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    );
+    const localOnlyTree = spawnSync(
+      "git",
+      ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
+      { cwd: root, encoding: "utf8", env: process.env }
+    );
+    expect(localOnlyTree.status).not.toBe(0);
+    const registry = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          GITHUB_SHA: runGit(root, ["rev-parse", "HEAD"])
+        }
+      }
+    );
+    expect(registry.status).toBe(0);
+    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
+});
+
+const M_L_SOURCE_COMMIT_FOR_TEST =
+  "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d";
+const M_L_SOURCE_TREE_FOR_TEST =
+  "0236973317eec972b49d0bb5af9a27eb0784f9db";
+const M_L_RECORDED_AT_FOR_TEST = "2026-09-08T18:02:49Z";
+const M_L_NEXT_REVIEW_AT_FOR_TEST = "2026-09-10T18:02:49Z";
+
+function mLSourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${M_L_SOURCE_COMMIT_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function mLCandidateForTest() {
+  const source = mLSourceForTest();
+  const candidate = structuredClone(source);
+  const item = candidate.workItems.find(
+    (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+  );
+  const branch = candidate.branches.find(
+    (entry: any) => entry.name === I_H_BRANCH_FOR_TEST
+  );
+  const expectedCloseAt =
+    "owner-gated:pr88-portable-j-ci-remediation-then-ready-merge";
+  candidate.updatedAt = M_L_RECORDED_AT_FOR_TEST;
+  Object.assign(item, {
+    headSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 3, behind: 0 },
+    lastHeartbeatAt: M_L_RECORDED_AT_FOR_TEST,
+    lastObservedAt: M_L_RECORDED_AT_FOR_TEST,
+    nextReviewAt: M_L_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    dirtyState: "staged-m-l-portable-j-ci-remediation",
+    evidenceState: {
+      local:
+        "L commit 6a1127db is clean and exact at the remote PR head; M stages only the three governance paths.",
+      ci: "PR #88 build passed; both repository-security runs reached exact registry validation and failed only because the GitHub runner cannot read local J physical paths.",
+      merged: "PR #88 remains OPEN and Draft; Ready and merge remain ineffective.",
+      deployed: "Deployment remains gated on landed-main and target verification.",
+      live: "Remote branch and Draft PR #88 are exact at 6a1127db before the one-ref M update."
+    }
+  });
+  Object.assign(branch, {
+    headSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    remoteHeadSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    remoteObservedAt: M_L_RECORDED_AT_FOR_TEST,
+    prHeadSha: M_L_SOURCE_COMMIT_FOR_TEST,
+    lastOwnerHeartbeatAt: M_L_RECORDED_AT_FOR_TEST,
+    lastObservedAt: M_L_RECORDED_AT_FOR_TEST,
+    lastCommitAt: "2026-09-09T01:49:30+08:00",
+    nextReviewAt: M_L_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    closeout:
+      "Draft PR #88 is bound at 6a1127db; M permits only strict portable substitution for unavailable J host evidence."
+  });
+  candidate.mLPortableJEvidenceCiRemediation = {
+    schemaVersion: "sena-m-l-portable-j-evidence-ci-remediation/v1",
+    status: "portable-j-ci-fix-staged",
+    recordedAt: M_L_RECORDED_AT_FOR_TEST,
+    source: {
+      commitSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      treeSha: M_L_SOURCE_TREE_FOR_TEST,
+      orderedParentShas: [L_K_SOURCE_COMMIT_FOR_TEST],
+      exactPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      blobShas: [
+        "3e5ba0e0378dba3f8220150f8ecf6708812ddae0",
+        "5a2bf72e9dd051aa2bb2698c535911e4aa11c477",
+        "e7ac26e71f72b3979e196f27fdff961c6cd27e2b"
+      ],
+      fileSha256: [
+        "26ff3aeb39f84982d43f4992dc22accd909db95fd25bd2be3f5d09859c548b3a",
+        "325a88a3a1a20a4decc81793ee185fb22c007a1d6d6cbea12cae45bb81c9aae1",
+        "5ae9e8b0066d595d424feec5b1fdd27edc0447e4c7dc3f7b12e0f1a6f1804c8d"
+      ]
+    },
+    pullRequest: {
+      number: 88,
+      state: "OPEN",
+      draft: true,
+      headSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      baseSha: H_GOVERNANCE_SOURCE_FOR_TEST
+    },
+    observedChecks: {
+      build: {
+        runId: 34260416942,
+        jobId: 102176680378,
+        conclusion: "SUCCESS"
+      },
+      repositorySecurityFailures: [
+        {
+          event: "push",
+          runId: 34260410659,
+          jobId: 102176660505,
+          conclusion: "FAILURE"
+        },
+        {
+          event: "pull_request",
+          runId: 34260416788,
+          jobId: 102176679298,
+          conclusion: "FAILURE"
+        }
+      ],
+      exactErrors: [
+        "rule=i-h-dedicated-landing-transition-invalid",
+        "workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract"
+      ]
+    },
+    remediation: {
+      mode: "strict-github-actions-portable-j-substitution",
+      localJPhysicalRevalidationPreserved: true,
+      portableRequiresLocalOnlyHTreeAbsent: true,
+      portableRequiresExactReachableICommitTreeAndBlobs: true,
+      portableDoesNotClaimRunnerHostCustody: true,
+      portableAllowsHostOrProviderMutation: false
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      expectedRemoteOldSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      exactlyOneRef: true,
+      force: false
+    },
+    authorizationBoundary: {
+      branchUpdateCommitAuthorizedAfterGates: true,
+      branchUpdatePushAuthorizedNow: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    }
+  };
+  return candidate;
+}
+
+describe("M-L portable J evidence CI remediation", () => {
+  it("binds the second PR 88 CI failures and authorizes only the exact non-force update", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateMLPortableJEvidenceCiRemediationTransition
+    ).toBe("function");
+    const source = mLSourceForTest();
+    const candidate = mLCandidateForTest();
+    expect(
+      JSON.parse(
+        runGit(projectRoot, [
+          "show",
+          "26a13f040c5b3834e6fda6a9c004d511d8c572fb:coordination/repo-governance/active-work.json"
+        ])
+      )
+    ).toEqual(candidate);
+    const proof =
+      governance.validateMLPortableJEvidenceCiRemediationTransition(
+        source,
+        candidate
+      );
+    expect(proof).toMatchObject({
+      sourceCommitSha: M_L_SOURCE_COMMIT_FOR_TEST,
+      sourceTreeSha: M_L_SOURCE_TREE_FOR_TEST,
+      pullRequestNumber: 88,
+      branchUpdatePushAuthorizedNow: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.mLPortableJEvidenceCiHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.source.commitSha = L_K_SOURCE_COMMIT_FOR_TEST),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.observedChecks.build.conclusion = "FAILURE"),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.remediation.localJPhysicalRevalidationPreserved = false),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.remediation.portableDoesNotClaimRunnerHostCustody = false),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.authorizationBoundary.readyAuthorizedNow = true),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.mLPortableJEvidenceCiRemediation.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateMLPortableJEvidenceCiRemediationTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=m-l-portable-j-ci-transition-invalid");
+    }
+  });
+
+  it("validates the exact staged M candidate in a fresh GitHub Actions clone", () => {
+    const holder = temporaryRoot("m-l-portable-ci");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
+    ]);
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
+      "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
+    );
+    copyFileSync(
+      governanceScript,
+      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    );
+    expect(
+      spawnSync(
+        "git",
+        ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
+        { cwd: root, encoding: "utf8", env: process.env }
+      ).status
+    ).not.toBe(0);
+    const registry = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: "refs/pull/88/merge",
+          GITHUB_SHA: runGit(root, ["rev-parse", "HEAD"])
+        }
+      }
+    );
+    expect(registry.status).toBe(0);
+    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+  }, 120_000);
+});
+
+describe("N-M PR 88 final authorization", () => {
+  it("requires an exact M CI receipt transition before Ready or protected merge", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateNMPr88FinalAuthorizationTransition
+    ).toBe("function");
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        "26a13f040c5b3834e6fda6a9c004d511d8c572fb:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination/repo-governance/active-work.json"),
+        "utf8"
+      )
+    );
+    const proof = governance.validateNMPr88FinalAuthorizationTransition(
+      source,
+      candidate
+    );
+    expect(proof).toMatchObject({
+      sourceCommitSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      sourceTreeSha: "ff53849c4351ffa0acb6460adb29b6e48651f962",
+      pullRequestNumber: 88,
+      finalAuthorizationCommitAuthorizedAfterGates: true,
+      finalAuthorizationPushAuthorizedNow: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedAfterFinalHeadChecks: true,
+      protectedMergeAuthorizedAfterFinalHeadChecks: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.nMPr88FinalAuthorizationHistoricalProjection(candidate)
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => (value.nMPr88FinalAuthorization.source.commitSha =
+        "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"),
+      (value: any) => (value.nMPr88FinalAuthorization.initialHeadCompletionEvidence.build.runId = 1),
+      (value: any) => (value.nMPr88FinalAuthorization.initialHeadCompletionEvidence.repositorySecurity[0].event = "pull_request"),
+      (value: any) => (value.nMPr88FinalAuthorization.initialHeadCompletionEvidence.annotationsEmpty = false),
+      (value: any) => (value.nMPr88FinalAuthorization.pullRequest.mergeStateStatus = "BLOCKED"),
+      (value: any) => (value.nMPr88FinalAuthorization.requiredExecution.reverse()),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.readyAuthorizedNow = true),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.deploymentAuthorizedNow = true),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.nMPr88FinalAuthorization.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateNMPr88FinalAuthorizationTransition(source, changed)
+      ).toThrow("rule=n-m-pr88-final-authorization-transition-invalid");
+    }
+    const facts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: "e".repeat(40),
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: "e".repeat(40),
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      orderedParentShas: ["26a13f040c5b3834e6fda6a9c004d511d8c572fb"],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      outgoingRegistryMatches: true
+    };
+    expect(governance.nMPr88FinalPushFactsAllowed(candidate, facts)).toBe(true);
+    for (const change of [
+      { branch: "foreign" },
+      { currentHeadSha: "f".repeat(40) },
+      { localRef: "refs/heads/main" },
+      { remoteSha: "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d" },
+      { orderedParentShas: ["6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { cachedMainSha: "f".repeat(40) },
+      { rootMainSha: "f".repeat(40) },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.nMPr88FinalPushFactsAllowed(candidate, {
+          ...facts,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+
+  it("revalidates the exact M CI receipts and rejects provider drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination/repo-governance/active-work.json"),
+        "utf8"
+      )
+    );
+    const initialRuns = [
+      {
+        id: 34266721411,
+        name: "build-gate",
+        event: "pull_request",
+        jobId: 102197814481,
+        jobName: "build"
+      },
+      {
+        id: 34266717233,
+        name: "repo-security-gate",
+        event: "push",
+        jobId: 102197800401,
+        jobName: "repository-security"
+      },
+      {
+        id: 34266721387,
+        name: "repo-security-gate",
+        event: "pull_request",
+        jobId: 102197814791,
+        jobName: "repository-security"
+      }
+    ];
+    const initialProvider = (path: string): any => {
+      for (const entry of initialRuns) {
+        if (path === `repos/HUDongpin/SENA/actions/runs/${entry.id}`) {
+          return {
+            id: entry.id,
+            name: entry.name,
+            event: entry.event,
+            head_sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+            head_branch: I_H_BRANCH_FOR_TEST,
+            head_repository: { full_name: "HUDongpin/SENA" },
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          };
+        }
+        if (path === `repos/HUDongpin/SENA/actions/jobs/${entry.jobId}`) {
+          return {
+            id: entry.jobId,
+            run_id: entry.id,
+            run_attempt: 1,
+            name: entry.jobName,
+            head_sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+            status: "completed",
+            conclusion: "success"
+          };
+        }
+        if (
+          path ===
+          `repos/HUDongpin/SENA/check-runs/${entry.jobId}/annotations`
+        ) {
+          return [];
+        }
+      }
+      if (path === "repos/HUDongpin/SENA/pulls/88") {
+        return {
+          number: 88,
+          state: "open",
+          draft: true,
+          merged: false,
+          head: {
+            sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+            ref: I_H_BRANCH_FOR_TEST,
+            repo: { full_name: "HUDongpin/SENA" }
+          },
+          base: {
+            sha: H_GOVERNANCE_SOURCE_FOR_TEST,
+            ref: "main",
+            repo: { full_name: "HUDongpin/SENA" }
+          },
+          mergeable: true,
+          mergeable_state: "clean"
+        };
+      }
+      if (
+        path ===
+        `repos/HUDongpin/SENA/git/ref/heads/${I_H_BRANCH_FOR_TEST}`
+      ) {
+        return {
+          ref: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+          object: { sha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb" }
+        };
+      }
+      if (path === "repos/HUDongpin/SENA/git/ref/heads/main") {
+        return {
+          ref: "refs/heads/main",
+          object: { sha: H_GOVERNANCE_SOURCE_FOR_TEST }
+        };
+      }
+      throw new Error(`unexpected initial provider path: ${path}`);
+    };
+    expect(
+      governance.validateNMPr88InitialHeadLiveEvidence(candidate, {
+        githubTransport: initialProvider
+      })
+    ).toMatchObject({
+      headSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      buildRunId: 34266721411,
+      repositorySecurityRunIds: [34266717233, 34266721387],
+      checkJobIds: [102197814481, 102197800401, 102197814791],
+      annotationsEmpty: true,
+      pullRequestNumber: 88,
+      pullRequestDraft: true,
+      mergeable: true
+    });
+    for (const alter of [
+      (path: string, value: any) => {
+        if (path.endsWith("/actions/runs/34266721411")) {
+          value.conclusion = "failure";
+        }
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/actions/jobs/102197814481")) {
+          value.head_sha = "f".repeat(40);
+        }
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/check-runs/102197814481/annotations")) {
+          value.push({ path: "unexpected" });
+        }
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/pulls/88")) value.draft = false;
+      },
+      (path: string, value: any) => {
+        if (path.endsWith("/git/ref/heads/main")) {
+          value.object.sha = "f".repeat(40);
+        }
+      }
+    ]) {
+      expect(() =>
+        governance.validateNMPr88InitialHeadLiveEvidence(candidate, {
+          githubTransport: (path: string) => {
+            const value = structuredClone(initialProvider(path));
+            alter(path, value);
+            return value;
+          }
+        })
+      ).toThrow("rule=n-m-pr88-initial-head-live-evidence-invalid");
+    }
+  });
+
+  it("validates the exact N final head and its future protected merge shape in a fresh clone", () => {
+    const holder = temporaryRoot("n-m-final-and-merge");
+    const root = join(holder, "repo");
+    runGit(holder, [
+      "clone",
+      "-q",
+      "--no-local",
+      "--single-branch",
+      "--branch",
+      I_H_BRANCH_FOR_TEST,
+      projectRoot,
+      root
+    ]);
+    runGit(root, [
+      "checkout",
+      "--detach",
+      "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
+    ]);
+    runGit(root, ["config", "user.name", "SENA N fixture"]);
+    runGit(root, ["config", "user.email", "n-fixture@example.invalid"]);
+    for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
+      copyFileSync(join(projectRoot, relative), join(root, relative));
+    }
+    runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
+    runGit(root, ["commit", "-q", "-m", "exact N final candidate"]);
+    const finalHeadSha = runGit(root, ["rev-parse", "HEAD"]);
+    const finalTreeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+    const finalRegistryBlobSha = runGit(root, [
+      "rev-parse",
+      `HEAD:${H_GOVERNANCE_PATHS_FOR_TEST[0]}`
+    ]);
+    runGit(root, ["branch", "main", H_GOVERNANCE_SOURCE_FOR_TEST]);
+    runGit(root, [
+      "update-ref",
+      "refs/remotes/origin/main",
+      H_GOVERNANCE_SOURCE_FOR_TEST
+    ]);
+    const portable = runNode(
+      join(root, "scripts", "verify-sena-repo-governance.mjs"),
+      ["registry"],
+      {
+        cwd: root,
+        env: {
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: "refs/pull/88/merge",
+          GITHUB_SHA: finalHeadSha
+        }
+      }
+    );
+    expect(portable.status).toBe(0);
+    expect(portable.stdout).toContain("SENA_REPO_REGISTRY pass");
+
+    runGit(root, ["checkout", "--detach", H_GOVERNANCE_SOURCE_FOR_TEST]);
+    runGit(root, ["merge", "--no-ff", "--no-edit", finalHeadSha]);
+    const mergeCommitSha = runGit(root, ["rev-parse", "HEAD"]);
+    expect(runGit(root, ["rev-list", "--parents", "-n", "1", "HEAD"]))
+      .toBe(`${mergeCommitSha} ${H_GOVERNANCE_SOURCE_FOR_TEST} ${finalHeadSha}`);
+    expect(runGit(root, ["rev-parse", "HEAD^{tree}"])).toBe(finalTreeSha);
+
+    const script = String.raw`
+      process.argv[1] = "/usr/bin/env";
+      const { readFileSync } = await import("node:fs");
+      const { execFileSync } = await import("node:child_process");
+      const governance = await import(process.env.N_GOVERNANCE_MODULE_URL);
+      const text = (args) => execFileSync("git", args, {
+        cwd: process.cwd(), encoding: "utf8"
+      }).trim();
+      const finalHeadSha = process.env.N_FINAL_HEAD;
+      const mergeCommitSha = process.env.N_MERGE_HEAD;
+      const sourceMainSha = process.env.N_SOURCE_MAIN;
+      const branch = process.env.N_BRANCH;
+      const candidate = JSON.parse(readFileSync(
+        process.env.N_REGISTRY_PATH, "utf8"
+      ));
+      const runs = [
+        { id: 9001, name: "build-gate", event: "pull_request", job: "build" },
+        { id: 9002, name: "repo-security-gate", event: "push", job: "repository-security" },
+        { id: 9003, name: "repo-security-gate", event: "pull_request", job: "repository-security" }
+      ];
+      const provider = (path) => {
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=")) {
+          return { workflow_runs: runs.map((run, index) => ({
+            id: run.id,
+            name: run.name,
+            event: run.event,
+            head_sha: finalHeadSha,
+            head_branch: branch,
+            head_repository: { full_name: "HUDongpin/SENA" },
+            created_at: new Date(1_800_000_000_000 + index * 1000).toISOString(),
+            run_number: index + 1,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          })) };
+        }
+        for (const [index, run] of runs.entries()) {
+          if (path === "repos/HUDongpin/SENA/actions/runs/" + run.id + "/attempts/1/jobs") {
+            return { jobs: [{
+              id: 9101 + index,
+              run_id: run.id,
+              run_attempt: 1,
+              name: run.job,
+              head_sha: finalHeadSha,
+              status: "completed",
+              conclusion: "success"
+            }] };
+          }
+          if (path === "repos/HUDongpin/SENA/check-runs/" + (9101 + index) + "/annotations") {
+            return [];
+          }
+        }
+        if (path === "repos/HUDongpin/SENA/pulls/88") {
+          return {
+            number: 88,
+            state: "open",
+            draft: true,
+            merged: false,
+            head: { sha: finalHeadSha, ref: branch, repo: { full_name: "HUDongpin/SENA" } },
+            base: { sha: sourceMainSha, ref: "main", repo: { full_name: "HUDongpin/SENA" } },
+            mergeable: true,
+            mergeable_state: "clean"
+          };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/" + branch) {
+          return { ref: "refs/heads/" + branch, object: { sha: finalHeadSha } };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/main") {
+          return { ref: "refs/heads/main", object: { sha: sourceMainSha } };
+        }
+        throw new Error("unexpected provider path: " + path);
+      };
+      const mainRuns = [
+        { id: 9201, name: "build-gate", event: "push", job: "build" },
+        { id: 9202, name: "repo-security-gate", event: "push", job: "repository-security" }
+      ];
+      const mergedProvider = (path) => {
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=" + finalHeadSha)) {
+          return provider(path);
+        }
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=" + mergeCommitSha)) {
+          return { workflow_runs: mainRuns.map((run, index) => ({
+            id: run.id,
+            name: run.name,
+            event: run.event,
+            head_sha: mergeCommitSha,
+            head_branch: "main",
+            head_repository: { full_name: "HUDongpin/SENA" },
+            created_at: new Date(1_800_000_010_000 + index * 1000).toISOString(),
+            run_number: index + 20,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          })) };
+        }
+        for (const [index, run] of mainRuns.entries()) {
+          if (path === "repos/HUDongpin/SENA/actions/runs/" + run.id + "/attempts/1/jobs") {
+            return { jobs: [{
+              id: 9301 + index,
+              run_id: run.id,
+              run_attempt: 1,
+              name: run.job,
+              head_sha: mergeCommitSha,
+              status: "completed",
+              conclusion: "success"
+            }] };
+          }
+          if (path === "repos/HUDongpin/SENA/check-runs/" + (9301 + index) + "/annotations") {
+            return [];
+          }
+        }
+        if (path === "repos/HUDongpin/SENA/pulls/88") {
+          return {
+            number: 88,
+            state: "closed",
+            draft: false,
+            merged: true,
+            merge_commit_sha: mergeCommitSha,
+            head: { sha: finalHeadSha, ref: branch, repo: { full_name: "HUDongpin/SENA" } },
+            base: { sha: sourceMainSha, ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+          };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/" + branch) {
+          return { ref: "refs/heads/" + branch, object: { sha: finalHeadSha } };
+        }
+        if (path.startsWith("repos/HUDongpin/SENA/rulesets/rule-suites?")) {
+          return [{
+            id: 9501,
+            actor_name: "HUDongpin",
+            before_sha: sourceMainSha,
+            after_sha: mergeCommitSha,
+            repository_name: "SENA",
+            result: "pass"
+          }];
+        }
+        if (path === "repos/HUDongpin/SENA/rulesets/rule-suites/9501") {
+          return {
+            id: 9501,
+            actor_name: "HUDongpin",
+            before_sha: sourceMainSha,
+            after_sha: mergeCommitSha,
+            repository_name: "SENA",
+            result: "pass",
+            rule_evaluations: [
+              "deletion",
+              "non_fast_forward",
+              "pull_request",
+              "required_status_checks"
+            ].map((rule_type) => ({
+              rule_type,
+              enforcement: "active",
+              result: "pass",
+              rule_source: {
+                id: 21232887,
+                name: "main-minimum-safety",
+                type: "ruleset"
+              }
+            }))
+          };
+        }
+        return provider(path);
+      };
+      const source = JSON.parse(text([
+        "show",
+        "26a13f040c5b3834e6fda6a9c004d511d8c572fb:coordination/repo-governance/active-work.json"
+      ]));
+      const transition = governance.validateNMPr88FinalAuthorizationTransition(
+        source, candidate
+      );
+      const readiness = governance.validateNMPr88FinalHeadReadiness(
+        candidate, finalHeadSha, { githubTransport: provider }
+      );
+      const descriptor = {
+        mergeTimeRegistry: candidate,
+        currentObservationRegistry: candidate,
+        mergeCommitSha,
+        orderedParentShas: [sourceMainSha, finalHeadSha],
+        secondParentSha: finalHeadSha,
+        mergeTreeSha: text(["rev-parse", mergeCommitSha + "^{tree}"]),
+        registryBlobSha: text(["rev-parse", mergeCommitSha + ":coordination/repo-governance/active-work.json"])
+      };
+      const mergeTime = governance.validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+        descriptor, { mergeTimeOnly: true }
+      );
+      execFileSync(
+        "git",
+        ["update-ref", "refs/remotes/origin/main", mergeCommitSha],
+        { cwd: process.cwd() }
+      );
+      const protectedMerge = governance.validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+        descriptor, {
+          githubTransport: mergedProvider,
+          observedAt: "2026-09-08T19:10:00Z"
+        }
+      );
+      const chain = [
+        {
+          pr: 86,
+          before: "c782aa03940028a2c19db18dfddec55370c797b1",
+          merge: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+          final: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+          branch: "codex/sena-mobile-research-pilot-20260905",
+          suite: 9601,
+          runBase: 10000,
+          jobBase: 11000
+        },
+        {
+          pr: 87,
+          before: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+          merge: sourceMainSha,
+          final: "7fd9e29c34ee7c1573dc81f4824124faadbae279",
+          branch: "codex/sena-pr86-delivery-closeout-20260907",
+          suite: 9602,
+          runBase: 12000,
+          jobBase: 13000
+        },
+        {
+          pr: 88,
+          before: sourceMainSha,
+          merge: mergeCommitSha,
+          final: finalHeadSha,
+          branch,
+          suite: 9603,
+          runBase: 14000,
+          jobBase: 15000
+        }
+      ];
+      const workflowRows = (entry, postMain) => {
+        const rows = postMain
+          ? [
+              ["build-gate", "push", "build"],
+              ["repo-security-gate", "push", "repository-security"]
+            ]
+          : [
+              ["build-gate", "pull_request", "build"],
+              ["repo-security-gate", "push", "repository-security"],
+              ["repo-security-gate", "pull_request", "repository-security"]
+            ];
+        return rows.map(([name, event, job], index) => ({
+          id: entry.runBase + (postMain ? 100 : 0) + index + 1,
+          jobId: entry.jobBase + (postMain ? 100 : 0) + index + 1,
+          name,
+          event,
+          job,
+          head: postMain ? entry.merge : entry.final,
+          branch: postMain ? "main" : entry.branch
+        }));
+      };
+      const allWorkflowRows = chain.flatMap((entry) => [
+        ...workflowRows(entry, false),
+        ...workflowRows(entry, true)
+      ]);
+      const suiteDetail = (entry) => ({
+        id: entry.suite,
+        actor_name: "HUDongpin",
+        before_sha: entry.before,
+        after_sha: entry.merge,
+        repository_name: "SENA",
+        result: "pass",
+        rule_evaluations: [
+          "deletion",
+          "non_fast_forward",
+          "pull_request",
+          "required_status_checks"
+        ].map((rule_type) => ({
+          rule_type,
+          enforcement: "active",
+          result: "pass",
+          rule_source: {
+            id: 21232887,
+            name: "main-minimum-safety",
+            type: "ruleset"
+          }
+        }))
+      });
+      const chainProvider = (path) => {
+        if (path.startsWith("repos/HUDongpin/SENA/actions/runs?head_sha=")) {
+          const queryHead = path.split("head_sha=")[1].split("&")[0];
+          const rows = allWorkflowRows.filter((row) => row.head === queryHead);
+          return { workflow_runs: rows.map((row, index) => ({
+            id: row.id,
+            name: row.name,
+            event: row.event,
+            head_sha: row.head,
+            head_branch: row.branch,
+            head_repository: { full_name: "HUDongpin/SENA" },
+            created_at: new Date(1_800_100_000_000 + index * 1000).toISOString(),
+            run_number: row.id,
+            run_attempt: 1,
+            status: "completed",
+            conclusion: "success"
+          })) };
+        }
+        for (const row of allWorkflowRows) {
+          if (path === "repos/HUDongpin/SENA/actions/runs/" + row.id + "/attempts/1/jobs") {
+            return { jobs: [{
+              id: row.jobId,
+              run_id: row.id,
+              run_attempt: 1,
+              name: row.job,
+              head_sha: row.head,
+              status: "completed",
+              conclusion: "success"
+            }] };
+          }
+          if (path === "repos/HUDongpin/SENA/check-runs/" + row.jobId + "/annotations") {
+            return [];
+          }
+        }
+        const pull = chain.find((entry) => path === "repos/HUDongpin/SENA/pulls/" + entry.pr);
+        if (pull) {
+          return {
+            number: pull.pr,
+            state: "closed",
+            draft: false,
+            merged: true,
+            merge_commit_sha: pull.merge,
+            head: {
+              sha: pull.final,
+              ref: pull.branch,
+              repo: { full_name: "HUDongpin/SENA" }
+            },
+            base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+          };
+        }
+        const remote = chain.find(
+          (entry) => path === "repos/HUDongpin/SENA/git/ref/heads/" + entry.branch
+        );
+        if (remote) {
+          return {
+            ref: "refs/heads/" + remote.branch,
+            object: { sha: remote.final }
+          };
+        }
+        if (path === "repos/HUDongpin/SENA/git/ref/heads/main") {
+          return { ref: "refs/heads/main", object: { sha: mergeCommitSha } };
+        }
+        if (path.startsWith("repos/HUDongpin/SENA/rulesets/rule-suites?")) {
+          return chain.map((entry) => {
+            const detail = suiteDetail(entry);
+            const { rule_evaluations, ...summary } = detail;
+            return summary;
+          });
+        }
+        const suite = chain.find(
+          (entry) => path === "repos/HUDongpin/SENA/rulesets/rule-suites/" + entry.suite
+        );
+        if (suite) return suiteDetail(suite);
+        throw new Error("unexpected chain provider path: " + path);
+      };
+      for (const entry of chain) {
+        execFileSync(
+          "git",
+          ["update-ref", "refs/remotes/origin/" + entry.branch, entry.final],
+          { cwd: process.cwd() }
+        );
+      }
+      const currentness = governance.resolvePr86DeliveryCurrentnessCommit(
+        candidate,
+        mergeCommitSha,
+        {
+          githubTransport: chainProvider,
+          observedAt: "2026-09-08T19:10:00Z"
+        }
+      );
+      const readOnlyHeads = currentness
+        ? chain.map((entry) => governance.pr86DeliveryReadOnlyHeadObservationAllowed(
+            candidate, currentness, entry.branch, entry.final
+          ))
+        : [];
+      let evidenceError = null;
+      try {
+        governance.validatePr88DedicatedGovernanceFinalHeadLiveGitHubEvidence(
+          descriptor,
+          {
+            githubTransport: mergedProvider,
+            observedAt: "2026-09-08T19:10:00Z"
+          }
+        );
+      } catch (error) {
+        evidenceError = error instanceof Error ? error.message : String(error);
+      }
+      console.log(JSON.stringify({
+        transition,
+        readiness,
+        mergeTime,
+        protectedMerge,
+        currentness: currentness
+          ? {
+              mergeCommitSha: currentness.mergeCommitSha,
+              reviewedHeadSha: currentness.reviewedHeadSha,
+              closeoutReviewedHeadSha: currentness.closeoutReviewedHeadSha,
+              dedicatedLandingReviewedHeadSha:
+                currentness.dedicatedLandingReviewedHeadSha
+            }
+          : null,
+        readOnlyHeads,
+        evidenceError
+      }));
+    `;
+    const child = spawnSync(
+      process.execPath,
+      ["--input-type=module", "-e", script],
+      {
+        cwd: root,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          CI: "true",
+          GITHUB_ACTIONS: "true",
+          GITHUB_REPOSITORY: "HUDongpin/SENA",
+          GITHUB_EVENT_NAME: "pull_request",
+          GITHUB_WORKSPACE: root,
+          GITHUB_REF: "refs/pull/88/merge",
+          GITHUB_SHA: finalHeadSha,
+          SENA_GOVERNANCE_TARGET_ROOT: root,
+          N_GOVERNANCE_MODULE_URL: pathToFileURL(governanceScript).href,
+          N_FINAL_HEAD: finalHeadSha,
+          N_MERGE_HEAD: mergeCommitSha,
+          N_SOURCE_MAIN: H_GOVERNANCE_SOURCE_FOR_TEST,
+          N_BRANCH: I_H_BRANCH_FOR_TEST,
+          N_REGISTRY_PATH: join(root, H_GOVERNANCE_PATHS_FOR_TEST[0])
+        }
+      }
+    );
+    expect(child.status, child.stderr).toBe(0);
+    const result = JSON.parse(child.stdout);
+    expect(result.transition).toMatchObject({
+      sourceCommitSha: "26a13f040c5b3834e6fda6a9c004d511d8c572fb",
+      finalAuthorizationPushAuthorizedNow: true,
+      readyAuthorizedAfterFinalHeadChecks: true,
+      protectedMergeAuthorizedAfterFinalHeadChecks: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false
+    });
+    expect(result.readiness).toMatchObject({
+      headSha: finalHeadSha,
+      treeSha: finalTreeSha,
+      registryBlobSha: finalRegistryBlobSha,
+      checkJobIds: [9101, 9102, 9103],
+      annotationsEmpty: true,
+      pullRequestNumber: 88,
+      pullRequestDraft: true,
+      protectedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST
+    });
+    expect(result.mergeTime).toBe(true);
+    expect(result.protectedMerge, result.evidenceError).toBe(true);
+    expect(result.currentness).toEqual({
+      mergeCommitSha,
+      reviewedHeadSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+      closeoutReviewedHeadSha: "7fd9e29c34ee7c1573dc81f4824124faadbae279",
+      dedicatedLandingReviewedHeadSha: finalHeadSha
+    });
+    expect(result.readOnlyHeads).toEqual([true, true, true]);
+  }, 120_000);
 });
