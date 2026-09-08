@@ -1614,17 +1614,29 @@ function runPushPolicy(flags) {
     ["symbolic-ref", "--quiet", "--short", "HEAD"],
     { allowFailure: true }
   );
-  if (
-    currentBranch.status === 0 &&
-    String(currentBranch.stdout ?? "").trim() === I_H_BRANCH
-  ) {
-    throw new Error("rule=i-h-dedicated-landing-push-denied");
-  }
   const findings = [];
   const input = readFileSync(0, "utf8");
   const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
   const remoteLocation = process.env.SENA_GOVERNANCE_REMOTE_LOCATION ?? "";
   const updates = parsePrePushUpdates(input);
+  if (
+    currentBranch.status === 0 &&
+    String(currentBranch.stdout ?? "").trim() === I_H_BRANCH
+  ) {
+    let outgoingRegistry = null;
+    try {
+      outgoingRegistry = loadRegistryFromCommit(updates[0]?.localSha).parsed;
+    } catch {
+      // Preserve the historical dedicated-lane denial rule for malformed or
+      // replayed updates; only the exact K transition may continue.
+    }
+    if (
+      !outgoingRegistry ||
+      !kILandingInitialPushAuthorized(outgoingRegistry, updates)
+    ) {
+      throw new Error("rule=i-h-dedicated-landing-push-denied");
+    }
+  }
   if (updates.length !== 1) {
     throw new Error("push-policy requires exactly one current-branch ref update");
   }
@@ -1828,14 +1840,20 @@ function runWritePolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
   const committedPr86Closeout = pr86DeliveryCurrentCheckoutMerged();
   const { parsed: registry } = loadRegistryForFlags(flags);
+  const isKILandingLifecycle = Boolean(
+    registry.kILandingLifecycleAuthorization
+  );
   const isIHDedicatedLanding = Boolean(
     registry.iHDedicatedLandingCandidate
   );
-  let exactGovernanceIndex = isIHDedicatedLanding
-    ? typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
-      iHDedicatedLandingCurrentIndexAllowed(registry)
-    : typeof hGovernanceCurrentIndexAllowed === "function" &&
-      hGovernanceCurrentIndexAllowed(registry);
+  let exactGovernanceIndex = isKILandingLifecycle
+    ? typeof kILandingCurrentIndexAllowed === "function" &&
+      kILandingCurrentIndexAllowed(registry)
+    : isIHDedicatedLanding
+      ? typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
+        iHDedicatedLandingCurrentIndexAllowed(registry)
+      : typeof hGovernanceCurrentIndexAllowed === "function" &&
+        hGovernanceCurrentIndexAllowed(registry);
   const initialGovernanceIndexSnapshot =
     exactGovernanceIndex &&
     typeof hGovernanceCurrentIndexSnapshot === "function"
@@ -1847,8 +1865,11 @@ function runWritePolicy(flags) {
       initialGovernanceIndexSnapshot &&
       typeof hGovernanceCurrentIndexSnapshot === "function" &&
       (isIHDedicatedLanding
-        ? typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
-          iHDedicatedLandingCurrentIndexAllowed(registry) &&
+        ? (isKILandingLifecycle
+            ? typeof kILandingCurrentIndexAllowed === "function" &&
+              kILandingCurrentIndexAllowed(registry)
+            : typeof iHDedicatedLandingCurrentIndexAllowed === "function" &&
+              iHDedicatedLandingCurrentIndexAllowed(registry)) &&
           typeof iHDedicatedLandingIndexSnapshotsMatch === "function" &&
           iHDedicatedLandingIndexSnapshotsMatch(
             initialGovernanceIndexSnapshot,
@@ -1929,8 +1950,10 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !exactGovernanceIndex) {
     addFinding(findings, {
       path: "index",
-      rule: isIHDedicatedLanding
-        ? "i-h-dedicated-landing-index-identity-invalid"
+      rule: isKILandingLifecycle
+        ? "k-i-landing-lifecycle-index-identity-invalid"
+        : isIHDedicatedLanding
+          ? "i-h-dedicated-landing-index-identity-invalid"
         : "h-governance-intake-index-identity-invalid",
       source: "write-policy"
     });
@@ -1962,8 +1985,10 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !governanceFinalBarrierAllowed()) {
     addFinding(findings, {
       path: "index",
-      rule: isIHDedicatedLanding
-        ? "i-h-dedicated-landing-final-barrier-invalid"
+      rule: isKILandingLifecycle
+        ? "k-i-landing-lifecycle-final-barrier-invalid"
+        : isIHDedicatedLanding
+          ? "i-h-dedicated-landing-final-barrier-invalid"
         : "h-governance-intake-final-barrier-invalid",
       source: "write-policy"
     });
@@ -12976,6 +13001,14 @@ function validatePr86DeliveryOperationalSnapshot(registry) {
             registry.iHDedicatedLandingCandidate
           )
         }
+      : {}),
+    ...(registry?.kILandingLifecycleAuthorization
+      ? {
+          kILandingLifecycleAuthorization:
+            protectedActivationNativeStructuredClone(
+              registry.kILandingLifecycleAuthorization
+            )
+        }
       : {})
   };
 }
@@ -14213,10 +14246,13 @@ export function jHEvidenceCustodyReconstructionAllowed(
   options = {}
 ) {
   try {
+    const operationalRegistry = registry?.kILandingLifecycleAuthorization
+      ? kILandingLifecycleHistoricalProjection(registry)
+      : registry;
     return Boolean(
       iHDedicatedLandingTransitionStructurallyAllowed(
         iHDedicatedLandingSource(),
-        registry
+        operationalRegistry
       ) &&
         jHEvidenceCustodyPhysicalAllowed(
           registry.jHEvidenceCustodyReconstruction,
@@ -14229,9 +14265,389 @@ export function jHEvidenceCustodyReconstructionAllowed(
 }
 
 export function iHDedicatedLandingHistoricalProjection(registry) {
+  const operationalRegistry = registry?.kILandingLifecycleAuthorization
+    ? kILandingLifecycleHistoricalProjection(registry)
+    : registry;
   const source = iHDedicatedLandingSource();
-  validateIHDedicatedLandingCandidateTransition(source, registry);
+  validateIHDedicatedLandingCandidateTransition(source, operationalRegistry);
   return source;
+}
+
+// K records the owner's explicit all-downstream-action decision without
+// collapsing the safety gates for later lifecycle phases. The first K state
+// consumes the already-created exact I commit and authorizes only a one-ref,
+// create-only push of the dedicated branch. PR creation, CI, Ready, merge,
+// deployment, G writes, and cleanup remain individually receipt-gated.
+const K_I_SOURCE_COMMIT = "1db8c607d09f90175e20a3e6be47b53c0b96e086";
+const K_I_SOURCE_TREE = "72825d73d253d15b9bcf1ff6becbc006d36ebda3";
+const K_I_SOURCE_BLOBS = [
+  "b50f3a4ec9f7fbb84758a7a1e0dbb3e80ad19331",
+  "28bfa1b5c8f9296720b2cbe8397a96c9bd4349a0",
+  "35a9b1b038626f641471b034d2b61f900beee8ac"
+];
+const K_I_SOURCE_SHA256 = [
+  "c2bbef9ad9d21bc89b66cd9784e92c7ce9a72bd8acc98667b895330d0075a2b7",
+  "31814f19f56c37567ce6c9c17d964dfe7a649936c10fee560e16492e4c7e876e",
+  "e037e92ab7676544dc5bb95d8253c9471e2c1ede9468d82cb2349fa570eb8303"
+];
+const K_I_RECORDED_AT = "2026-09-08T14:55:09Z";
+const K_I_NEXT_REVIEW_AT = "2026-09-10T14:55:09Z";
+const K_I_OWNER_SCOPE = Object.freeze({
+  userMessageItemId: "451828751",
+  authorized: [
+    "exact-i-tree-commit",
+    "push",
+    "pull-request-create",
+    "remote-ci",
+    "ready-for-review",
+    "protected-merge",
+    "deployment",
+    "g-product-write",
+    "branch-worktree-evidence-cleanup"
+  ],
+  executionMode: "gated-sequential-preserve-first"
+});
+const K_I_OWNER_SCOPE_SHA256 =
+  "53aa632eec403eae9ec971a4315770280f190d2a15ae6017f38f753e7ec573cc";
+const K_I_AUTHORIZATION_BOUNDARY = Object.freeze({
+  initialPushAuthorizedNow: true,
+  draftPrCreationAuthorizedAfterPush: true,
+  remoteCiAuthorized: true,
+  readyOwnerAuthorized: true,
+  protectedMergeOwnerAuthorized: true,
+  deploymentOwnerAuthorized: true,
+  gProductWriteOwnerAuthorized: true,
+  cleanupOwnerAuthorized: true,
+  readyRequiresCurrentRequiredChecks: true,
+  mergeRequiresCurrentRequiredChecksAndMainCurrentness: true,
+  deploymentRequiresLandedMainAndTargetVerification: true,
+  gProductWriteRequiresLandedGovernanceAndFreshGCurrentness: true,
+  cleanupRequiresSemanticDispositionAndRecoveryProof: true,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let kISourceCache = null;
+function kILandingLifecycleSource() {
+  if (!kISourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${K_I_SOURCE_COMMIT}^{tree}`) !==
+        K_I_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(K_I_SOURCE_COMMIT), [
+        H_GOVERNANCE_SOURCE
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(
+          H_GOVERNANCE_SOURCE,
+          K_I_SOURCE_COMMIT
+        ),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${K_I_SOURCE_COMMIT}:${path}`
+      );
+      if (
+        blob !== K_I_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          K_I_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(K_I_SOURCE_COMMIT).parsed;
+    if (
+      !iHDedicatedLandingTransitionStructurallyAllowed(
+        iHDedicatedLandingSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+    }
+    kISourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(kISourceCache);
+}
+
+function kILandingLifecycleExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch || !expected.iHDedicatedLandingCandidate) {
+    throw new Error("rule=k-i-landing-lifecycle-source-invalid");
+  }
+  const noPrReason =
+    "Owner-authorized initial push has not yet created the draft PR.";
+  const expectedCloseAt =
+    "owner-gated:initial-push-then-draft-pr-ci-ready-protected-merge";
+  expected.updatedAt = K_I_RECORDED_AT;
+  Object.assign(item, {
+    headSha: K_I_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 },
+    lastHeartbeatAt: K_I_RECORDED_AT,
+    lastObservedAt: K_I_RECORDED_AT,
+    nextReviewAt: K_I_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    noPrReason,
+    dirtyState: "staged-k-i-owner-authorized-initial-push",
+    evidenceState: {
+      local:
+        "Exact reviewed I tree is committed as 1db8c607; K stages only the three governance paths for the gated landing lifecycle.",
+      ci: "Remote CI is owner-authorized but has not started.",
+      merged:
+        "Ready and protected merge are owner-authorized only after current required checks pass.",
+      deployed:
+        "Deployment is owner-authorized only after landed-main and target-specific verification.",
+      live:
+        "The dedicated remote branch is absent before the exact one-ref initial push."
+    }
+  });
+  Object.assign(branch, {
+    headSha: K_I_SOURCE_COMMIT,
+    remoteObservedAt: K_I_RECORDED_AT,
+    noPrReason,
+    lastOwnerHeartbeatAt: K_I_RECORDED_AT,
+    lastObservedAt: K_I_RECORDED_AT,
+    lastCommitAt: "2026-09-08T22:32:22+08:00",
+    nextReviewAt: K_I_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    closeout:
+      "Owner-authorized K initial-push successor is staged; the remote branch remains absent until the exact one-ref push."
+  });
+  expected.iHDedicatedLandingCandidate.status =
+    "exact-reviewed-tree-committed-owner-authorized-for-gated-lifecycle";
+  expected.iHDedicatedLandingCandidate.independentReview = {
+    required: true,
+    completed: true,
+    reviewedStagedTreeSha: K_I_SOURCE_TREE,
+    reviewedCommitSha: K_I_SOURCE_COMMIT,
+    verdict: "approved-ready-for-owner-decision",
+    criticalFindingCount: 0,
+    importantFindingCount: 0,
+    minorFindingCount: 0,
+    actionAuthorityGranted: false,
+    activationAuthorized: false
+  };
+  expected.kILandingLifecycleAuthorization = {
+    schemaVersion: "sena-k-i-landing-lifecycle-authorization/v1",
+    status: "initial-push-authorized",
+    recordedAt: K_I_RECORDED_AT,
+    source: {
+      commitSha: K_I_SOURCE_COMMIT,
+      treeSha: K_I_SOURCE_TREE,
+      orderedParentShas: [H_GOVERNANCE_SOURCE],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...K_I_SOURCE_BLOBS],
+      fileSha256: [...K_I_SOURCE_SHA256]
+    },
+    ownerAuthorization: {
+      mode: "explicit-owner-conversation-authorization",
+      userMessageItemId: K_I_OWNER_SCOPE.userMessageItemId,
+      canonicalScope: [...K_I_OWNER_SCOPE.authorized],
+      executionMode: K_I_OWNER_SCOPE.executionMode,
+      canonicalScopeSha256: K_I_OWNER_SCOPE_SHA256
+    },
+    consumedCommit: {
+      authorized: true,
+      commitSha: K_I_SOURCE_COMMIT,
+      treeSha: K_I_SOURCE_TREE,
+      parentSha: H_GOVERNANCE_SOURCE,
+      nativePreCommitPassed: true
+    },
+    initialPushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: ZERO_SHA,
+      exactlyOneRef: true,
+      createOnly: true
+    },
+    authorizationBoundary: {
+      ...K_I_AUTHORIZATION_BOUNDARY
+    }
+  };
+  return expected;
+}
+
+function kILandingLifecycleTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = kILandingLifecycleSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          kILandingLifecycleExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateKILandingLifecycleAuthorizationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !kILandingLifecycleTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=k-i-landing-lifecycle-transition-invalid");
+  }
+  return {
+    sourceCommitSha: K_I_SOURCE_COMMIT,
+    sourceTreeSha: K_I_SOURCE_TREE,
+    operatorBranch: I_H_BRANCH,
+    ...K_I_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function kILandingLifecycleHistoricalProjection(registry) {
+  const source = kILandingLifecycleSource();
+  validateKILandingLifecycleAuthorizationTransition(source, registry);
+  return source;
+}
+
+export function kILandingInitialPushFactsAllowed(registry, facts) {
+  try {
+    validateKILandingLifecycleAuthorizationTransition(
+      kILandingLifecycleSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== K_I_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === ZERO_SHA &&
+        sameJson(facts.orderedParentShas, [K_I_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        facts.cachedMainSha === H_GOVERNANCE_SOURCE &&
+        facts.rootMainSha === H_GOVERNANCE_SOURCE &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function kILandingInitialPushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const branchResult = git(
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { allowFailure: true }
+    );
+    const branch =
+      branchResult.status === 0
+        ? String(branchResult.stdout ?? "").trim()
+        : null;
+    const currentHeadSha = gitText(["rev-parse", "HEAD"]).trim();
+    const update = updates[0];
+    return kILandingInitialPushFactsAllowed(registry, {
+      branch,
+      currentHeadSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        K_I_SOURCE_COMMIT,
+        update.localSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+function kILandingCommittedInitialPushBarrierAllowed(registry) {
+  try {
+    validateKILandingLifecycleAuthorizationTransition(
+      kILandingLifecycleSource(),
+      registry
+    );
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== K_I_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          K_I_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(K_I_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          H_GOVERNANCE_SOURCE &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          H_GOVERNANCE_SOURCE &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function kILandingIndexFactsAllowed(registry, facts) {
+  try {
+    validateKILandingLifecycleAuthorizationTransition(
+      kILandingLifecycleSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: K_I_SOURCE_COMMIT,
+      cachedOriginMainSha: H_GOVERNANCE_SOURCE,
+      rootMainSha: H_GOVERNANCE_SOURCE,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function kILandingCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(facts && kILandingIndexFactsAllowed(registry, facts));
 }
 
 export function iHDedicatedLandingIndexFactsAllowed(registry, facts) {
@@ -14291,9 +14707,12 @@ function iHDedicatedLandingGHostCustodyAllowed(registry) {
 
 function iHDedicatedLandingPreservedHHostFacts(registry) {
   try {
+    const operationalRegistry = registry?.kILandingLifecycleAuthorization
+      ? kILandingLifecycleHistoricalProjection(registry)
+      : registry;
     validateIHDedicatedLandingCandidateTransition(
       iHDedicatedLandingSource(),
-      registry
+      operationalRegistry
     );
     const item = registry.workItems.find(
       (entry) => entry.taskId === PR86_DELIVERY_TASK
@@ -18795,25 +19214,43 @@ function runAudit(flags) {
     runPortableAudit(registry, validateRegistry(registry));
     return;
   }
+  const isKILandingLifecycle = Boolean(
+    registry.kILandingLifecycleAuthorization
+  );
   const isIHDedicatedLanding = Boolean(
     registry.iHDedicatedLandingCandidate
   );
-  const exactGovernanceIndex = isIHDedicatedLanding
-    ? iHDedicatedLandingCurrentIndexAllowed(registry)
-    : hGovernanceCurrentIndexAllowed(registry);
+  const committedKPrePush = Boolean(
+    isKILandingLifecycle && flags.has("pre-push")
+  );
+  const exactGovernanceIndex = isKILandingLifecycle
+    ? committedKPrePush
+      ? kILandingCommittedInitialPushBarrierAllowed(registry)
+      : kILandingCurrentIndexAllowed(registry)
+    : isIHDedicatedLanding
+      ? iHDedicatedLandingCurrentIndexAllowed(registry)
+      : hGovernanceCurrentIndexAllowed(registry);
   const initialGovernanceIndexSnapshot = exactGovernanceIndex
     ? hGovernanceCurrentIndexSnapshot()
     : null;
   const governanceAuditFinalBarrierAllowed = () => Boolean(
     registry.hGovernanceIntake &&
       exactGovernanceIndex &&
-      initialGovernanceIndexSnapshot &&
+      (committedKPrePush || initialGovernanceIndexSnapshot) &&
       (isIHDedicatedLanding
-        ? iHDedicatedLandingCurrentIndexAllowed(registry) &&
-          iHDedicatedLandingIndexSnapshotsMatch(
-            initialGovernanceIndexSnapshot,
-            hGovernanceCurrentIndexSnapshot()
-          ) &&
+        ? (isKILandingLifecycle
+            ? committedKPrePush
+              ? kILandingCommittedInitialPushBarrierAllowed(registry)
+              : kILandingCurrentIndexAllowed(registry) &&
+                iHDedicatedLandingIndexSnapshotsMatch(
+                  initialGovernanceIndexSnapshot,
+                  hGovernanceCurrentIndexSnapshot()
+                )
+            : iHDedicatedLandingCurrentIndexAllowed(registry) &&
+              iHDedicatedLandingIndexSnapshotsMatch(
+                initialGovernanceIndexSnapshot,
+                hGovernanceCurrentIndexSnapshot()
+              )) &&
           jHEvidenceCustodyReconstructionAllowed(registry, {
             forcePhysicalRevalidation: true
           }) &&
@@ -19332,14 +19769,18 @@ function runAudit(flags) {
     (flags.has("pre-commit") || flags.has("pre-push")) &&
     !governanceAuditFinalBarrierAllowed() &&
     !errors.includes(
-      isIHDedicatedLanding
-        ? "rule=i-h-dedicated-landing-final-barrier-invalid"
+      isKILandingLifecycle
+        ? "rule=k-i-landing-lifecycle-final-barrier-invalid"
+        : isIHDedicatedLanding
+          ? "rule=i-h-dedicated-landing-final-barrier-invalid"
         : "rule=h-governance-intake-final-barrier-invalid"
     )
   ) {
     errors.push(
-      isIHDedicatedLanding
-        ? "rule=i-h-dedicated-landing-final-barrier-invalid"
+      isKILandingLifecycle
+        ? "rule=k-i-landing-lifecycle-final-barrier-invalid"
+        : isIHDedicatedLanding
+          ? "rule=i-h-dedicated-landing-final-barrier-invalid"
         : "rule=h-governance-intake-final-barrier-invalid"
     );
   }

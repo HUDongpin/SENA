@@ -17970,10 +17970,10 @@ function iHSourceForTest() {
 
 function iHCandidateForTest() {
   return JSON.parse(
-    readFileSync(
-      join(projectRoot, "coordination/repo-governance/active-work.json"),
-      "utf8"
-    )
+    runGit(projectRoot, [
+      "show",
+      "1db8c607d09f90175e20a3e6be47b53c0b96e086:coordination/repo-governance/active-work.json"
+    ])
   );
 }
 
@@ -18792,6 +18792,261 @@ describe("I-H dedicated landing candidate", () => {
       expect(
         governance.iHDedicatedLandingBenprbFixtureMarkerAllowed(candidate, {
           ...marker,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+});
+
+const K_I_SOURCE_COMMIT_FOR_TEST =
+  "1db8c607d09f90175e20a3e6be47b53c0b96e086";
+const K_I_SOURCE_TREE_FOR_TEST =
+  "72825d73d253d15b9bcf1ff6becbc006d36ebda3";
+const K_I_RECORDED_AT_FOR_TEST = "2026-09-08T14:55:09Z";
+const K_I_NEXT_REVIEW_AT_FOR_TEST = "2026-09-10T14:55:09Z";
+const K_I_OWNER_SCOPE_SHA256_FOR_TEST =
+  "53aa632eec403eae9ec971a4315770280f190d2a15ae6017f38f753e7ec573cc";
+const K_I_FAKE_OUTGOING_COMMIT_FOR_TEST = "a".repeat(40);
+
+function kISourceForTest() {
+  return JSON.parse(
+    runGit(projectRoot, [
+      "show",
+      `${K_I_SOURCE_COMMIT_FOR_TEST}:coordination/repo-governance/active-work.json`
+    ])
+  );
+}
+
+function kICandidateForTest() {
+  const source = kISourceForTest();
+  const candidate = structuredClone(source);
+  const item = candidate.workItems.find(
+    (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+  );
+  const branch = candidate.branches.find(
+    (entry: any) => entry.name === I_H_BRANCH_FOR_TEST
+  );
+  const noPrReason =
+    "Owner-authorized initial push has not yet created the draft PR.";
+  const expectedCloseAt =
+    "owner-gated:initial-push-then-draft-pr-ci-ready-protected-merge";
+  candidate.updatedAt = K_I_RECORDED_AT_FOR_TEST;
+  Object.assign(item, {
+    headSha: K_I_SOURCE_COMMIT_FOR_TEST,
+    aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 },
+    lastHeartbeatAt: K_I_RECORDED_AT_FOR_TEST,
+    lastObservedAt: K_I_RECORDED_AT_FOR_TEST,
+    nextReviewAt: K_I_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    noPrReason,
+    dirtyState: "staged-k-i-owner-authorized-initial-push",
+    evidenceState: {
+      local:
+        "Exact reviewed I tree is committed as 1db8c607; K stages only the three governance paths for the gated landing lifecycle.",
+      ci: "Remote CI is owner-authorized but has not started.",
+      merged: "Ready and protected merge are owner-authorized only after current required checks pass.",
+      deployed: "Deployment is owner-authorized only after landed-main and target-specific verification.",
+      live: "The dedicated remote branch is absent before the exact one-ref initial push."
+    }
+  });
+  Object.assign(branch, {
+    headSha: K_I_SOURCE_COMMIT_FOR_TEST,
+    remoteObservedAt: K_I_RECORDED_AT_FOR_TEST,
+    noPrReason,
+    lastOwnerHeartbeatAt: K_I_RECORDED_AT_FOR_TEST,
+    lastObservedAt: K_I_RECORDED_AT_FOR_TEST,
+    lastCommitAt: "2026-09-08T22:32:22+08:00",
+    nextReviewAt: K_I_NEXT_REVIEW_AT_FOR_TEST,
+    expectedCloseAt,
+    closeout:
+      "Owner-authorized K initial-push successor is staged; the remote branch remains absent until the exact one-ref push."
+  });
+  candidate.iHDedicatedLandingCandidate.status =
+    "exact-reviewed-tree-committed-owner-authorized-for-gated-lifecycle";
+  candidate.iHDedicatedLandingCandidate.independentReview = {
+    required: true,
+    completed: true,
+    reviewedStagedTreeSha: K_I_SOURCE_TREE_FOR_TEST,
+    reviewedCommitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+    verdict: "approved-ready-for-owner-decision",
+    criticalFindingCount: 0,
+    importantFindingCount: 0,
+    minorFindingCount: 0,
+    actionAuthorityGranted: false,
+    activationAuthorized: false
+  };
+  candidate.kILandingLifecycleAuthorization = {
+    schemaVersion: "sena-k-i-landing-lifecycle-authorization/v1",
+    status: "initial-push-authorized",
+    recordedAt: K_I_RECORDED_AT_FOR_TEST,
+    source: {
+      commitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+      treeSha: K_I_SOURCE_TREE_FOR_TEST,
+      orderedParentShas: [H_GOVERNANCE_SOURCE_FOR_TEST],
+      exactPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      blobShas: [
+        "b50f3a4ec9f7fbb84758a7a1e0dbb3e80ad19331",
+        "28bfa1b5c8f9296720b2cbe8397a96c9bd4349a0",
+        "35a9b1b038626f641471b034d2b61f900beee8ac"
+      ],
+      fileSha256: [
+        "c2bbef9ad9d21bc89b66cd9784e92c7ce9a72bd8acc98667b895330d0075a2b7",
+        "31814f19f56c37567ce6c9c17d964dfe7a649936c10fee560e16492e4c7e876e",
+        "e037e92ab7676544dc5bb95d8253c9471e2c1ede9468d82cb2349fa570eb8303"
+      ]
+    },
+    ownerAuthorization: {
+      mode: "explicit-owner-conversation-authorization",
+      userMessageItemId: "451828751",
+      canonicalScope: [
+        "exact-i-tree-commit",
+        "push",
+        "pull-request-create",
+        "remote-ci",
+        "ready-for-review",
+        "protected-merge",
+        "deployment",
+        "g-product-write",
+        "branch-worktree-evidence-cleanup"
+      ],
+      executionMode: "gated-sequential-preserve-first",
+      canonicalScopeSha256: K_I_OWNER_SCOPE_SHA256_FOR_TEST
+    },
+    consumedCommit: {
+      authorized: true,
+      commitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+      treeSha: K_I_SOURCE_TREE_FOR_TEST,
+      parentSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      nativePreCommitPassed: true
+    },
+    initialPushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      expectedRemoteOldSha: "0".repeat(40),
+      exactlyOneRef: true,
+      createOnly: true
+    },
+    authorizationBoundary: {
+      initialPushAuthorizedNow: true,
+      draftPrCreationAuthorizedAfterPush: true,
+      remoteCiAuthorized: true,
+      readyOwnerAuthorized: true,
+      protectedMergeOwnerAuthorized: true,
+      deploymentOwnerAuthorized: true,
+      gProductWriteOwnerAuthorized: true,
+      cleanupOwnerAuthorized: true,
+      readyRequiresCurrentRequiredChecks: true,
+      mergeRequiresCurrentRequiredChecksAndMainCurrentness: true,
+      deploymentRequiresLandedMainAndTargetVerification: true,
+      gProductWriteRequiresLandedGovernanceAndFreshGCurrentness: true,
+      cleanupRequiresSemanticDispositionAndRecoveryProof: true,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    }
+  };
+  return candidate;
+}
+
+describe("K-I owner-authorized landing lifecycle", () => {
+  it("accepts only the exact committed I source and one create-only initial push while keeping later actions gated", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validateKILandingLifecycleAuthorizationTransition
+    ).toBe("function");
+    const source = kISourceForTest();
+    const candidate = kICandidateForTest();
+    expect(
+      JSON.parse(
+        readFileSync(
+          join(projectRoot, "coordination/repo-governance/active-work.json"),
+          "utf8"
+        )
+      )
+    ).toEqual(candidate);
+    const proof =
+      governance.validateKILandingLifecycleAuthorizationTransition(
+        source,
+        candidate
+      );
+    expect(proof).toMatchObject({
+      sourceCommitSha: K_I_SOURCE_COMMIT_FOR_TEST,
+      sourceTreeSha: K_I_SOURCE_TREE_FOR_TEST,
+      operatorBranch: I_H_BRANCH_FOR_TEST,
+      initialPushAuthorizedNow: true,
+      draftPrCreationAuthorizedAfterPush: true,
+      remoteCiAuthorized: true,
+      readyOwnerAuthorized: true,
+      protectedMergeOwnerAuthorized: true,
+      deploymentOwnerAuthorized: true,
+      gProductWriteOwnerAuthorized: true,
+      cleanupOwnerAuthorized: true,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(governance.kILandingLifecycleHistoricalProjection(candidate)).toEqual(
+      source
+    );
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) => (value.workItems.find(
+        (entry: any) => entry.taskId === I_H_TASK_FOR_TEST
+      ).headSha = H_GOVERNANCE_SOURCE_FOR_TEST),
+      (value: any) => (value.iHDedicatedLandingCandidate.independentReview.minorFindingCount = 1),
+      (value: any) => (value.kILandingLifecycleAuthorization.source.commitSha = H_GOVERNANCE_SOURCE_FOR_TEST),
+      (value: any) => (value.kILandingLifecycleAuthorization.ownerAuthorization.userMessageItemId = "foreign"),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.initialPushAuthorizedNow = false),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.directMainPushAuthorized = true),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.forceAuthorized = true),
+      (value: any) => (value.kILandingLifecycleAuthorization.authorizationBoundary.bypassHooksAuthorized = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateKILandingLifecycleAuthorizationTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=k-i-landing-lifecycle-transition-invalid");
+    }
+    const facts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: K_I_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: K_I_FAKE_OUTGOING_COMMIT_FOR_TEST,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: "0".repeat(40),
+      orderedParentShas: [K_I_SOURCE_COMMIT_FOR_TEST],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST,
+      outgoingRegistryMatches: true
+    };
+    expect(
+      governance.kILandingInitialPushFactsAllowed(candidate, facts)
+    ).toBe(true);
+    for (const change of [
+      { branch: "foreign" },
+      { currentHeadSha: "b".repeat(40) },
+      { localRef: "refs/heads/main" },
+      { remoteRef: "refs/heads/main" },
+      { remoteSha: "1".repeat(40) },
+      { orderedParentShas: [H_GOVERNANCE_SOURCE_FOR_TEST] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(0, 2) },
+      { cachedMainSha: "b".repeat(40) },
+      { rootMainSha: "b".repeat(40) },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.kILandingInitialPushFactsAllowed(candidate, {
+          ...facts,
           ...change
         })
       ).toBe(false);
