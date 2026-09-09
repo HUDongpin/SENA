@@ -1636,7 +1636,8 @@ function runPushPolicy(flags) {
         !lKBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
         !mLBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
         !nMPr88FinalPushAuthorized(outgoingRegistry, updates) &&
-        !oNPr88RepairPushAuthorized(outgoingRegistry, updates))
+        !oNPr88RepairPushAuthorized(outgoingRegistry, updates) &&
+        !pOPr89RemediationPushAuthorized(outgoingRegistry, updates))
     ) {
       throw new Error("rule=i-h-dedicated-landing-push-denied");
     }
@@ -1844,6 +1845,9 @@ function runWritePolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
   const committedPr86Closeout = pr86DeliveryCurrentCheckoutMerged();
   const { parsed: registry } = loadRegistryForFlags(flags);
+  const isPOPr89PrePushCustodyRemediation = Boolean(
+    registry.pOPr89PrePushCustodyRemediation
+  );
   const isONPr88PostMainCurrentnessRepair = Boolean(
     registry.oNPr88PostMainCurrentnessRepair
   );
@@ -1862,7 +1866,10 @@ function runWritePolicy(flags) {
   const isIHDedicatedLanding = Boolean(
     registry.iHDedicatedLandingCandidate
   );
-  let exactGovernanceIndex = isONPr88PostMainCurrentnessRepair
+  let exactGovernanceIndex = isPOPr89PrePushCustodyRemediation
+    ? typeof pOPr89RemediationCurrentIndexAllowed === "function" &&
+      pOPr89RemediationCurrentIndexAllowed(registry)
+    : isONPr88PostMainCurrentnessRepair
     ? typeof oNPr88RepairCurrentIndexAllowed === "function" &&
       oNPr88RepairCurrentIndexAllowed(registry)
     : isNMPr88FinalAuthorization
@@ -1895,7 +1902,11 @@ function runWritePolicy(flags) {
       (isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? (isLKDraftPrCiRemediation
-                ? (isONPr88PostMainCurrentnessRepair
+                ? (isPOPr89PrePushCustodyRemediation
+                    ? typeof pOPr89RemediationCurrentIndexAllowed ===
+                        "function" &&
+                      pOPr89RemediationCurrentIndexAllowed(registry)
+                    : isONPr88PostMainCurrentnessRepair
                     ? typeof oNPr88RepairCurrentIndexAllowed === "function" &&
                       oNPr88RepairCurrentIndexAllowed(registry)
                     : isNMPr88FinalAuthorization
@@ -1991,7 +2002,9 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !exactGovernanceIndex) {
     addFinding(findings, {
       path: "index",
-      rule: isONPr88PostMainCurrentnessRepair
+      rule: isPOPr89PrePushCustodyRemediation
+        ? "p-o-pr89-pre-push-custody-remediation-index-identity-invalid"
+        : isONPr88PostMainCurrentnessRepair
         ? "o-n-pr88-post-main-currentness-repair-index-identity-invalid"
         : isNMPr88FinalAuthorization
         ? "n-m-pr88-final-authorization-index-identity-invalid"
@@ -2034,7 +2047,9 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !governanceFinalBarrierAllowed()) {
     addFinding(findings, {
       path: "index",
-      rule: isONPr88PostMainCurrentnessRepair
+      rule: isPOPr89PrePushCustodyRemediation
+        ? "p-o-pr89-pre-push-custody-remediation-barrier-invalid"
+        : isONPr88PostMainCurrentnessRepair
         ? "o-n-pr88-post-main-currentness-repair-barrier-invalid"
         : isNMPr88FinalAuthorization
         ? "n-m-pr88-final-authorization-barrier-invalid"
@@ -14401,6 +14416,12 @@ export function iHDedicatedLandingHistoricalProjection(registry) {
 
 function iHDedicatedLandingOperationalRegistry(registry) {
   let operationalRegistry = registry;
+  if (operationalRegistry?.pOPr89PrePushCustodyRemediation) {
+    operationalRegistry =
+      pOPr89PrePushCustodyRemediationHistoricalProjection(
+        operationalRegistry
+      );
+  }
   if (operationalRegistry?.oNPr88PostMainCurrentnessRepair) {
     operationalRegistry =
       oNPr88PostMainCurrentnessRepairHistoricalProjection(
@@ -16588,8 +16609,10 @@ function oNEvidenceFlowPhysicalObservation() {
 
 export function oNEvidenceFlowPhysicalObservationAllowed(registry, facts) {
   try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
     const recorded =
-      registry.oNPr88PostMainCurrentnessRepair.evidenceFlowObservation;
+      operationalRegistry.oNPr88PostMainCurrentnessRepair
+        .evidenceFlowObservation;
     return Boolean(
       oNEvidenceFlowPhysicalCustodyAllowed(registry, facts) &&
         isDeepStrictEqual(facts.aheadBehind, recorded.aheadBehind)
@@ -16601,12 +16624,14 @@ export function oNEvidenceFlowPhysicalObservationAllowed(registry, facts) {
 
 export function oNEvidenceFlowPhysicalCustodyAllowed(registry, facts) {
   try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
     validateONPr88PostMainCurrentnessRepairTransition(
       oNPr88PostMainCurrentnessRepairSource(),
-      registry
+      operationalRegistry
     );
     const recorded =
-      registry.oNPr88PostMainCurrentnessRepair.evidenceFlowObservation;
+      operationalRegistry.oNPr88PostMainCurrentnessRepair
+        .evidenceFlowObservation;
     return Boolean(
       pr85PlainJsonData(facts) &&
         exactPlainJsonOwnKeys(facts, [
@@ -16651,10 +16676,11 @@ export function oNEvidenceFlowPhysicalCustodyAllowed(registry, facts) {
 export function oNEvidenceFlowObservationShapeAllowed(registry, item) {
   try {
     const source = oNPr88PostMainCurrentnessRepairSource();
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
     if (
       !oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
         source,
-        registry
+        operationalRegistry
       )
     ) {
       return false;
@@ -16704,9 +16730,10 @@ export function oNEvidenceFlowMonotonicBehindShapeAllowed(
   actualObserved
 ) {
   try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
     validateONPr88PostMainCurrentnessRepairTransition(
       oNPr88PostMainCurrentnessRepairSource(),
-      registry
+      operationalRegistry
     );
     const expected = registry.workItems.find(
       (entry) => entry.taskId === O_N_EVIDENCE_FLOW_TASK
@@ -16922,18 +16949,482 @@ function oNPr88CommittedRepairBarrierAllowed(registry) {
   }
 }
 
-export function oNPr89FinalHeadShapeAllowed(registry, finalHeadSha) {
+const P_O_SOURCE_COMMIT = "62417d31d399af892c28d9112bcc829850062013";
+const P_O_SOURCE_TREE = "00ce1632042f655a798cfc87e392a286dc553170";
+const P_O_SOURCE_BLOBS = Object.freeze([
+  "918f98f7ded310df7578fe85c33e8103cf3a5167",
+  "791f43f7680f12ec745e1c0738e9c0acd93c5268",
+  "cbcfa8d757c2aee896d7e1d8df7eeeac612088a7"
+]);
+const P_O_SOURCE_SHA256 = Object.freeze([
+  "71759eb1177a49d9620f92dd888a192ae051d76e1d67bfbb0f8150b0d83746c9",
+  "309096c590dd4f5dc6363d3beff518e8d263c6cb18889958da025acd93cb7d5c",
+  "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
+]);
+const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
+const P_O_NEXT_REVIEW_AT = "2026-09-11T02:37:09Z";
+const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
+  "mobile pilot merged checkout lacks exact live release-verification custody",
+  "branch head differs from registry: main",
+  "branch head differs from registry: codex/sena-pr86-delivery-closeout-20260907",
+  "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+  "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+  "workItem ahead/behind differs from registry: SENA-BRANCH-RETIREMENT-20260829",
+  "workItem ahead/behind differs from registry: SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+  "workItem headSha is not a permitted forward-only allowed-path advance: SENA-MOBILE-RESEARCH-PILOT-20260905",
+  "workItem ahead/behind differs from registry: SENA-CONVERGENCE-INTEGRATION-20260906",
+  "workItem ahead/behind differs from registry: SENA-CONVERGENCE-CURRENTNESS-20260907",
+  "workItem headSha is not a permitted forward-only allowed-path advance: SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+  "workItem ahead/behind differs from registry: SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+  "live main does not match or descend from the registry live-main observation",
+  "live remote branch SHA differs from registry: main",
+  "live remote branch SHA differs from registry: codex/sena-pr86-delivery-closeout-20260907",
+  "registry PR head SHA mismatch: #87",
+  "registry PR state mismatch: #87"
+]);
+const P_O_REQUIRED_EXECUTION = Object.freeze([
+  "commit-one-exact-three-path-p-custody-remediation",
+  "push-one-non-force-two-commit-fast-forward-from-n-to-final-p",
+  "create-draft-pr89-against-exact-landed-pr88-main",
+  "verify-pr89-final-head-build-and-both-repository-security-checks-with-zero-annotations",
+  "mark-pr89-ready-only-after-exact-final-head-provider-readback",
+  "protected-merge-pr89-with-exact-head-lease-and-no-admin-bypass",
+  "verify-pr89-post-main-build-security-rule-suite-and-commit-bound-live-audit",
+  "only-after-pass-authorize-fresh-g-product-currentness-and-integration",
+  "keep-deployment-and-cleanup-gated"
+]);
+const P_O_AUTHORIZATION_BOUNDARY = Object.freeze({
+  remediationCommitAuthorizedAfterGates: true,
+  branchUpdatePushAuthorizedNow: true,
+  draftPr89CreationAuthorizedAfterPush: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedAfterFinalHeadChecks: true,
+  protectedMergeAuthorizedAfterFinalHeadChecks: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let pOSourceCache = null;
+function pOPr89PrePushCustodyRemediationSource() {
+  if (!pOSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${P_O_SOURCE_COMMIT}^{tree}`) !==
+        P_O_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(P_O_SOURCE_COMMIT), [
+        O_N_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(O_N_SOURCE_COMMIT, P_O_SOURCE_COMMIT),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(`${P_O_SOURCE_COMMIT}:${path}`);
+      if (
+        blob !== P_O_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          P_O_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(P_O_SOURCE_COMMIT).parsed;
+    if (
+      !oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
+        oNPr88PostMainCurrentnessRepairSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+    }
+    pOSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(pOSourceCache);
+}
+
+function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch || !expected.oNPr88PostMainCurrentnessRepair) {
+    throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+  }
+  const noPrReason =
+    "The committed O repair was retained after its native pre-push audit failed closed; P stages one exact custody remediation before the same one-ref update and Draft PR #89.";
+  const expectedCloseAt =
+    "owner-gated:pr89-pre-push-custody-remediation";
+  expected.updatedAt = P_O_RECORDED_AT;
+  Object.assign(item, {
+    headSha: P_O_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 1 },
+    lastHeartbeatAt: P_O_RECORDED_AT,
+    lastObservedAt: P_O_RECORDED_AT,
+    nextReviewAt: P_O_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    prNumber: null,
+    noPrReason,
+    prIsDraft: false,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-p-o-pr89-pre-push-custody-remediation",
+    evidenceState: {
+      local:
+        "O commit 62417d31 is clean and retained after a native pre-push dry-run failed closed; P stages only the three governance paths.",
+      ci:
+        "PR #88 final and post-main build/security checks passed at attempt 1 with zero annotations; P has not been pushed and has no CI yet.",
+      merged:
+        "PR #88 remains merged as 876fa148; PR #89 does not yet exist and P must repair only committed-transition custody before the branch update.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Main is exact 876fa148, the remote governance branch remains a8ee572f, and local 62417d31 is the preserved unpushed O commit."
+    }
+  });
+  Object.assign(branch, {
+    headSha: P_O_SOURCE_COMMIT,
+    upstream: `origin/${I_H_BRANCH}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: O_N_SOURCE_COMMIT,
+    remoteObservedAt: P_O_RECORDED_AT,
+    pr: null,
+    noPrReason,
+    prHeadSha: null,
+    prState: null,
+    prBase: "main",
+    prIsDraft: false,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: P_O_RECORDED_AT,
+    lastObservedAt: P_O_RECORDED_AT,
+    lastCommitAt: "2026-09-09T10:21:08+08:00",
+    nextReviewAt: P_O_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    disposition: "active",
+    closeout:
+      "PR #88 is merged; committed O is retained locally and P repairs only the failed pre-push retained-custody transition before Draft PR #89."
+  });
+  expected.pOPr89PrePushCustodyRemediation = {
+    schemaVersion: "sena-p-o-pr89-pre-push-custody-remediation/v1",
+    status: "exact-committed-o-custody-remediation-staged",
+    recordedAt: P_O_RECORDED_AT,
+    source: {
+      commitSha: P_O_SOURCE_COMMIT,
+      treeSha: P_O_SOURCE_TREE,
+      orderedParentShas: [O_N_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...P_O_SOURCE_BLOBS],
+      fileSha256: [...P_O_SOURCE_SHA256]
+    },
+    failedPrePushDryRun: {
+      commandMode: "native-hook-dry-run",
+      localHeadSha: P_O_SOURCE_COMMIT,
+      expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+      protectedMainSha: O_N_PROTECTED_MAIN,
+      pushPolicyPassed: true,
+      remoteMutationPerformed: false,
+      auditGeneratedAt: "2026-09-09T02:35:17.974Z",
+      auditStatus: "fail",
+      errors: [...P_O_FAILED_PRE_PUSH_ERRORS],
+      ownerBlockers: [],
+      unreachableCommitCount: 0,
+      effectiveActiveWriterCount: 3
+    },
+    rootCause: {
+      class: "committed-o-transition-retained-custody-gap",
+      description:
+        "The PR88 retained-custody resolver accepted staged O at source N and landed PR89, but not the clean committed O head before its first branch push; the missing opaque host proof caused all later audit errors to cascade.",
+      remediationBoundary:
+        "Recognize only exact staged P over committed O and exact committed P before the first non-force branch update; preserve every provider, path, main, remote-old, EvidenceFlow, G, deployment and cleanup gate."
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+      requiredLocalAncestry: [
+        O_N_SOURCE_COMMIT,
+        P_O_SOURCE_COMMIT,
+        "exact-final-p-head"
+      ],
+      exactlyOneRef: true,
+      force: false
+    },
+    requiredExecution: [...P_O_REQUIRED_EXECUTION],
+    authorizationBoundary: { ...P_O_AUTHORIZATION_BOUNDARY }
+  };
+  return expected;
+}
+
+function pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
   try {
-    validateONPr88PostMainCurrentnessRepairTransition(
-      oNPr88PostMainCurrentnessRepairSource(),
+    const source = pOPr89PrePushCustodyRemediationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          pOPr89PrePushCustodyRemediationExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validatePOPr89PrePushCustodyRemediationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=p-o-pr89-pre-push-custody-remediation-invalid");
+  }
+  return {
+    sourceCommitSha: P_O_SOURCE_COMMIT,
+    sourceTreeSha: P_O_SOURCE_TREE,
+    expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+    plannedPullRequestNumber: 89,
+    ...P_O_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function pOPr89PrePushCustodyRemediationHistoricalProjection(
+  registry
+) {
+  const source = pOPr89PrePushCustodyRemediationSource();
+  validatePOPr89PrePushCustodyRemediationTransition(source, registry);
+  return source;
+}
+
+function oNPr88OperationalRegistry(registry) {
+  return registry?.pOPr89PrePushCustodyRemediation
+    ? pOPr89PrePushCustodyRemediationHistoricalProjection(registry)
+    : registry;
+}
+
+export function pOPr89RemediationIndexFactsAllowed(registry, facts) {
+  try {
+    validatePOPr89PrePushCustodyRemediationTransition(
+      pOPr89PrePushCustodyRemediationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: P_O_SOURCE_COMMIT,
+      cachedOriginMainSha: O_N_PROTECTED_MAIN,
+      rootMainSha: O_N_PROTECTED_MAIN,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89RemediationPhysicalIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  try {
+    return Boolean(
+      facts &&
+        pOPr89RemediationIndexFactsAllowed(registry, facts) &&
+        oNEvidenceFlowCurrentPhysicalObservationAllowed(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89RemediationCurrentIndexAllowed(registry) {
+  try {
+    return Boolean(
+      pOPr89RemediationPhysicalIndexAllowed(registry) &&
+        validateONPr88LandedEvidence(oNPr88OperationalRegistry(registry))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89CommittedRemediationPhysicalBarrierAllowed(registry) {
+  try {
+    validatePOPr89PrePushCustodyRemediationTransition(
+      pOPr89PrePushCustodyRemediationSource(),
+      registry
+    );
+    if (!oNEvidenceFlowCurrentPhysicalObservationAllowed(registry)) return false;
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== P_O_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          P_O_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(P_O_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          O_N_PROTECTED_MAIN &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          O_N_PROTECTED_MAIN &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89CommittedRemediationBarrierAllowed(registry) {
+  try {
+    return Boolean(
+      pOPr89CommittedRemediationPhysicalBarrierAllowed(registry) &&
+        validateONPr88LandedEvidence(oNPr88OperationalRegistry(registry))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function pOPr89RemediationPushFactsAllowed(registry, facts) {
+  try {
+    validatePOPr89PrePushCustodyRemediationTransition(
+      pOPr89PrePushCustodyRemediationSource(),
       registry
     );
     return Boolean(
-      isSha(finalHeadSha) &&
-        finalHeadSha !== O_N_SOURCE_COMMIT &&
-        sameJson(protectedMainAdvanceCommitParents(finalHeadSha), [
-          O_N_SOURCE_COMMIT
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== P_O_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === O_N_SOURCE_COMMIT &&
+        sameJson(facts.orderedParentShas, [P_O_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        sameJson(facts.combinedChangedPaths, PR86_DELIVERY_PATHS) &&
+        sameJson(facts.outgoingCommitShas, [
+          P_O_SOURCE_COMMIT,
+          facts.localSha
         ]) &&
+        facts.cachedMainSha === O_N_PROTECTED_MAIN &&
+        facts.rootMainSha === O_N_PROTECTED_MAIN &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89RemediationPushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const update = updates[0];
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    const outgoingCommitText = protectedMainAdvanceGitText([
+      "rev-list",
+      "--reverse",
+      `${O_N_SOURCE_COMMIT}..${update.localSha}`
+    ]);
+    return pOPr89RemediationPushFactsAllowed(registry, {
+      branch: gitText([
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD"
+      ]).trim(),
+      currentHeadSha: headSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        P_O_SOURCE_COMMIT,
+        update.localSha
+      ),
+      combinedChangedPaths: protectedMainAdvanceChangedPaths(
+        O_N_SOURCE_COMMIT,
+        update.localSha
+      ),
+      outgoingCommitShas: outgoingCommitText
+        ? outgoingCommitText.split("\n").filter(Boolean)
+        : null,
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function oNPr89FinalHeadShapeAllowed(registry, finalHeadSha) {
+  try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      operationalRegistry
+    );
+    const sourceCommit = registry?.pOPr89PrePushCustodyRemediation
+      ? P_O_SOURCE_COMMIT
+      : O_N_SOURCE_COMMIT;
+    if (
+      registry?.pOPr89PrePushCustodyRemediation &&
+      !pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+        pOPr89PrePushCustodyRemediationSource(),
+        registry
+      )
+    ) {
+      return false;
+    }
+    return Boolean(
+      isSha(finalHeadSha) &&
+        finalHeadSha !== sourceCommit &&
+        sameJson(protectedMainAdvanceCommitParents(finalHeadSha), [
+          sourceCommit
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(sourceCommit, finalHeadSha),
+          PR86_DELIVERY_PATHS
+        ) &&
         sameJson(
           protectedMainAdvanceChangedPaths(O_N_SOURCE_COMMIT, finalHeadSha),
           PR86_DELIVERY_PATHS
@@ -16951,9 +17442,10 @@ export function validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
   liveMainSha,
   options = {}
 ) {
+  const operationalRegistry = oNPr88OperationalRegistry(registry);
   validateONPr88PostMainCurrentnessRepairTransition(
     oNPr88PostMainCurrentnessRepairSource(),
-    registry
+    operationalRegistry
   );
   if (
     !oNPr89FinalHeadShapeAllowed(registry, advancedBranchHeadSha) ||
@@ -16965,7 +17457,8 @@ export function validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
     throw new Error("rule=o-n-pr88-advanced-historical-evidence-invalid");
   }
   const githubTransport = options.githubTransport ?? null;
-  const recorded = registry.oNPr88PostMainCurrentnessRepair.landedPr88;
+  const recorded =
+    operationalRegistry.oNPr88PostMainCurrentnessRepair.landedPr88;
   const descriptor = oNPr88MergeDescriptor();
   if (
     !validatePr88DedicatedGovernanceProtectedMergeDescriptor(descriptor, {
@@ -17215,9 +17708,12 @@ export function validatePr89EvidenceFlowCurrentnessProtectedMergeDescriptor(
       mergeTreeSha,
       registryBlobSha
     } = descriptor ?? {};
+    const operationalRegistry = oNPr88OperationalRegistry(
+      mergeTimeRegistry
+    );
     validateONPr88PostMainCurrentnessRepairTransition(
       oNPr88PostMainCurrentnessRepairSource(),
-      mergeTimeRegistry
+      operationalRegistry
     );
     if (
       !isSha(mergeCommitSha) ||
@@ -20973,7 +21469,9 @@ export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options 
       const pr88Successor = pr86DeliveryMergeDescriptor(O_N_PROTECTED_MAIN);
       if (registry.oNPr88PostMainCurrentnessRepair) {
         const projectedPr88Registry =
-          oNPr88PostMainCurrentnessRepairHistoricalProjection(registry);
+          oNPr88PostMainCurrentnessRepairHistoricalProjection(
+            oNPr88OperationalRegistry(registry)
+          );
         if (
           !isDeepStrictEqual(
             projectedPr88Registry,
@@ -21253,7 +21751,9 @@ export function pr88DedicatedLandingRetainedHostObservationAllowed(
 ) {
   try {
     const operationalRegistry = registry.oNPr88PostMainCurrentnessRepair
-      ? oNPr88PostMainCurrentnessRepairHistoricalProjection(registry)
+      ? oNPr88PostMainCurrentnessRepairHistoricalProjection(
+          oNPr88OperationalRegistry(registry)
+        )
       : registry;
     validateNMPr88FinalAuthorizationTransition(
       nMPr88FinalAuthorizationSource(),
@@ -21327,6 +21827,39 @@ function resolvePr88DedicatedLandingRetainedCustody(registry, proof) {
     const headTreeSha = text(["rev-parse", "HEAD^{tree}"]);
     const sourceClean =
       text(["status", "--porcelain=v1", "--untracked-files=all"]) === "";
+    const pRemediationStaged = Boolean(
+      registry.pOPr89PrePushCustodyRemediation &&
+        headSha === P_O_SOURCE_COMMIT &&
+        headTreeSha === P_O_SOURCE_TREE &&
+        pOPr89RemediationPhysicalIndexAllowed(registry)
+    );
+    const pRemediationCommitted = Boolean(
+      registry.pOPr89PrePushCustodyRemediation &&
+        headSha !== P_O_SOURCE_COMMIT &&
+        pOPr89CommittedRemediationPhysicalBarrierAllowed(registry)
+    );
+    if (
+      proof.mergeCommitSha === O_N_PROTECTED_MAIN &&
+      proof.dedicatedLandingReviewedHeadSha === O_N_SOURCE_COMMIT &&
+      (pRemediationStaged || pRemediationCommitted)
+    ) {
+      return {
+        schemaVersion: "sena-p-o-pr89-pre-push-transition-custody/v1",
+        repo: realpathSync(CONTROL_ROOT),
+        worktreePath: realpathSync(I_H_WORKTREE),
+        gitDirectory: realpathSync(marker.target),
+        gitCommonDirectory: text([
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir"
+        ]),
+        branch: I_H_BRANCH,
+        headSha,
+        headTreeSha,
+        sourceClean,
+        exactRemediationTransition: true
+      };
+    }
     const oRepairTransitionCustody = Boolean(
       registry.oNPr88PostMainCurrentnessRepair &&
         proof.mergeCommitSha === O_N_PROTECTED_MAIN &&
@@ -22323,6 +22856,9 @@ function runAudit(flags) {
     runPortableAudit(registry, validateRegistry(registry));
     return;
   }
+  const isPOPr89PrePushCustodyRemediation = Boolean(
+    registry.pOPr89PrePushCustodyRemediation
+  );
   const isONPr88PostMainCurrentnessRepair = Boolean(
     registry.oNPr88PostMainCurrentnessRepair
   );
@@ -22344,7 +22880,11 @@ function runAudit(flags) {
   const committedLifecyclePrePush = Boolean(
     isKILandingLifecycle && flags.has("pre-push")
   );
-  const exactGovernanceIndex = isONPr88PostMainCurrentnessRepair
+  const exactGovernanceIndex = isPOPr89PrePushCustodyRemediation
+    ? committedLifecyclePrePush
+      ? pOPr89CommittedRemediationBarrierAllowed(registry)
+      : pOPr89RemediationCurrentIndexAllowed(registry)
+    : isONPr88PostMainCurrentnessRepair
     ? committedLifecyclePrePush
       ? oNPr88CommittedRepairBarrierAllowed(registry)
       : oNPr88RepairCurrentIndexAllowed(registry)
@@ -22377,7 +22917,9 @@ function runAudit(flags) {
       (isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? committedLifecyclePrePush
-              ? isONPr88PostMainCurrentnessRepair
+              ? isPOPr89PrePushCustodyRemediation
+                ? pOPr89CommittedRemediationBarrierAllowed(registry)
+                : isONPr88PostMainCurrentnessRepair
                 ? oNPr88CommittedRepairBarrierAllowed(registry)
                 : isNMPr88FinalAuthorization
                 ? nMPr88CommittedFinalBarrierAllowed(registry)
@@ -22386,7 +22928,13 @@ function runAudit(flags) {
                 : isLKDraftPrCiRemediation
                   ? lKCommittedBranchUpdateBarrierAllowed(registry)
                 : kILandingCommittedInitialPushBarrierAllowed(registry)
-              : isONPr88PostMainCurrentnessRepair
+              : isPOPr89PrePushCustodyRemediation
+                ? pOPr89RemediationCurrentIndexAllowed(registry) &&
+                  iHDedicatedLandingIndexSnapshotsMatch(
+                    initialGovernanceIndexSnapshot,
+                    hGovernanceCurrentIndexSnapshot()
+                  )
+                : isONPr88PostMainCurrentnessRepair
                 ? oNPr88RepairCurrentIndexAllowed(registry) &&
                   iHDedicatedLandingIndexSnapshotsMatch(
                     initialGovernanceIndexSnapshot,
@@ -22712,7 +23260,9 @@ function runAudit(flags) {
     }
     if (registry.hGovernanceIntake && !exactGovernanceAtWriteBarrier) {
       errors.push(
-        isONPr88PostMainCurrentnessRepair
+        isPOPr89PrePushCustodyRemediation
+          ? "rule=p-o-pr89-pre-push-custody-remediation-index-identity-invalid"
+          : isONPr88PostMainCurrentnessRepair
           ? "rule=o-n-pr88-post-main-currentness-repair-index-identity-invalid"
           : isIHDedicatedLanding
           ? "rule=i-h-dedicated-landing-index-identity-invalid"
@@ -22953,7 +23503,9 @@ function runAudit(flags) {
     (flags.has("pre-commit") || flags.has("pre-push")) &&
     !governanceAuditFinalBarrierAllowed() &&
     !errors.includes(
-      isONPr88PostMainCurrentnessRepair
+      isPOPr89PrePushCustodyRemediation
+        ? "rule=p-o-pr89-pre-push-custody-remediation-barrier-invalid"
+        : isONPr88PostMainCurrentnessRepair
         ? "rule=o-n-pr88-post-main-currentness-repair-barrier-invalid"
         : isNMPr88FinalAuthorization
         ? "rule=n-m-pr88-final-authorization-barrier-invalid"
@@ -22969,7 +23521,9 @@ function runAudit(flags) {
     )
   ) {
     errors.push(
-      isONPr88PostMainCurrentnessRepair
+      isPOPr89PrePushCustodyRemediation
+        ? "rule=p-o-pr89-pre-push-custody-remediation-barrier-invalid"
+        : isONPr88PostMainCurrentnessRepair
         ? "rule=o-n-pr88-post-main-currentness-repair-barrier-invalid"
         : isNMPr88FinalAuthorization
         ? "rule=n-m-pr88-final-authorization-barrier-invalid"

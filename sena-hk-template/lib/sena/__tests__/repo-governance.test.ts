@@ -20708,10 +20708,10 @@ describe("O-N PR 88 post-main currentness repair", () => {
       ])
     );
     const candidate = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination/repo-governance/active-work.json"),
-        "utf8"
-      )
+      runGit(projectRoot, [
+        "show",
+        "62417d31d399af892c28d9112bcc829850062013:coordination/repo-governance/active-work.json"
+      ])
     );
     const proof = governance.validateONPr88PostMainCurrentnessRepairTransition(
       source,
@@ -20946,7 +20946,7 @@ describe("O-N PR 88 post-main currentness repair", () => {
     }
   });
 
-  it("binds the exact O head to Draft PR89 readiness and a two-parent protected merge", () => {
+  it("binds the exact final P head to Draft PR89 readiness and a two-parent protected merge", () => {
     const holder = temporaryRoot("o-n-pr89-readiness");
     const root = join(holder, "repo");
     runGit(holder, [
@@ -20961,7 +20961,7 @@ describe("O-N PR 88 post-main currentness repair", () => {
     runGit(root, [
       "checkout",
       "--detach",
-      "a8ee572f2ca322384a9673e6d151890e5ce6b81f"
+      "62417d31d399af892c28d9112bcc829850062013"
     ]);
     runGit(root, ["config", "user.name", "SENA O fixture"]);
     runGit(root, ["config", "user.email", "o-fixture@example.invalid"]);
@@ -20969,7 +20969,7 @@ describe("O-N PR 88 post-main currentness repair", () => {
       copyFileSync(join(projectRoot, relative), join(root, relative));
     }
     runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
-    runGit(root, ["commit", "-q", "-m", "exact O repair candidate"]);
+    runGit(root, ["commit", "-q", "-m", "exact P remediation candidate"]);
     const finalHeadSha = runGit(root, ["rev-parse", "HEAD"]);
     const finalTreeSha = runGit(root, ["rev-parse", "HEAD^{tree}"]);
     const finalRegistryBlobSha = runGit(root, [
@@ -21442,4 +21442,171 @@ describe("O-N PR 88 post-main currentness repair", () => {
       `${result.mergeCommitSha} 876fa148e253f200c790105f377adc7af9e078aa ${finalHeadSha}`
     );
   }, 120_000);
+});
+
+describe("P-O PR 89 pre-push custody remediation", () => {
+  it("requires an exact committed-O successor before the failed pre-push can be retried", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(
+      typeof governance.validatePOPr89PrePushCustodyRemediationTransition
+    ).toBe("function");
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        "62417d31d399af892c28d9112bcc829850062013:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination/repo-governance/active-work.json"),
+        "utf8"
+      )
+    );
+    const proof =
+      governance.validatePOPr89PrePushCustodyRemediationTransition(
+        source,
+        candidate
+      );
+    expect(proof).toMatchObject({
+      sourceCommitSha: "62417d31d399af892c28d9112bcc829850062013",
+      sourceTreeSha: "00ce1632042f655a798cfc87e392a286dc553170",
+      expectedRemoteOldSha:
+        "a8ee572f2ca322384a9673e6d151890e5ce6b81f",
+      plannedPullRequestNumber: 89,
+      remediationCommitAuthorizedAfterGates: true,
+      branchUpdatePushAuthorizedNow: true,
+      draftPr89CreationAuthorizedAfterPush: true,
+      remoteCiAuthorized: true,
+      readyAuthorizedAfterFinalHeadChecks: true,
+      protectedMergeAuthorizedAfterFinalHeadChecks: true,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(
+      governance.pOPr89PrePushCustodyRemediationHistoricalProjection(
+        candidate
+      )
+    ).toEqual(source);
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+
+    const indexFacts = {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE_FOR_TEST,
+      gitDirectory:
+        "/Volumes/Starship/SENA/.git/worktrees/sena-h-governance-intake-20260908",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH_FOR_TEST,
+      headSha: "62417d31d399af892c28d9112bcc829850062013",
+      cachedOriginMainSha: "876fa148e253f200c790105f377adc7af9e078aa",
+      rootMainSha: "876fa148e253f200c790105f377adc7af9e078aa",
+      stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    };
+    expect(
+      governance.pOPr89RemediationIndexFactsAllowed(candidate, indexFacts)
+    ).toBe(true);
+    for (const change of [
+      { headSha: "f".repeat(40) },
+      { cachedOriginMainSha: H_GOVERNANCE_SOURCE_FOR_TEST },
+      { rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST },
+      { stagedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { unstagedPaths: [H_GOVERNANCE_PATHS_FOR_TEST[0]] },
+      { untrackedPaths: ["foreign"] },
+      { unmerged: true }
+    ]) {
+      expect(
+        governance.pOPr89RemediationIndexFactsAllowed(candidate, {
+          ...indexFacts,
+          ...change
+        })
+      ).toBe(false);
+    }
+
+    const finalHead = "f".repeat(40);
+    const pushFacts = {
+      branch: I_H_BRANCH_FOR_TEST,
+      currentHeadSha: finalHead,
+      localRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      localSha: finalHead,
+      remoteRef: `refs/heads/${I_H_BRANCH_FOR_TEST}`,
+      remoteSha: "a8ee572f2ca322384a9673e6d151890e5ce6b81f",
+      orderedParentShas: ["62417d31d399af892c28d9112bcc829850062013"],
+      changedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      combinedChangedPaths: H_GOVERNANCE_PATHS_FOR_TEST,
+      outgoingCommitShas: [
+        "62417d31d399af892c28d9112bcc829850062013",
+        finalHead
+      ],
+      cachedMainSha: "876fa148e253f200c790105f377adc7af9e078aa",
+      rootMainSha: "876fa148e253f200c790105f377adc7af9e078aa",
+      outgoingRegistryMatches: true
+    };
+    expect(
+      governance.pOPr89RemediationPushFactsAllowed(candidate, pushFacts)
+    ).toBe(true);
+    for (const change of [
+      { remoteSha: "62417d31d399af892c28d9112bcc829850062013" },
+      { remoteRef: "refs/heads/main" },
+      { orderedParentShas: ["a8ee572f2ca322384a9673e6d151890e5ce6b81f"] },
+      { changedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { combinedChangedPaths: H_GOVERNANCE_PATHS_FOR_TEST.slice(1) },
+      { outgoingCommitShas: [finalHead] },
+      { cachedMainSha: H_GOVERNANCE_SOURCE_FOR_TEST },
+      { rootMainSha: H_GOVERNANCE_SOURCE_FOR_TEST },
+      { outgoingRegistryMatches: false }
+    ]) {
+      expect(
+        governance.pOPr89RemediationPushFactsAllowed(candidate, {
+          ...pushFacts,
+          ...change
+        })
+      ).toBe(false);
+    }
+
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) => value.workItems.reverse(),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.source.commitSha =
+          "a8ee572f2ca322384a9673e6d151890e5ce6b81f"),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.failedPrePushDryRun.errors = []),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.failedPrePushDryRun.remoteMutationPerformed =
+          true),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.updatePushContract.expectedRemoteOldSha =
+          "62417d31d399af892c28d9112bcc829850062013"),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.authorizationBoundary.readyAuthorizedNow =
+          true),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.authorizationBoundary.gProductWriteAuthorizedNow =
+          true),
+      (value: any) =>
+        (value.pOPr89PrePushCustodyRemediation.authorizationBoundary.forceAuthorized =
+          true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validatePOPr89PrePushCustodyRemediationTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=p-o-pr89-pre-push-custody-remediation-invalid");
+    }
+  });
 });
