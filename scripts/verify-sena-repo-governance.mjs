@@ -1635,7 +1635,9 @@ function runPushPolicy(flags) {
       (!kILandingInitialPushAuthorized(outgoingRegistry, updates) &&
         !lKBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
         !mLBranchUpdatePushAuthorized(outgoingRegistry, updates) &&
-        !nMPr88FinalPushAuthorized(outgoingRegistry, updates))
+        !nMPr88FinalPushAuthorized(outgoingRegistry, updates) &&
+        !oNPr88RepairPushAuthorized(outgoingRegistry, updates) &&
+        !pOPr89RemediationPushAuthorized(outgoingRegistry, updates))
     ) {
       throw new Error("rule=i-h-dedicated-landing-push-denied");
     }
@@ -1843,6 +1845,12 @@ function runWritePolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
   const committedPr86Closeout = pr86DeliveryCurrentCheckoutMerged();
   const { parsed: registry } = loadRegistryForFlags(flags);
+  const isPOPr89PrePushCustodyRemediation = Boolean(
+    registry.pOPr89PrePushCustodyRemediation
+  );
+  const isONPr88PostMainCurrentnessRepair = Boolean(
+    registry.oNPr88PostMainCurrentnessRepair
+  );
   const isNMPr88FinalAuthorization = Boolean(
     registry.nMPr88FinalAuthorization
   );
@@ -1858,7 +1866,13 @@ function runWritePolicy(flags) {
   const isIHDedicatedLanding = Boolean(
     registry.iHDedicatedLandingCandidate
   );
-  let exactGovernanceIndex = isNMPr88FinalAuthorization
+  let exactGovernanceIndex = isPOPr89PrePushCustodyRemediation
+    ? typeof pOPr89RemediationCurrentIndexAllowed === "function" &&
+      pOPr89RemediationCurrentIndexAllowed(registry)
+    : isONPr88PostMainCurrentnessRepair
+    ? typeof oNPr88RepairCurrentIndexAllowed === "function" &&
+      oNPr88RepairCurrentIndexAllowed(registry)
+    : isNMPr88FinalAuthorization
     ? typeof nMPr88FinalCurrentIndexAllowed === "function" &&
       nMPr88FinalCurrentIndexAllowed(registry)
     : isMLPortableJEvidenceCi
@@ -1888,7 +1902,14 @@ function runWritePolicy(flags) {
       (isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? (isLKDraftPrCiRemediation
-                ? (isNMPr88FinalAuthorization
+                ? (isPOPr89PrePushCustodyRemediation
+                    ? typeof pOPr89RemediationCurrentIndexAllowed ===
+                        "function" &&
+                      pOPr89RemediationCurrentIndexAllowed(registry)
+                    : isONPr88PostMainCurrentnessRepair
+                    ? typeof oNPr88RepairCurrentIndexAllowed === "function" &&
+                      oNPr88RepairCurrentIndexAllowed(registry)
+                    : isNMPr88FinalAuthorization
                     ? typeof nMPr88FinalCurrentIndexAllowed === "function" &&
                       nMPr88FinalCurrentIndexAllowed(registry)
                     : isMLPortableJEvidenceCi
@@ -1981,7 +2002,11 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !exactGovernanceIndex) {
     addFinding(findings, {
       path: "index",
-      rule: isNMPr88FinalAuthorization
+      rule: isPOPr89PrePushCustodyRemediation
+        ? "p-o-pr89-pre-push-custody-remediation-index-identity-invalid"
+        : isONPr88PostMainCurrentnessRepair
+        ? "o-n-pr88-post-main-currentness-repair-index-identity-invalid"
+        : isNMPr88FinalAuthorization
         ? "n-m-pr88-final-authorization-index-identity-invalid"
         : isMLPortableJEvidenceCi
         ? "m-l-portable-j-ci-index-identity-invalid"
@@ -2022,7 +2047,11 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !governanceFinalBarrierAllowed()) {
     addFinding(findings, {
       path: "index",
-      rule: isNMPr88FinalAuthorization
+      rule: isPOPr89PrePushCustodyRemediation
+        ? "p-o-pr89-pre-push-custody-remediation-barrier-invalid"
+        : isONPr88PostMainCurrentnessRepair
+        ? "o-n-pr88-post-main-currentness-repair-barrier-invalid"
+        : isNMPr88FinalAuthorization
         ? "n-m-pr88-final-authorization-barrier-invalid"
         : isMLPortableJEvidenceCi
         ? "m-l-portable-j-ci-final-barrier-invalid"
@@ -2110,6 +2139,12 @@ function physicalWorkItemCustodyError(registryRepoResolution, item) {
 
 function appendHostPhysicalCustodyErrors(registry, errors) {
   appendPr86DeliveryRetainedCustodyErrors(registry, errors);
+  if (
+    registry?.oNPr88PostMainCurrentnessRepair &&
+    !oNEvidenceFlowCurrentPhysicalCustodyAllowed(registry)
+  ) {
+    errors.push("rule=o-n-evidenceflow-preservation-custody-invalid");
+  }
   if (registry?.hGovernanceIntake) {
     if (registry.iHDedicatedLandingCandidate) {
       if (!jHEvidenceCustodyReconstructionAllowed(registry, {
@@ -11460,6 +11495,13 @@ const PR88_GITHUB_BINDING = Object.freeze({
   receiptSchema: "sena-pr88-dedicated-governance-post-main-rule-suite/v1",
   requirePostMain: true
 });
+const PR89_GITHUB_BINDING = Object.freeze({
+  branch: "codex/sena-h-governance-intake-20260908",
+  beforeSha: "876fa148e253f200c790105f377adc7af9e078aa",
+  receiptSchema:
+    "sena-pr89-evidenceflow-currentness-repair-post-main-rule-suite/v1",
+  requirePostMain: true
+});
 const MOBILE_PILOT_GITHUB_BINDING = Object.freeze({
   branch: "codex/sena-mobile-research-pilot-20260905",
   beforeSha: "c782aa03940028a2c19db18dfddec55370c797b1",
@@ -11576,10 +11618,11 @@ function validateProtectedFinalHeadLiveGitHubEvidence(
   const mergeCommitSha = descriptor?.mergeCommitSha;
   const githubTransport = options.githubTransport ?? null;
   if (
-    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING, MOBILE_PILOT_GITHUB_BINDING, PR86_DELIVERY_GITHUB_BINDING, PR88_GITHUB_BINDING].includes(binding) ||
+    ![POST_PR84_GITHUB_BINDING, PR85_GITHUB_BINDING, MOBILE_PILOT_GITHUB_BINDING, PR86_DELIVERY_GITHUB_BINDING, PR88_GITHUB_BINDING, PR89_GITHUB_BINDING].includes(binding) ||
     (binding === PR85_GITHUB_BINDING && pullRequestNumber !== 85) ||
     (binding === PR86_DELIVERY_GITHUB_BINDING && pullRequestNumber !== pr86DeliveryItem(descriptor?.mergeTimeRegistry)?.prNumber) ||
     (binding === PR88_GITHUB_BINDING && pullRequestNumber !== 88) ||
+    (binding === PR89_GITHUB_BINDING && pullRequestNumber !== 89) ||
     (binding === MOBILE_PILOT_GITHUB_BINDING && pullRequestNumber !== mobilePilotItem(descriptor?.mergeTimeRegistry)?.prNumber) ||
     !isSha(finalHeadSha) ||
     !isSha(mergeCommitSha) ||
@@ -14373,6 +14416,18 @@ export function iHDedicatedLandingHistoricalProjection(registry) {
 
 function iHDedicatedLandingOperationalRegistry(registry) {
   let operationalRegistry = registry;
+  if (operationalRegistry?.pOPr89PrePushCustodyRemediation) {
+    operationalRegistry =
+      pOPr89PrePushCustodyRemediationHistoricalProjection(
+        operationalRegistry
+      );
+  }
+  if (operationalRegistry?.oNPr88PostMainCurrentnessRepair) {
+    operationalRegistry =
+      oNPr88PostMainCurrentnessRepairHistoricalProjection(
+        operationalRegistry
+      );
+  }
   if (operationalRegistry?.nMPr88FinalAuthorization) {
     operationalRegistry =
       nMPr88FinalAuthorizationHistoricalProjection(operationalRegistry);
@@ -16107,6 +16162,1668 @@ function nMPr88CommittedFinalBarrierAllowed(registry) {
   }
 }
 
+const O_N_SOURCE_COMMIT = "a8ee572f2ca322384a9673e6d151890e5ce6b81f";
+const O_N_SOURCE_TREE = "e1f0ae8a7663119a49567a35ac97cc39e394215d";
+const O_N_SOURCE_BLOBS = [
+  "af3986571c7f73e265790585014245261fad934c",
+  "45078a3e8e7cbe730bb655b5a551ca51427c2dde",
+  "b4ff6492b0f9a7b874eb019a4d7925386390f487"
+];
+const O_N_SOURCE_SHA256 = [
+  "ef4d654b45e075b6629c7ff463df10514b396dffafd64c9badb9fc17df0c5dc7",
+  "fe79ae8a7836b6abdf17e6a3db16f63ed00b0b0c7d546dd03046bbeb03ae6f6a",
+  "7a0a7157e4de0fccb0e7b7324ceb961952e9e806ab99936d996eaa8c9abd79ba"
+];
+const O_N_PROTECTED_MAIN = "876fa148e253f200c790105f377adc7af9e078aa";
+const O_N_RECORDED_AT = "2026-09-08T21:33:46Z";
+const O_N_NEXT_REVIEW_AT = "2026-09-10T21:33:46Z";
+const O_N_EVIDENCE_FLOW_TASK = "SENA-EVIDENCEFLOW-V1-20260828";
+const O_N_EVIDENCE_FLOW_BRANCH = "codex/sena-evidenceflow-v1-20260828";
+const O_N_EVIDENCE_FLOW_HEAD = "434a1aac542e60e793afef77fb35104cdb470d53";
+const O_N_EVIDENCE_FLOW_TREE = "66d986701619acc9281e61c7d62bbafd924981f1";
+const O_N_EVIDENCE_FLOW_DIFF_SHA256 =
+  "e6c725cfe31c8c30a6e0798de5ca2c4e2d343225085552224887d58b65ffa8c1";
+const O_N_EVIDENCE_FLOW_STATUS_SHA256 =
+  "037d472704beb72408363f5b81bfe5be132405e5fc74edae9047dfdf265c708b";
+const O_N_REQUIRED_EXECUTION = Object.freeze([
+  "commit-and-push-one-exact-three-path-o-repair",
+  "create-draft-pr89-against-exact-landed-pr88-main",
+  "verify-pr89-final-head-build-and-both-repository-security-checks-with-zero-annotations",
+  "mark-pr89-ready-only-after-exact-final-head-provider-readback",
+  "protected-merge-pr89-with-exact-head-lease-and-no-admin-bypass",
+  "verify-pr89-post-main-build-security-rule-suite-and-commit-bound-live-audit",
+  "only-after-pass-authorize-fresh-g-product-currentness-and-integration",
+  "keep-deployment-and-cleanup-gated"
+]);
+const O_N_AUTHORIZATION_BOUNDARY = Object.freeze({
+  repairCommitAuthorizedAfterGates: true,
+  branchUpdatePushAuthorizedNow: true,
+  draftPr89CreationAuthorizedAfterPush: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedAfterFinalHeadChecks: true,
+  protectedMergeAuthorizedAfterFinalHeadChecks: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let oNSourceCache = null;
+function oNPr88PostMainCurrentnessRepairSource() {
+  if (!oNSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${O_N_SOURCE_COMMIT}^{tree}`) !==
+        O_N_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(O_N_SOURCE_COMMIT), [
+        N_M_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(N_M_SOURCE_COMMIT, O_N_SOURCE_COMMIT),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=o-n-pr88-post-main-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(`${O_N_SOURCE_COMMIT}:${path}`);
+      if (
+        blob !== O_N_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          O_N_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=o-n-pr88-post-main-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(O_N_SOURCE_COMMIT).parsed;
+    if (
+      !nMPr88FinalAuthorizationTransitionStructurallyAllowed(
+        nMPr88FinalAuthorizationSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=o-n-pr88-post-main-source-invalid");
+    }
+    oNSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(oNSourceCache);
+}
+
+function oNPr88PostMainCurrentnessRepairExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  const evidenceFlow = expected.workItems.find(
+    (entry) => entry.taskId === O_N_EVIDENCE_FLOW_TASK
+  );
+  if (!item || !branch || !evidenceFlow || !expected.nMPr88FinalAuthorization) {
+    throw new Error("rule=o-n-pr88-post-main-source-invalid");
+  }
+  const noPrReason =
+    "The exact O repair is staged before its one branch update and Draft PR #89 creation.";
+  const expectedCloseAt = "owner-gated:pr89-evidenceflow-currentness-repair";
+  expected.updatedAt = O_N_RECORDED_AT;
+  Object.assign(item, {
+    baseSha: O_N_PROTECTED_MAIN,
+    headSha: O_N_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 1 },
+    lastHeartbeatAt: O_N_RECORDED_AT,
+    lastObservedAt: O_N_RECORDED_AT,
+    nextReviewAt: O_N_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    prNumber: null,
+    noPrReason,
+    prIsDraft: false,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-o-n-pr88-post-main-currentness-repair",
+    evidenceState: {
+      local:
+        "N head a8ee572f is clean and retained; O stages only the three governance paths over the merged PR #88 source branch.",
+      ci:
+        "PR #88 final and post-main build/security checks passed at attempt 1 with zero annotations.",
+      merged:
+        "PR #88 merged as 876fa148; O repairs only the exact EvidenceFlow monotonic-behind observation gap before Draft PR #89.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Main is exact 876fa148 and the retained source branch is exact a8ee572f before the one-ref O update."
+    }
+  });
+  Object.assign(branch, {
+    baseSha: O_N_PROTECTED_MAIN,
+    headSha: O_N_SOURCE_COMMIT,
+    upstream: `origin/${I_H_BRANCH}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: O_N_SOURCE_COMMIT,
+    remoteObservedAt: O_N_RECORDED_AT,
+    pr: null,
+    noPrReason,
+    prHeadSha: null,
+    prState: null,
+    prBase: "main",
+    prIsDraft: false,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: O_N_RECORDED_AT,
+    lastObservedAt: O_N_RECORDED_AT,
+    lastCommitAt: "2026-09-09T05:02:26+08:00",
+    nextReviewAt: O_N_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    disposition: "active",
+    closeout:
+      "PR #88 is merged and its branch is retained for one exact O currentness repair update before Draft PR #89."
+  });
+  delete branch.mergeable;
+  delete branch.mergeStateStatus;
+  Object.assign(evidenceFlow, {
+    aheadBehind: { baseRef: "origin/main", ahead: 16, behind: 133 },
+    aheadBehindObservationMode: "pr88-preserved-monotonic-behind",
+    protectedMainBaselineSha: O_N_PROTECTED_MAIN,
+    lastObservedAt: O_N_RECORDED_AT,
+    nextReviewAt: O_N_NEXT_REVIEW_AT,
+    dirtyState:
+      "preserved-read-only-76-tracked-10-untracked-currentness-observed-against-pr88-876fa148",
+    evidenceState: {
+      local:
+        "EvidenceFlow remains byte-preserved at exact local head/tree 434a1aac/66d9867 with 0 staged, 76 unstaged tracked and 10 untracked paths; against landed PR88 main 876fa148 it is ahead 16/behind 133.",
+      ci: evidenceFlow.evidenceState.ci,
+      merged:
+        "EvidenceFlow remains unmerged and read-only; PR38 remote/head remain exact 40438885 while local head 434a1aac is preserved. No candidate commit/push/Ready/merge is authorized.",
+      deployed: evidenceFlow.evidenceState.deployed,
+      live:
+        "The 2026-09-08T21:33:46Z observer binds landed main 876fa148 and exact EvidenceFlow head/tree/status. Future acceptance is limited to ahead 16 with monotonically increasing behind while product bytes, index and owner heartbeat remain untouched."
+    }
+  });
+  expected.oNPr88PostMainCurrentnessRepair = {
+    schemaVersion: "sena-o-n-pr88-post-main-currentness-repair/v1",
+    status: "exact-evidenceflow-observer-repair-staged",
+    recordedAt: O_N_RECORDED_AT,
+    source: {
+      commitSha: O_N_SOURCE_COMMIT,
+      treeSha: O_N_SOURCE_TREE,
+      orderedParentShas: [N_M_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...O_N_SOURCE_BLOBS],
+      fileSha256: [...O_N_SOURCE_SHA256]
+    },
+    landedPr88: {
+      number: 88,
+      finalHeadSha: O_N_SOURCE_COMMIT,
+      mergeCommitSha: O_N_PROTECTED_MAIN,
+      orderedParentShas: [H_GOVERNANCE_SOURCE, O_N_SOURCE_COMMIT],
+      treeSha: O_N_SOURCE_TREE,
+      finalBuildRunId: 34279922400,
+      finalBuildJobId: 102241952132,
+      finalRepositorySecurityRunIds: [34279917951, 34279922475],
+      finalRepositorySecurityJobIds: [102241938813, 102241953145],
+      postMainBuildRunId: 34280283183,
+      postMainBuildJobId: 102243119719,
+      postMainRepositorySecurityRunId: 34280283279,
+      postMainRepositorySecurityJobId: 102243120489,
+      ruleSuiteId: 3994259550,
+      rulesetId: 21232887,
+      requiredChecksPassed: true,
+      annotationsEmpty: true
+    },
+    failedAuditObservation: {
+      generatedAt: "2026-09-08T21:29:13.840Z",
+      status: "fail",
+      errors: [
+        "workItem ahead/behind differs from registry: SENA-EVIDENCEFLOW-V1-20260828"
+      ],
+      ownerBlockers: [],
+      unreachableCommitCount: 0,
+      effectiveActiveWriterCount: 0,
+      allOtherChecksPassed: true
+    },
+    evidenceFlowObservation: {
+      taskId: O_N_EVIDENCE_FLOW_TASK,
+      branch: O_N_EVIDENCE_FLOW_BRANCH,
+      headSha: O_N_EVIDENCE_FLOW_HEAD,
+      treeSha: O_N_EVIDENCE_FLOW_TREE,
+      aheadBehind: { baseRef: "origin/main", ahead: 16, behind: 133 },
+      stagedPathCount: 0,
+      unstagedTrackedPathCount: 76,
+      untrackedPathCount: 10,
+      fullDiffSha256: O_N_EVIDENCE_FLOW_DIFF_SHA256,
+      statusSha256: O_N_EVIDENCE_FLOW_STATUS_SHA256,
+      sourceWritesAuthorized: false,
+      pushAuthorized: false,
+      mergeAuthorized: false,
+      cleanupAuthorized: false
+    },
+    plannedPullRequest: {
+      number: 89,
+      baseRef: "main",
+      baseSha: O_N_PROTECTED_MAIN,
+      headRef: I_H_BRANCH,
+      preCreationRemoteHeadSha: O_N_SOURCE_COMMIT,
+      draftRequired: true
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+      exactlyOneRef: true,
+      force: false
+    },
+    requiredExecution: [...O_N_REQUIRED_EXECUTION],
+    authorizationBoundary: { ...O_N_AUTHORIZATION_BOUNDARY }
+  };
+  return expected;
+}
+
+function oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = oNPr88PostMainCurrentnessRepairSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          oNPr88PostMainCurrentnessRepairExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateONPr88PostMainCurrentnessRepairTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=o-n-pr88-post-main-currentness-repair-invalid");
+  }
+  return {
+    sourceCommitSha: O_N_SOURCE_COMMIT,
+    sourceTreeSha: O_N_SOURCE_TREE,
+    protectedMainSha: O_N_PROTECTED_MAIN,
+    plannedPullRequestNumber: 89,
+    ...O_N_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function oNPr88PostMainCurrentnessRepairHistoricalProjection(
+  registry
+) {
+  const source = oNPr88PostMainCurrentnessRepairSource();
+  validateONPr88PostMainCurrentnessRepairTransition(source, registry);
+  return source;
+}
+
+function oNPr88MergeDescriptor() {
+  return {
+    mergeTimeRegistry: loadRegistryFromCommit(O_N_SOURCE_COMMIT).parsed,
+    mergeCommitSha: O_N_PROTECTED_MAIN,
+    orderedParentShas: [H_GOVERNANCE_SOURCE, O_N_SOURCE_COMMIT],
+    secondParentSha: O_N_SOURCE_COMMIT,
+    mergeTreeSha: O_N_SOURCE_TREE,
+    registryBlobSha: O_N_SOURCE_BLOBS[0]
+  };
+}
+
+export function validateONPr88LandedEvidence(registry, options = {}) {
+  validateONPr88PostMainCurrentnessRepairTransition(
+    oNPr88PostMainCurrentnessRepairSource(),
+    registry
+  );
+  const evidence = validatePr88DedicatedGovernanceFinalHeadLiveGitHubEvidence(
+    oNPr88MergeDescriptor(),
+    options
+  );
+  const recorded = registry.oNPr88PostMainCurrentnessRepair.landedPr88;
+  if (
+    recorded.number !== 88 ||
+    recorded.finalHeadSha !== O_N_SOURCE_COMMIT ||
+    recorded.mergeCommitSha !== O_N_PROTECTED_MAIN ||
+    !sameJson(recorded.orderedParentShas, [
+      H_GOVERNANCE_SOURCE,
+      O_N_SOURCE_COMMIT
+    ]) ||
+    recorded.treeSha !== O_N_SOURCE_TREE ||
+    recorded.ruleSuiteId !== evidence.ruleSuiteReceipt.payload.suiteId ||
+    recorded.rulesetId !== evidence.ruleSuiteReceipt.payload.rulesetId ||
+    recorded.requiredChecksPassed !== true ||
+    recorded.annotationsEmpty !== true ||
+    protectedMainAdvanceObjectSha("origin/main^{commit}") !==
+      O_N_PROTECTED_MAIN ||
+    protectedMainAdvanceObjectSha("refs/heads/main") !== O_N_PROTECTED_MAIN
+  ) {
+    throw new Error("rule=o-n-pr88-landed-evidence-invalid");
+  }
+  return evidence;
+}
+
+function oNEvidenceFlowPhysicalObservation() {
+  try {
+    const worktreePath =
+      "/Volumes/Starship/SENA/.worktrees/sena-evidenceflow-v1-20260828";
+    const marker = markerInfo(worktreePath);
+    const registered = parseWorktreeList().find(
+      (entry) => entry.path === worktreePath
+    );
+    if (
+      !marker.valid ||
+      marker.kind !== "gitdir-file" ||
+      !registered ||
+      lstatSync(join(worktreePath, ".git")).isSymbolicLink()
+    ) {
+      return null;
+    }
+    const unsetEnv = [
+      "GIT_DIR",
+      "GIT_WORK_TREE",
+      "GIT_COMMON_DIR",
+      "GIT_INDEX_FILE",
+      "GIT_OBJECT_DIRECTORY",
+      "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+      "GIT_PREFIX"
+    ];
+    const local = (args, binary = false) =>
+      git(
+        [
+          `--git-dir=${marker.target}`,
+          `--work-tree=${worktreePath}`,
+          "-c",
+          `core.worktree=${worktreePath}`,
+          ...args
+        ],
+        { unsetEnv, binary }
+      );
+    const text = (args) => String(local(args).stdout ?? "").trim();
+    const splitNul = (args) =>
+      String(local(args).stdout ?? "").split("\0").filter(Boolean);
+    return {
+      branch: text(["symbolic-ref", "--quiet", "--short", "HEAD"]),
+      headSha: text(["rev-parse", "HEAD"]),
+      treeSha: text(["rev-parse", "HEAD^{tree}"]),
+      registeredBranch: registered.branch,
+      registeredHeadSha: registered.headSha,
+      aheadBehind: {
+        baseRef: "origin/main",
+        ...actualAheadBehind(O_N_EVIDENCE_FLOW_HEAD, "origin/main")
+      },
+      stagedPathCount: splitNul([
+        "diff",
+        "--cached",
+        "--name-only",
+        "-z",
+        "--no-renames"
+      ]).length,
+      unstagedTrackedPathCount: splitNul([
+        "diff",
+        "--name-only",
+        "-z",
+        "--no-renames"
+      ]).length,
+      untrackedPathCount: splitNul([
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "-z"
+      ]).length,
+      fullDiffSha256: sha256Buffer(
+        local(
+          [
+            "diff",
+            "--binary",
+            "--no-ext-diff",
+            "--no-textconv",
+            "HEAD",
+            "--",
+            "."
+          ],
+          true
+        ).stdout
+      ),
+      statusSha256: sha256Buffer(
+        local(
+          ["status", "--porcelain=v1", "--untracked-files=all"],
+          true
+        ).stdout
+      )
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function oNEvidenceFlowPhysicalObservationAllowed(registry, facts) {
+  try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
+    const recorded =
+      operationalRegistry.oNPr88PostMainCurrentnessRepair
+        .evidenceFlowObservation;
+    return Boolean(
+      oNEvidenceFlowPhysicalCustodyAllowed(registry, facts) &&
+        isDeepStrictEqual(facts.aheadBehind, recorded.aheadBehind)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function oNEvidenceFlowPhysicalCustodyAllowed(registry, facts) {
+  try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      operationalRegistry
+    );
+    const recorded =
+      operationalRegistry.oNPr88PostMainCurrentnessRepair
+        .evidenceFlowObservation;
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        exactPlainJsonOwnKeys(facts, [
+          "branch",
+          "headSha",
+          "treeSha",
+          "registeredBranch",
+          "registeredHeadSha",
+          "aheadBehind",
+          "stagedPathCount",
+          "unstagedTrackedPathCount",
+          "untrackedPathCount",
+          "fullDiffSha256",
+          "statusSha256"
+        ]) &&
+        facts.branch === recorded.branch &&
+        facts.headSha === recorded.headSha &&
+        facts.treeSha === recorded.treeSha &&
+        facts.registeredBranch === recorded.branch &&
+        facts.registeredHeadSha === recorded.headSha &&
+        exactPlainJsonOwnKeys(facts.aheadBehind, [
+          "baseRef",
+          "ahead",
+          "behind"
+        ]) &&
+        facts.aheadBehind.baseRef === recorded.aheadBehind.baseRef &&
+        facts.aheadBehind.ahead === recorded.aheadBehind.ahead &&
+        Number.isInteger(facts.aheadBehind.behind) &&
+        facts.aheadBehind.behind >= recorded.aheadBehind.behind &&
+        facts.stagedPathCount === recorded.stagedPathCount &&
+        facts.unstagedTrackedPathCount ===
+          recorded.unstagedTrackedPathCount &&
+        facts.untrackedPathCount === recorded.untrackedPathCount &&
+        facts.fullDiffSha256 === recorded.fullDiffSha256 &&
+        facts.statusSha256 === recorded.statusSha256
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function oNEvidenceFlowObservationShapeAllowed(registry, item) {
+  try {
+    const source = oNPr88PostMainCurrentnessRepairSource();
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
+    if (
+      !oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
+        source,
+        operationalRegistry
+      )
+    ) {
+      return false;
+    }
+    const expected = registry.workItems.find(
+      (entry) => entry.taskId === O_N_EVIDENCE_FLOW_TASK
+    );
+    return Boolean(
+      isDeepStrictEqual(item, expected) &&
+        item.laneType === "read-only" &&
+        item.disposition === "preservation-review" &&
+        item.branch === O_N_EVIDENCE_FLOW_BRANCH &&
+        item.headSha === O_N_EVIDENCE_FLOW_HEAD &&
+        item.aheadBehindObservationMode ===
+          "pr88-preserved-monotonic-behind" &&
+        item.protectedMainBaselineSha === O_N_PROTECTED_MAIN &&
+        exactPlainJsonOwnKeys(item.aheadBehind, [
+          "baseRef",
+          "ahead",
+          "behind"
+        ]) &&
+        item.aheadBehind.baseRef === "origin/main" &&
+        item.aheadBehind.ahead === 16 &&
+        item.aheadBehind.behind === 133 &&
+        !Object.hasOwn(item, "cleanupAuthorization")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function oNEvidenceFlowCurrentPhysicalObservationAllowed(registry) {
+  const facts = oNEvidenceFlowPhysicalObservation();
+  return Boolean(facts && oNEvidenceFlowPhysicalObservationAllowed(registry, facts));
+}
+
+function oNEvidenceFlowCurrentPhysicalCustodyAllowed(registry) {
+  const facts = oNEvidenceFlowPhysicalObservation();
+  return Boolean(facts && oNEvidenceFlowPhysicalCustodyAllowed(registry, facts));
+}
+
+export function oNEvidenceFlowMonotonicBehindShapeAllowed(
+  registry,
+  item,
+  actualHeadSha,
+  observed,
+  actualObserved
+) {
+  try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      operationalRegistry
+    );
+    const expected = registry.workItems.find(
+      (entry) => entry.taskId === O_N_EVIDENCE_FLOW_TASK
+    );
+    return Boolean(
+      isDeepStrictEqual(item, expected) &&
+        item.laneType === "read-only" &&
+        item.disposition === "preservation-review" &&
+        item.branch === O_N_EVIDENCE_FLOW_BRANCH &&
+        item.headSha === O_N_EVIDENCE_FLOW_HEAD &&
+        item.aheadBehindObservationMode ===
+          "pr88-preserved-monotonic-behind" &&
+        item.protectedMainBaselineSha === O_N_PROTECTED_MAIN &&
+        actualHeadSha === item.headSha &&
+        exactPlainJsonOwnKeys(observed, ["baseRef", "ahead", "behind"]) &&
+        observed.baseRef === "origin/main" &&
+        observed.ahead === item.aheadBehind.ahead &&
+        Number.isInteger(observed.behind) &&
+        observed.behind >= item.aheadBehind.behind &&
+        sameJson(actualObserved, {
+          ahead: observed.ahead,
+          behind: observed.behind
+        })
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function oNEvidenceFlowMonotonicBehindObservationAllowed(
+  registry,
+  item,
+  actualHeadSha,
+  observed,
+  proof
+) {
+  try {
+    return Boolean(
+      oNEvidenceFlowMonotonicBehindShapeAllowed(
+        registry,
+        item,
+        actualHeadSha,
+        observed,
+        actualAheadBehind(actualHeadSha, "origin/main")
+      ) &&
+        pr86DeliveryCurrentProofMatches(registry, proof) &&
+        proof.mergeCommitSha === protectedMainAdvanceObjectSha(
+          "origin/main^{commit}"
+        ) &&
+        proof.dedicatedLandingCustody &&
+        oNEvidenceFlowCurrentPhysicalCustodyAllowed(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function oNPr88RepairPushFactsAllowed(registry, facts) {
+  try {
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== O_N_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === O_N_SOURCE_COMMIT &&
+        sameJson(facts.orderedParentShas, [O_N_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        facts.cachedMainSha === O_N_PROTECTED_MAIN &&
+        facts.rootMainSha === O_N_PROTECTED_MAIN &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function oNPr88RepairPushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const update = updates[0];
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return oNPr88RepairPushFactsAllowed(registry, {
+      branch: gitText([
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD"
+      ]).trim(),
+      currentHeadSha: headSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        O_N_SOURCE_COMMIT,
+        update.localSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function oNPr88RepairIndexFactsAllowed(registry, facts) {
+  try {
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: O_N_SOURCE_COMMIT,
+      cachedOriginMainSha: O_N_PROTECTED_MAIN,
+      rootMainSha: O_N_PROTECTED_MAIN,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function oNPr88RepairPhysicalIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  try {
+    return Boolean(
+      facts &&
+        oNPr88RepairIndexFactsAllowed(registry, facts) &&
+        oNEvidenceFlowCurrentPhysicalObservationAllowed(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function oNPr88RepairCurrentIndexAllowed(registry) {
+  try {
+    return Boolean(
+      oNPr88RepairPhysicalIndexAllowed(registry) &&
+        validateONPr88LandedEvidence(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function oNPr88CommittedRepairPhysicalBarrierAllowed(registry) {
+  try {
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      registry
+    );
+    if (!oNEvidenceFlowCurrentPhysicalObservationAllowed(registry)) return false;
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== O_N_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          O_N_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(O_N_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          O_N_PROTECTED_MAIN &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          O_N_PROTECTED_MAIN &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function oNPr88CommittedRepairBarrierAllowed(registry) {
+  try {
+    return Boolean(
+      oNPr88CommittedRepairPhysicalBarrierAllowed(registry) &&
+        validateONPr88LandedEvidence(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+const P_O_SOURCE_COMMIT = "62417d31d399af892c28d9112bcc829850062013";
+const P_O_SOURCE_TREE = "00ce1632042f655a798cfc87e392a286dc553170";
+const P_O_SOURCE_BLOBS = Object.freeze([
+  "918f98f7ded310df7578fe85c33e8103cf3a5167",
+  "791f43f7680f12ec745e1c0738e9c0acd93c5268",
+  "cbcfa8d757c2aee896d7e1d8df7eeeac612088a7"
+]);
+const P_O_SOURCE_SHA256 = Object.freeze([
+  "71759eb1177a49d9620f92dd888a192ae051d76e1d67bfbb0f8150b0d83746c9",
+  "309096c590dd4f5dc6363d3beff518e8d263c6cb18889958da025acd93cb7d5c",
+  "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
+]);
+const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
+const P_O_NEXT_REVIEW_AT = "2026-09-11T02:37:09Z";
+const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
+  "mobile pilot merged checkout lacks exact live release-verification custody",
+  "branch head differs from registry: main",
+  "branch head differs from registry: codex/sena-pr86-delivery-closeout-20260907",
+  "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+  "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+  "workItem ahead/behind differs from registry: SENA-BRANCH-RETIREMENT-20260829",
+  "workItem ahead/behind differs from registry: SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+  "workItem headSha is not a permitted forward-only allowed-path advance: SENA-MOBILE-RESEARCH-PILOT-20260905",
+  "workItem ahead/behind differs from registry: SENA-CONVERGENCE-INTEGRATION-20260906",
+  "workItem ahead/behind differs from registry: SENA-CONVERGENCE-CURRENTNESS-20260907",
+  "workItem headSha is not a permitted forward-only allowed-path advance: SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+  "workItem ahead/behind differs from registry: SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+  "live main does not match or descend from the registry live-main observation",
+  "live remote branch SHA differs from registry: main",
+  "live remote branch SHA differs from registry: codex/sena-pr86-delivery-closeout-20260907",
+  "registry PR head SHA mismatch: #87",
+  "registry PR state mismatch: #87"
+]);
+const P_O_REQUIRED_EXECUTION = Object.freeze([
+  "commit-one-exact-three-path-p-custody-remediation",
+  "push-one-non-force-two-commit-fast-forward-from-n-to-final-p",
+  "create-draft-pr89-against-exact-landed-pr88-main",
+  "verify-pr89-final-head-build-and-both-repository-security-checks-with-zero-annotations",
+  "mark-pr89-ready-only-after-exact-final-head-provider-readback",
+  "protected-merge-pr89-with-exact-head-lease-and-no-admin-bypass",
+  "verify-pr89-post-main-build-security-rule-suite-and-commit-bound-live-audit",
+  "only-after-pass-authorize-fresh-g-product-currentness-and-integration",
+  "keep-deployment-and-cleanup-gated"
+]);
+const P_O_AUTHORIZATION_BOUNDARY = Object.freeze({
+  remediationCommitAuthorizedAfterGates: true,
+  branchUpdatePushAuthorizedNow: true,
+  draftPr89CreationAuthorizedAfterPush: true,
+  remoteCiAuthorized: true,
+  readyAuthorizedAfterFinalHeadChecks: true,
+  protectedMergeAuthorizedAfterFinalHeadChecks: true,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+let pOSourceCache = null;
+function pOPr89PrePushCustodyRemediationSource() {
+  if (!pOSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${P_O_SOURCE_COMMIT}^{tree}`) !==
+        P_O_SOURCE_TREE ||
+      !sameJson(protectedMainAdvanceCommitParents(P_O_SOURCE_COMMIT), [
+        O_N_SOURCE_COMMIT
+      ]) ||
+      !sameJson(
+        protectedMainAdvanceChangedPaths(O_N_SOURCE_COMMIT, P_O_SOURCE_COMMIT),
+        PR86_DELIVERY_PATHS
+      )
+    ) {
+      throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+    }
+    for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(`${P_O_SOURCE_COMMIT}:${path}`);
+      if (
+        blob !== P_O_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          P_O_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+      }
+    }
+    const source = loadRegistryFromCommit(P_O_SOURCE_COMMIT).parsed;
+    if (
+      !oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
+        oNPr88PostMainCurrentnessRepairSource(),
+        source
+      )
+    ) {
+      throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+    }
+    pOSourceCache = source;
+  }
+  return protectedActivationNativeStructuredClone(pOSourceCache);
+}
+
+function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
+  const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
+  if (!item || !branch || !expected.oNPr88PostMainCurrentnessRepair) {
+    throw new Error("rule=p-o-pr89-pre-push-source-invalid");
+  }
+  const noPrReason =
+    "The committed O repair was retained after its native pre-push audit failed closed; P stages one exact custody remediation before the same one-ref update and Draft PR #89.";
+  const expectedCloseAt =
+    "owner-gated:pr89-pre-push-custody-remediation";
+  expected.updatedAt = P_O_RECORDED_AT;
+  Object.assign(item, {
+    headSha: P_O_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 1 },
+    lastHeartbeatAt: P_O_RECORDED_AT,
+    lastObservedAt: P_O_RECORDED_AT,
+    nextReviewAt: P_O_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    prNumber: null,
+    noPrReason,
+    prIsDraft: false,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-p-o-pr89-pre-push-custody-remediation",
+    evidenceState: {
+      local:
+        "O commit 62417d31 is clean and retained after a native pre-push dry-run failed closed; P stages only the three governance paths.",
+      ci:
+        "PR #88 final and post-main build/security checks passed at attempt 1 with zero annotations; P has not been pushed and has no CI yet.",
+      merged:
+        "PR #88 remains merged as 876fa148; PR #89 does not yet exist and P must repair only committed-transition custody before the branch update.",
+      deployed:
+        "Deployment remains gated on landed-main and target verification.",
+      live:
+        "Main is exact 876fa148, the remote governance branch remains a8ee572f, and local 62417d31 is the preserved unpushed O commit."
+    }
+  });
+  Object.assign(branch, {
+    headSha: P_O_SOURCE_COMMIT,
+    upstream: `origin/${I_H_BRANCH}`,
+    upstreamState: "live",
+    upstreamCacheState: "present",
+    remotePresent: true,
+    remoteHeadSha: O_N_SOURCE_COMMIT,
+    remoteObservedAt: P_O_RECORDED_AT,
+    pr: null,
+    noPrReason,
+    prHeadSha: null,
+    prState: null,
+    prBase: "main",
+    prIsDraft: false,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: P_O_RECORDED_AT,
+    lastObservedAt: P_O_RECORDED_AT,
+    lastCommitAt: "2026-09-09T10:21:08+08:00",
+    nextReviewAt: P_O_NEXT_REVIEW_AT,
+    expectedCloseAt,
+    disposition: "active",
+    closeout:
+      "PR #88 is merged; committed O is retained locally and P repairs only the failed pre-push retained-custody transition before Draft PR #89."
+  });
+  expected.pOPr89PrePushCustodyRemediation = {
+    schemaVersion: "sena-p-o-pr89-pre-push-custody-remediation/v1",
+    status: "exact-committed-o-custody-remediation-staged",
+    recordedAt: P_O_RECORDED_AT,
+    source: {
+      commitSha: P_O_SOURCE_COMMIT,
+      treeSha: P_O_SOURCE_TREE,
+      orderedParentShas: [O_N_SOURCE_COMMIT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...P_O_SOURCE_BLOBS],
+      fileSha256: [...P_O_SOURCE_SHA256]
+    },
+    failedPrePushDryRun: {
+      commandMode: "native-hook-dry-run",
+      localHeadSha: P_O_SOURCE_COMMIT,
+      expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+      protectedMainSha: O_N_PROTECTED_MAIN,
+      pushPolicyPassed: true,
+      remoteMutationPerformed: false,
+      auditGeneratedAt: "2026-09-09T02:35:17.974Z",
+      auditStatus: "fail",
+      errors: [...P_O_FAILED_PRE_PUSH_ERRORS],
+      ownerBlockers: [],
+      unreachableCommitCount: 0,
+      effectiveActiveWriterCount: 3
+    },
+    rootCause: {
+      class: "committed-o-transition-retained-custody-gap",
+      description:
+        "The PR88 retained-custody resolver accepted staged O at source N and landed PR89, but not the clean committed O head before its first branch push; the missing opaque host proof caused all later audit errors to cascade.",
+      remediationBoundary:
+        "Recognize only exact staged P over committed O and exact committed P before the first non-force branch update; preserve every provider, path, main, remote-old, EvidenceFlow, G, deployment and cleanup gate."
+    },
+    updatePushContract: {
+      remoteName: "origin",
+      localRef: `refs/heads/${I_H_BRANCH}`,
+      remoteRef: `refs/heads/${I_H_BRANCH}`,
+      expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+      requiredLocalAncestry: [
+        O_N_SOURCE_COMMIT,
+        P_O_SOURCE_COMMIT,
+        "exact-final-p-head"
+      ],
+      exactlyOneRef: true,
+      force: false
+    },
+    requiredExecution: [...P_O_REQUIRED_EXECUTION],
+    authorizationBoundary: { ...P_O_AUTHORIZATION_BOUNDARY }
+  };
+  return expected;
+}
+
+function pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = pOPr89PrePushCustodyRemediationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        isDeepStrictEqual(
+          candidateRegistry,
+          pOPr89PrePushCustodyRemediationExpectedCandidate(source)
+        )
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validatePOPr89PrePushCustodyRemediationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=p-o-pr89-pre-push-custody-remediation-invalid");
+  }
+  return {
+    sourceCommitSha: P_O_SOURCE_COMMIT,
+    sourceTreeSha: P_O_SOURCE_TREE,
+    expectedRemoteOldSha: O_N_SOURCE_COMMIT,
+    plannedPullRequestNumber: 89,
+    ...P_O_AUTHORIZATION_BOUNDARY
+  };
+}
+
+export function pOPr89PrePushCustodyRemediationHistoricalProjection(
+  registry
+) {
+  const source = pOPr89PrePushCustodyRemediationSource();
+  validatePOPr89PrePushCustodyRemediationTransition(source, registry);
+  return source;
+}
+
+function oNPr88OperationalRegistry(registry) {
+  return registry?.pOPr89PrePushCustodyRemediation
+    ? pOPr89PrePushCustodyRemediationHistoricalProjection(registry)
+    : registry;
+}
+
+export function pOPr89RemediationIndexFactsAllowed(registry, facts) {
+  try {
+    validatePOPr89PrePushCustodyRemediationTransition(
+      pOPr89PrePushCustodyRemediationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: I_H_WORKTREE,
+      gitDirectory: I_H_GIT_DIRECTORY,
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: I_H_BRANCH,
+      headSha: P_O_SOURCE_COMMIT,
+      cachedOriginMainSha: O_N_PROTECTED_MAIN,
+      rootMainSha: O_N_PROTECTED_MAIN,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89RemediationPhysicalIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  try {
+    return Boolean(
+      facts &&
+        pOPr89RemediationIndexFactsAllowed(registry, facts) &&
+        oNEvidenceFlowCurrentPhysicalObservationAllowed(registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89RemediationCurrentIndexAllowed(registry) {
+  try {
+    return Boolean(
+      pOPr89RemediationPhysicalIndexAllowed(registry) &&
+        validateONPr88LandedEvidence(oNPr88OperationalRegistry(registry))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89CommittedRemediationPhysicalBarrierAllowed(registry) {
+  try {
+    validatePOPr89PrePushCustodyRemediationTransition(
+      pOPr89PrePushCustodyRemediationSource(),
+      registry
+    );
+    if (!oNEvidenceFlowCurrentPhysicalObservationAllowed(registry)) return false;
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    return Boolean(
+      isSha(headSha) &&
+        headSha !== P_O_SOURCE_COMMIT &&
+        sameJson(protectedMainAdvanceCommitParents(headSha), [
+          P_O_SOURCE_COMMIT
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(P_O_SOURCE_COMMIT, headSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(headSha).parsed, registry) &&
+        protectedMainAdvanceObjectSha("origin/main^{commit}") ===
+          O_N_PROTECTED_MAIN &&
+        protectedMainAdvanceObjectSha("refs/heads/main") ===
+          O_N_PROTECTED_MAIN &&
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89CommittedRemediationBarrierAllowed(registry) {
+  try {
+    return Boolean(
+      pOPr89CommittedRemediationPhysicalBarrierAllowed(registry) &&
+        validateONPr88LandedEvidence(oNPr88OperationalRegistry(registry))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function pOPr89RemediationPushFactsAllowed(registry, facts) {
+  try {
+    validatePOPr89PrePushCustodyRemediationTransition(
+      pOPr89PrePushCustodyRemediationSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === I_H_BRANCH &&
+        isSha(facts.localSha) &&
+        facts.localSha !== P_O_SOURCE_COMMIT &&
+        facts.currentHeadSha === facts.localSha &&
+        facts.localRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteRef === `refs/heads/${I_H_BRANCH}` &&
+        facts.remoteSha === O_N_SOURCE_COMMIT &&
+        sameJson(facts.orderedParentShas, [P_O_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        sameJson(facts.combinedChangedPaths, PR86_DELIVERY_PATHS) &&
+        sameJson(facts.outgoingCommitShas, [
+          P_O_SOURCE_COMMIT,
+          facts.localSha
+        ]) &&
+        facts.cachedMainSha === O_N_PROTECTED_MAIN &&
+        facts.rootMainSha === O_N_PROTECTED_MAIN &&
+        facts.outgoingRegistryMatches === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function pOPr89RemediationPushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const update = updates[0];
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    const outgoingCommitText = protectedMainAdvanceGitText([
+      "rev-list",
+      "--reverse",
+      `${O_N_SOURCE_COMMIT}..${update.localSha}`
+    ]);
+    return pOPr89RemediationPushFactsAllowed(registry, {
+      branch: gitText([
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD"
+      ]).trim(),
+      currentHeadSha: headSha,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        P_O_SOURCE_COMMIT,
+        update.localSha
+      ),
+      combinedChangedPaths: protectedMainAdvanceChangedPaths(
+        O_N_SOURCE_COMMIT,
+        update.localSha
+      ),
+      outgoingCommitShas: outgoingCommitText
+        ? outgoingCommitText.split("\n").filter(Boolean)
+        : null,
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      )
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function oNPr89FinalHeadShapeAllowed(registry, finalHeadSha) {
+  try {
+    const operationalRegistry = oNPr88OperationalRegistry(registry);
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      operationalRegistry
+    );
+    const sourceCommit = registry?.pOPr89PrePushCustodyRemediation
+      ? P_O_SOURCE_COMMIT
+      : O_N_SOURCE_COMMIT;
+    if (
+      registry?.pOPr89PrePushCustodyRemediation &&
+      !pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+        pOPr89PrePushCustodyRemediationSource(),
+        registry
+      )
+    ) {
+      return false;
+    }
+    return Boolean(
+      isSha(finalHeadSha) &&
+        finalHeadSha !== sourceCommit &&
+        sameJson(protectedMainAdvanceCommitParents(finalHeadSha), [
+          sourceCommit
+        ]) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(sourceCommit, finalHeadSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        sameJson(
+          protectedMainAdvanceChangedPaths(O_N_SOURCE_COMMIT, finalHeadSha),
+          PR86_DELIVERY_PATHS
+        ) &&
+        isDeepStrictEqual(loadRegistryFromCommit(finalHeadSha).parsed, registry)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
+  registry,
+  advancedBranchHeadSha,
+  liveMainSha,
+  options = {}
+) {
+  const operationalRegistry = oNPr88OperationalRegistry(registry);
+  validateONPr88PostMainCurrentnessRepairTransition(
+    oNPr88PostMainCurrentnessRepairSource(),
+    operationalRegistry
+  );
+  if (
+    !oNPr89FinalHeadShapeAllowed(registry, advancedBranchHeadSha) ||
+    !isSha(liveMainSha) ||
+    ![O_N_PROTECTED_MAIN, options.expectedPr89MergeCommitSha]
+      .filter(isSha)
+      .includes(liveMainSha)
+  ) {
+    throw new Error("rule=o-n-pr88-advanced-historical-evidence-invalid");
+  }
+  const githubTransport = options.githubTransport ?? null;
+  const recorded =
+    operationalRegistry.oNPr88PostMainCurrentnessRepair.landedPr88;
+  const descriptor = oNPr88MergeDescriptor();
+  if (
+    !validatePr88DedicatedGovernanceProtectedMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    throw new Error("rule=o-n-pr88-advanced-historical-evidence-invalid");
+  }
+  const declared = [
+    {
+      runId: recorded.finalBuildRunId,
+      jobId: recorded.finalBuildJobId,
+      name: "build-gate",
+      event: "pull_request",
+      job: "build",
+      headSha: O_N_SOURCE_COMMIT,
+      branch: I_H_BRANCH
+    },
+    ...recorded.finalRepositorySecurityRunIds.map((runId, index) => ({
+      runId,
+      jobId: recorded.finalRepositorySecurityJobIds[index],
+      name: "repo-security-gate",
+      event: index === 0 ? "push" : "pull_request",
+      job: "repository-security",
+      headSha: O_N_SOURCE_COMMIT,
+      branch: I_H_BRANCH
+    })),
+    {
+      runId: recorded.postMainBuildRunId,
+      jobId: recorded.postMainBuildJobId,
+      name: "build-gate",
+      event: "push",
+      job: "build",
+      headSha: O_N_PROTECTED_MAIN,
+      branch: "main"
+    },
+    {
+      runId: recorded.postMainRepositorySecurityRunId,
+      jobId: recorded.postMainRepositorySecurityJobId,
+      name: "repo-security-gate",
+      event: "push",
+      job: "repository-security",
+      headSha: O_N_PROTECTED_MAIN,
+      branch: "main"
+    }
+  ];
+  const runs = declared.map((entry) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/runs/${entry.runId}`,
+      githubTransport
+    )
+  );
+  const jobs = declared.map((entry) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/actions/jobs/${entry.jobId}`,
+      githubTransport
+    )
+  );
+  const annotations = declared.map((entry) =>
+    postPr83GithubApiJson(
+      `repos/HUDongpin/SENA/check-runs/${entry.jobId}/annotations`,
+      githubTransport
+    )
+  );
+  const pullRequest = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/pulls/88",
+    githubTransport
+  );
+  const remoteRef = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/git/ref/heads/${I_H_BRANCH}`,
+    githubTransport
+  );
+  const mainRef = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/git/ref/heads/main",
+    githubTransport
+  );
+  const suite = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/rulesets/rule-suites/${recorded.ruleSuiteId}`,
+    githubTransport
+  );
+  const observedAt = options.observedAt ?? new Date().toISOString();
+  const payload = postPr83RuleSuiteReceiptPayload(
+    suite,
+    descriptor,
+    88,
+    observedAt,
+    PR88_GITHUB_BINDING
+  );
+  if (
+    recorded.requiredChecksPassed !== true ||
+    recorded.annotationsEmpty !== true ||
+    declared.length !== 5 ||
+    new Set(declared.map((entry) => entry.runId)).size !== 5 ||
+    new Set(declared.map((entry) => entry.jobId)).size !== 5 ||
+    runs.some(
+      (run, index) =>
+        !isPlainRecord(run) ||
+        run.id !== declared[index].runId ||
+        run.name !== declared[index].name ||
+        run.event !== declared[index].event ||
+        run.head_sha !== declared[index].headSha ||
+        run.head_branch !== declared[index].branch ||
+        run.head_repository?.full_name !== "HUDongpin/SENA" ||
+        run.status !== "completed" ||
+        run.conclusion !== "success"
+    ) ||
+    jobs.some(
+      (job, index) =>
+        !isPlainRecord(job) ||
+        job.id !== declared[index].jobId ||
+        job.run_id !== declared[index].runId ||
+        job.name !== declared[index].job ||
+        job.head_sha !== declared[index].headSha ||
+        job.status !== "completed" ||
+        job.conclusion !== "success"
+    ) ||
+    annotations.some((entry) => !Array.isArray(entry) || entry.length !== 0) ||
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== 88 ||
+    pullRequest.state !== "closed" ||
+    pullRequest.draft !== false ||
+    pullRequest.merged !== true ||
+    pullRequest.merge_commit_sha !== O_N_PROTECTED_MAIN ||
+    pullRequest.head?.sha !== O_N_SOURCE_COMMIT ||
+    pullRequest.head?.ref !== I_H_BRANCH ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !== `refs/heads/${I_H_BRANCH}` ||
+    remoteRef.object?.sha !== advancedBranchHeadSha ||
+    !isPlainRecord(mainRef) ||
+    mainRef.ref !== "refs/heads/main" ||
+    mainRef.object?.sha !== liveMainSha ||
+    payload.suiteId !== recorded.ruleSuiteId ||
+    payload.rulesetId !== recorded.rulesetId
+  ) {
+    throw new Error("rule=o-n-pr88-advanced-historical-evidence-invalid");
+  }
+  const ruleSuiteReceipt = {
+    payload,
+    receiptSha256: sha256Buffer(
+      Buffer.from(JSON.stringify(payload), "utf8")
+    )
+  };
+  if (Array.isArray(options.ruleSuiteReceiptCollector)) {
+    options.ruleSuiteReceiptCollector.push(ruleSuiteReceipt);
+  }
+  return { validated: true, ruleSuiteReceipt };
+}
+
+export function validateONPr89FinalHeadReadiness(
+  registry,
+  finalHeadSha,
+  options = {}
+) {
+  const expectedDraft = options.expectedDraft ?? true;
+  const githubTransport = options.githubTransport ?? null;
+  if (
+    typeof expectedDraft !== "boolean" ||
+    !oNPr89FinalHeadShapeAllowed(registry, finalHeadSha) ||
+    protectedMainAdvanceObjectSha("origin/main^{commit}") !==
+      O_N_PROTECTED_MAIN ||
+    protectedMainAdvanceObjectSha("refs/heads/main") !== O_N_PROTECTED_MAIN
+  ) {
+    throw new Error("rule=o-n-pr89-final-head-readiness-invalid");
+  }
+  validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
+    registry,
+    finalHeadSha,
+    O_N_PROTECTED_MAIN,
+    options
+  );
+  const checkJobIds = validateProtectedWorkflowChecks(
+    finalHeadSha,
+    I_H_BRANCH,
+    [
+      ["build-gate", "pull_request", "build"],
+      ["repo-security-gate", "push", "repository-security"],
+      ["repo-security-gate", "pull_request", "repository-security"]
+    ],
+    githubTransport
+  );
+  const pullRequest = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/pulls/89",
+    githubTransport
+  );
+  const remoteRef = postPr83GithubApiJson(
+    `repos/HUDongpin/SENA/git/ref/heads/${I_H_BRANCH}`,
+    githubTransport
+  );
+  const mainRef = postPr83GithubApiJson(
+    "repos/HUDongpin/SENA/git/ref/heads/main",
+    githubTransport
+  );
+  if (
+    !isPlainRecord(pullRequest) ||
+    pullRequest.number !== 89 ||
+    pullRequest.state !== "open" ||
+    pullRequest.draft !== expectedDraft ||
+    pullRequest.merged !== false ||
+    pullRequest.head?.sha !== finalHeadSha ||
+    pullRequest.head?.ref !== I_H_BRANCH ||
+    pullRequest.head?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.base?.sha !== O_N_PROTECTED_MAIN ||
+    pullRequest.base?.ref !== "main" ||
+    pullRequest.base?.repo?.full_name !== "HUDongpin/SENA" ||
+    pullRequest.mergeable !== true ||
+    pullRequest.mergeable_state !== "clean" ||
+    !isPlainRecord(remoteRef) ||
+    remoteRef.ref !== `refs/heads/${I_H_BRANCH}` ||
+    remoteRef.object?.sha !== finalHeadSha ||
+    !isPlainRecord(mainRef) ||
+    mainRef.ref !== "refs/heads/main" ||
+    mainRef.object?.sha !== O_N_PROTECTED_MAIN ||
+    protectedMainAdvanceObjectSha("origin/main^{commit}") !==
+      O_N_PROTECTED_MAIN
+  ) {
+    throw new Error("rule=o-n-pr89-final-head-readiness-invalid");
+  }
+  return {
+    headSha: finalHeadSha,
+    treeSha: protectedMainAdvanceObjectSha(`${finalHeadSha}^{tree}`),
+    registryBlobSha: protectedMainAdvanceObjectSha(
+      `${finalHeadSha}:${REGISTRY_REPO_PATH}`
+    ),
+    checkJobIds,
+    annotationsEmpty: true,
+    pullRequestNumber: 89,
+    pullRequestDraft: expectedDraft,
+    mergeable: true,
+    protectedMainSha: O_N_PROTECTED_MAIN
+  };
+}
+
+export function validatePr89EvidenceFlowCurrentnessProtectedMergeDescriptor(
+  descriptor,
+  options = {}
+) {
+  try {
+    const {
+      mergeTimeRegistry,
+      currentObservationRegistry,
+      mergeCommitSha,
+      orderedParentShas,
+      secondParentSha,
+      mergeTreeSha,
+      registryBlobSha
+    } = descriptor ?? {};
+    const operationalRegistry = oNPr88OperationalRegistry(
+      mergeTimeRegistry
+    );
+    validateONPr88PostMainCurrentnessRepairTransition(
+      oNPr88PostMainCurrentnessRepairSource(),
+      operationalRegistry
+    );
+    if (
+      !isSha(mergeCommitSha) ||
+      !oNPr89FinalHeadShapeAllowed(mergeTimeRegistry, secondParentSha) ||
+      !sameJson(orderedParentShas, [O_N_PROTECTED_MAIN, secondParentSha]) ||
+      !sameJson(
+        protectedMainAdvanceCommitParents(mergeCommitSha),
+        orderedParentShas
+      ) ||
+      !sameStringSet(
+        protectedMainAdvanceChangedPaths(
+          O_N_PROTECTED_MAIN,
+          secondParentSha
+        ) ?? [],
+        PR86_DELIVERY_PATHS
+      ) ||
+      !isSha(mergeTreeSha) ||
+      !isSha(registryBlobSha) ||
+      protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`) !==
+        mergeTreeSha ||
+      protectedMainAdvanceObjectSha(`${secondParentSha}^{tree}`) !==
+        mergeTreeSha ||
+      protectedMainAdvanceObjectSha(
+        `${mergeCommitSha}:${REGISTRY_REPO_PATH}`
+      ) !== registryBlobSha ||
+      protectedMainAdvanceObjectSha(
+        `${secondParentSha}:${REGISTRY_REPO_PATH}`
+      ) !== registryBlobSha ||
+      !sameJson(
+        protectedMainAdvanceRegistryFromCommit(secondParentSha),
+        mergeTimeRegistry
+      )
+    ) {
+      return false;
+    }
+    if (options.mergeTimeOnly === true) return true;
+    if (
+      !sameJson(currentObservationRegistry, mergeTimeRegistry) ||
+      protectedMainAdvanceObjectSha("origin/main^{commit}") !== mergeCommitSha
+    ) {
+      return false;
+    }
+    validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
+      mergeTimeRegistry,
+      secondParentSha,
+      mergeCommitSha,
+      { ...options, expectedPr89MergeCommitSha: mergeCommitSha }
+    );
+    const evidence = validateProtectedFinalHeadLiveGitHubEvidence(
+      descriptor,
+      89,
+      PR89_GITHUB_BINDING,
+      options
+    );
+    if (
+      Array.isArray(options.ruleSuiteReceiptCollector) &&
+      evidence?.ruleSuiteReceipt
+    ) {
+      options.ruleSuiteReceiptCollector.push(evidence.ruleSuiteReceipt);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function validatePr89EvidenceFlowCurrentnessFinalHeadLiveGitHubEvidence(
+  descriptor,
+  options = {}
+) {
+  if (
+    !validatePr89EvidenceFlowCurrentnessProtectedMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    throw new Error(
+      "rule=pr89-evidenceflow-currentness-protected-merge-evidence-invalid"
+    );
+  }
+  return validateProtectedFinalHeadLiveGitHubEvidence(
+    descriptor,
+    89,
+    PR89_GITHUB_BINDING,
+    options
+  );
+}
+
+function protectedMainPr89EvidenceFlowCurrentnessMergeTimeCandidate(
+  descriptor,
+  options
+) {
+  if (
+    !validatePr89EvidenceFlowCurrentnessProtectedMergeDescriptor(descriptor, {
+      mergeTimeOnly: true
+    })
+  ) {
+    return null;
+  }
+  return {
+    kind: "pr89-evidenceflow-currentness-repair",
+    expectedPaths: PR86_DELIVERY_PATHS,
+    currentObservationValidator(currentObservationRegistry) {
+      return validatePr89EvidenceFlowCurrentnessProtectedMergeDescriptor(
+        { ...descriptor, currentObservationRegistry },
+        options
+      );
+    }
+  };
+}
+
 export function iHDedicatedLandingIndexFactsAllowed(registry, facts) {
   try {
     validateIHDedicatedLandingCandidateTransition(
@@ -17458,6 +19175,15 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
         if (!postPr83ProtectedLaneShapeAllowed(item, registry)) {
           errors.push(
             `workItem ${item.taskId ?? "<unknown>"} has invalid protected-main merge-chain observation contract`
+          );
+        }
+      } else if (
+        item.aheadBehindObservationMode ===
+        "pr88-preserved-monotonic-behind"
+      ) {
+        if (!oNEvidenceFlowObservationShapeAllowed(registry, item)) {
+          errors.push(
+            `workItem ${item.taskId ?? "<unknown>"} has invalid PR88-preserved monotonic-behind observation contract`
           );
         }
       } else if (item.aheadBehindObservationMode !== "integrated-monotonic-behind") {
@@ -19700,6 +21426,8 @@ export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options 
     let treeSha = PR86_DELIVERY_SOURCE_TREE;
     let closeoutReviewedHeadSha = null;
     let dedicatedLandingReviewedHeadSha = null;
+    let dedicatedLandingPullRequestNumber = null;
+    let dedicatedLandingMergeCommitSha = null;
     if (
       headSha !== PR86_DELIVERY_SOURCE &&
       headSha !== H_GOVERNANCE_SOURCE &&
@@ -19738,21 +21466,73 @@ export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options 
           historicalEvidence.ruleSuiteReceipt
         );
       }
-      const dedicatedSuccessor = pr86DeliveryMergeDescriptor(headSha);
-      if (
-        !validatePr88DedicatedGovernanceProtectedMergeDescriptor(
-          {
-            ...dedicatedSuccessor,
-            currentObservationRegistry: registry
-          },
-          options
-        )
-      ) {
-        return null;
+      const pr88Successor = pr86DeliveryMergeDescriptor(O_N_PROTECTED_MAIN);
+      if (registry.oNPr88PostMainCurrentnessRepair) {
+        const projectedPr88Registry =
+          oNPr88PostMainCurrentnessRepairHistoricalProjection(
+            oNPr88OperationalRegistry(registry)
+          );
+        if (
+          !isDeepStrictEqual(
+            projectedPr88Registry,
+            pr88Successor.mergeTimeRegistry
+          )
+        ) {
+          return null;
+        }
+        if (headSha === O_N_PROTECTED_MAIN) {
+          if (
+            !validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+              {
+                ...pr88Successor,
+                currentObservationRegistry: projectedPr88Registry
+              },
+              options
+            )
+          ) {
+            return null;
+          }
+          treeSha = pr88Successor.mergeTreeSha;
+          dedicatedLandingReviewedHeadSha = pr88Successor.secondParentSha;
+          dedicatedLandingPullRequestNumber = 88;
+          dedicatedLandingMergeCommitSha = O_N_PROTECTED_MAIN;
+        } else {
+          const pr89Successor = pr86DeliveryMergeDescriptor(headSha);
+          if (
+            !validatePr89EvidenceFlowCurrentnessProtectedMergeDescriptor(
+              {
+                ...pr89Successor,
+                currentObservationRegistry: registry
+              },
+              options
+            )
+          ) {
+            return null;
+          }
+          treeSha = pr89Successor.mergeTreeSha;
+          dedicatedLandingReviewedHeadSha = pr89Successor.secondParentSha;
+          dedicatedLandingPullRequestNumber = 89;
+          dedicatedLandingMergeCommitSha = headSha;
+        }
+      } else {
+        const dedicatedSuccessor = pr86DeliveryMergeDescriptor(headSha);
+        if (
+          !validatePr88DedicatedGovernanceProtectedMergeDescriptor(
+            {
+              ...dedicatedSuccessor,
+              currentObservationRegistry: registry
+            },
+            options
+          )
+        ) {
+          return null;
+        }
+        treeSha = dedicatedSuccessor.mergeTreeSha;
+        dedicatedLandingReviewedHeadSha = dedicatedSuccessor.secondParentSha;
+        dedicatedLandingPullRequestNumber = 88;
+        dedicatedLandingMergeCommitSha = headSha;
       }
-      treeSha = dedicatedSuccessor.mergeTreeSha;
       closeoutReviewedHeadSha = historicalCloseout.secondParentSha;
-      dedicatedLandingReviewedHeadSha = dedicatedSuccessor.secondParentSha;
     } else if (headSha !== PR86_DELIVERY_SOURCE) {
       const successor = pr86DeliveryMergeDescriptor(headSha);
       const currentObservationRegistry = registry.hGovernanceIntake
@@ -19782,7 +21562,11 @@ export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options 
       reviewedHeadSha: PR86_DELIVERY_REVIEWED_MOBILE, treeSha,
       closeoutReviewedHeadSha,
       ...(dedicatedLandingReviewedHeadSha
-        ? { dedicatedLandingReviewedHeadSha }
+        ? {
+            dedicatedLandingReviewedHeadSha,
+            dedicatedLandingPullRequestNumber,
+            dedicatedLandingMergeCommitSha
+          }
         : {}),
       sourceWritesAuthorized: false, pushAuthorized: false
     }, registry, "commit");
@@ -19855,7 +21639,11 @@ export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostP
       ]);
     }
     if (refreshed.dedicatedLandingReviewedHeadSha) {
-      lanes.push([I_H_BRANCH, 88, refreshed.mergeCommitSha]);
+      lanes.push([
+        I_H_BRANCH,
+        refreshed.dedicatedLandingPullRequestNumber ?? 88,
+        refreshed.dedicatedLandingMergeCommitSha ?? refreshed.mergeCommitSha
+      ]);
     }
     for (const [branch, prNumber, mergeSha] of lanes) {
       const remote = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${branch}`, options.githubTransport);
@@ -19962,9 +21750,14 @@ export function pr88DedicatedLandingRetainedHostObservationAllowed(
   facts
 ) {
   try {
+    const operationalRegistry = registry.oNPr88PostMainCurrentnessRepair
+      ? oNPr88PostMainCurrentnessRepairHistoricalProjection(
+          oNPr88OperationalRegistry(registry)
+        )
+      : registry;
     validateNMPr88FinalAuthorizationTransition(
       nMPr88FinalAuthorizationSource(),
-      registry
+      operationalRegistry
     );
     return Boolean(
       pr86DeliveryCurrentProofMatches(registry, proof) &&
@@ -20034,6 +21827,66 @@ function resolvePr88DedicatedLandingRetainedCustody(registry, proof) {
     const headTreeSha = text(["rev-parse", "HEAD^{tree}"]);
     const sourceClean =
       text(["status", "--porcelain=v1", "--untracked-files=all"]) === "";
+    const pRemediationStaged = Boolean(
+      registry.pOPr89PrePushCustodyRemediation &&
+        headSha === P_O_SOURCE_COMMIT &&
+        headTreeSha === P_O_SOURCE_TREE &&
+        pOPr89RemediationPhysicalIndexAllowed(registry)
+    );
+    const pRemediationCommitted = Boolean(
+      registry.pOPr89PrePushCustodyRemediation &&
+        headSha !== P_O_SOURCE_COMMIT &&
+        pOPr89CommittedRemediationPhysicalBarrierAllowed(registry)
+    );
+    if (
+      proof.mergeCommitSha === O_N_PROTECTED_MAIN &&
+      proof.dedicatedLandingReviewedHeadSha === O_N_SOURCE_COMMIT &&
+      (pRemediationStaged || pRemediationCommitted)
+    ) {
+      return {
+        schemaVersion: "sena-p-o-pr89-pre-push-transition-custody/v1",
+        repo: realpathSync(CONTROL_ROOT),
+        worktreePath: realpathSync(I_H_WORKTREE),
+        gitDirectory: realpathSync(marker.target),
+        gitCommonDirectory: text([
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir"
+        ]),
+        branch: I_H_BRANCH,
+        headSha,
+        headTreeSha,
+        sourceClean,
+        exactRemediationTransition: true
+      };
+    }
+    const oRepairTransitionCustody = Boolean(
+      registry.oNPr88PostMainCurrentnessRepair &&
+        proof.mergeCommitSha === O_N_PROTECTED_MAIN &&
+        proof.dedicatedLandingReviewedHeadSha === O_N_SOURCE_COMMIT &&
+        headSha === O_N_SOURCE_COMMIT &&
+        headTreeSha === O_N_SOURCE_TREE &&
+        (oNPr88RepairPhysicalIndexAllowed(registry) ||
+          oNPr88CommittedRepairPhysicalBarrierAllowed(registry))
+    );
+    if (oRepairTransitionCustody) {
+      return {
+        schemaVersion: "sena-o-n-pr88-repair-transition-custody/v1",
+        repo: realpathSync(CONTROL_ROOT),
+        worktreePath: realpathSync(I_H_WORKTREE),
+        gitDirectory: realpathSync(marker.target),
+        gitCommonDirectory: text([
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir"
+        ]),
+        branch: I_H_BRANCH,
+        headSha,
+        headTreeSha,
+        sourceClean,
+        exactRepairTransition: true
+      };
+    }
     const facts = {
       repo: realpathSync(CONTROL_ROOT),
       worktreePath: realpathSync(I_H_WORKTREE),
@@ -20197,7 +22050,11 @@ export function protectedMainMergeTimeCandidateResolution(
     protectedMainPr85IntegrationMergeTimeCandidate(descriptor, options),
     protectedMainMobilePilotMergeTimeCandidate(descriptor, options),
     protectedMainPr86DeliveryMergeTimeCandidate(descriptor, options),
-    protectedMainPr88DedicatedGovernanceMergeTimeCandidate(descriptor, options)
+    protectedMainPr88DedicatedGovernanceMergeTimeCandidate(descriptor, options),
+    protectedMainPr89EvidenceFlowCurrentnessMergeTimeCandidate(
+      descriptor,
+      options
+    )
   ]);
 }
 
@@ -20999,6 +22856,12 @@ function runAudit(flags) {
     runPortableAudit(registry, validateRegistry(registry));
     return;
   }
+  const isPOPr89PrePushCustodyRemediation = Boolean(
+    registry.pOPr89PrePushCustodyRemediation
+  );
+  const isONPr88PostMainCurrentnessRepair = Boolean(
+    registry.oNPr88PostMainCurrentnessRepair
+  );
   const isNMPr88FinalAuthorization = Boolean(
     registry.nMPr88FinalAuthorization
   );
@@ -21017,7 +22880,15 @@ function runAudit(flags) {
   const committedLifecyclePrePush = Boolean(
     isKILandingLifecycle && flags.has("pre-push")
   );
-  const exactGovernanceIndex = isNMPr88FinalAuthorization
+  const exactGovernanceIndex = isPOPr89PrePushCustodyRemediation
+    ? committedLifecyclePrePush
+      ? pOPr89CommittedRemediationBarrierAllowed(registry)
+      : pOPr89RemediationCurrentIndexAllowed(registry)
+    : isONPr88PostMainCurrentnessRepair
+    ? committedLifecyclePrePush
+      ? oNPr88CommittedRepairBarrierAllowed(registry)
+      : oNPr88RepairCurrentIndexAllowed(registry)
+    : isNMPr88FinalAuthorization
     ? committedLifecyclePrePush
       ? nMPr88CommittedFinalBarrierAllowed(registry)
       : nMPr88FinalCurrentIndexAllowed(registry)
@@ -21046,14 +22917,30 @@ function runAudit(flags) {
       (isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? committedLifecyclePrePush
-              ? isNMPr88FinalAuthorization
+              ? isPOPr89PrePushCustodyRemediation
+                ? pOPr89CommittedRemediationBarrierAllowed(registry)
+                : isONPr88PostMainCurrentnessRepair
+                ? oNPr88CommittedRepairBarrierAllowed(registry)
+                : isNMPr88FinalAuthorization
                 ? nMPr88CommittedFinalBarrierAllowed(registry)
                 : isMLPortableJEvidenceCi
                 ? mLCommittedBranchUpdateBarrierAllowed(registry)
                 : isLKDraftPrCiRemediation
                   ? lKCommittedBranchUpdateBarrierAllowed(registry)
                 : kILandingCommittedInitialPushBarrierAllowed(registry)
-              : isNMPr88FinalAuthorization
+              : isPOPr89PrePushCustodyRemediation
+                ? pOPr89RemediationCurrentIndexAllowed(registry) &&
+                  iHDedicatedLandingIndexSnapshotsMatch(
+                    initialGovernanceIndexSnapshot,
+                    hGovernanceCurrentIndexSnapshot()
+                  )
+                : isONPr88PostMainCurrentnessRepair
+                ? oNPr88RepairCurrentIndexAllowed(registry) &&
+                  iHDedicatedLandingIndexSnapshotsMatch(
+                    initialGovernanceIndexSnapshot,
+                    hGovernanceCurrentIndexSnapshot()
+                  )
+                : isNMPr88FinalAuthorization
                 ? nMPr88FinalCurrentIndexAllowed(registry) &&
                   iHDedicatedLandingIndexSnapshotsMatch(
                     initialGovernanceIndexSnapshot,
@@ -21309,6 +23196,18 @@ function runAudit(flags) {
         // Exact release/root custody was independently derived above.
       } else if (pr86DeliveryRetainedMainAdvanceAllowed(registry, item.taskId, actual.headSha, observed, mobileRelease)) {
         warnings.push(`retained owner observation advanced only behind the verified PR86 closeout main: ${item.taskId}`);
+      } else if (
+        oNEvidenceFlowMonotonicBehindObservationAllowed(
+          registry,
+          item,
+          actual.headSha,
+          { ...observed, baseRef: item.aheadBehind.baseRef },
+          mobileRelease
+        )
+      ) {
+        warnings.push(
+          `EvidenceFlow preservation lane fell farther behind through the exact PR88/PR89 protected-main chain: ${item.taskId}`
+        );
       } else if (isActive) warnings.push(`active workItem ahead/behind advanced since heartbeat: ${item.taskId}`);
       else if (
         protectedLaneMainAdvanceObservationAllowed(
@@ -21361,7 +23260,11 @@ function runAudit(flags) {
     }
     if (registry.hGovernanceIntake && !exactGovernanceAtWriteBarrier) {
       errors.push(
-        isIHDedicatedLanding
+        isPOPr89PrePushCustodyRemediation
+          ? "rule=p-o-pr89-pre-push-custody-remediation-index-identity-invalid"
+          : isONPr88PostMainCurrentnessRepair
+          ? "rule=o-n-pr88-post-main-currentness-repair-index-identity-invalid"
+          : isIHDedicatedLanding
           ? "rule=i-h-dedicated-landing-index-identity-invalid"
           : "rule=h-governance-intake-index-identity-invalid"
       );
@@ -21600,7 +23503,11 @@ function runAudit(flags) {
     (flags.has("pre-commit") || flags.has("pre-push")) &&
     !governanceAuditFinalBarrierAllowed() &&
     !errors.includes(
-      isNMPr88FinalAuthorization
+      isPOPr89PrePushCustodyRemediation
+        ? "rule=p-o-pr89-pre-push-custody-remediation-barrier-invalid"
+        : isONPr88PostMainCurrentnessRepair
+        ? "rule=o-n-pr88-post-main-currentness-repair-barrier-invalid"
+        : isNMPr88FinalAuthorization
         ? "rule=n-m-pr88-final-authorization-barrier-invalid"
         : isMLPortableJEvidenceCi
         ? "rule=m-l-portable-j-ci-final-barrier-invalid"
@@ -21614,7 +23521,11 @@ function runAudit(flags) {
     )
   ) {
     errors.push(
-      isNMPr88FinalAuthorization
+      isPOPr89PrePushCustodyRemediation
+        ? "rule=p-o-pr89-pre-push-custody-remediation-barrier-invalid"
+        : isONPr88PostMainCurrentnessRepair
+        ? "rule=o-n-pr88-post-main-currentness-repair-barrier-invalid"
+        : isNMPr88FinalAuthorization
         ? "rule=n-m-pr88-final-authorization-barrier-invalid"
         : isMLPortableJEvidenceCi
         ? "rule=m-l-portable-j-ci-final-barrier-invalid"
