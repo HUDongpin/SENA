@@ -79,6 +79,7 @@ type OpenApiParameter = {
 
 const PATH_PARAMETER_DESCRIPTIONS: Record<string, string> = {
   projectId: "Identifier of the durable SENA project, as returned by GET /api/sena/projects.",
+  runId: "Identifier of the durable EvidenceFlow run returned by POST /api/sena/workflows/runs.",
   resourceId: "SCIM 2.0 resource identifier (the resource's `id`) of the user or group."
 };
 

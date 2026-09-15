@@ -136,6 +136,7 @@ const schemaDefinitions = {
   enterpriseServerJobQueueWebhookReceipt: 2,
   enterpriseServerJobQueueProbe: 1,
   enterpriseServerJobQueue: 1,
+  enterpriseServerJobResult: 1,
   enterpriseServerJobList: 1,
   enterpriseServerJobStoreRuntime: 1,
   enterpriseServerJobStatusUpdate: 1,
@@ -230,7 +231,25 @@ const schemaDefinitions = {
   validationPreregistrationPlan: 1,
   validationRunList: 1,
   validationRunReview: 1,
-  visualGrammar: 1
+  visualGrammar: 1,
+  workflowApproval: 1,
+  workflowApprovalRequest: 1,
+  workflowActionCommand: 1,
+  workflowCloseout: 1,
+  workflowCloseoutCommitment: 1,
+  workflowDecision: 1,
+  workflowDefinition: 1,
+  workflowDefinitionList: 1,
+  workflowEngineeringCandidateReceipt: "engineering-candidate-receipt/v1",
+  workflowEngineeringGateReceipt: "engineering-gate-receipt/v1",
+  workflowEngineeringRepositoryPreflight: "engineering-repository-preflight/v1",
+  workflowEngineeringWorkOrder: "engineering-work-order/v1",
+  workflowExploratoryPublication: 1,
+  workflowRedactedEvent: 1,
+  workflowRun: 1,
+  workflowRunCommand: 1,
+  workflowRunList: 1,
+  workflowStepReceipt: 1
 } as const;
 
 // Derive repetitive schema names while preserving every public literal type.

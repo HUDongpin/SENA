@@ -36,6 +36,7 @@ import {
 import {
   enterpriseServerJobIsSyntheticWorkerHeartbeat,
   enterpriseServerJobHasValidAnalysisCommandCustodyProfile,
+  enterpriseServerJobHasValidWorkerCommandCustodyProfile,
   enterpriseServerJobRequiresAnalysisCustodyQuarantine,
   projectEnterpriseServerJobReadModel
 } from "./server-job-contract";
@@ -44,7 +45,32 @@ export type SenaEnterpriseServerJobKind = "analysis" | "import" | "publication-e
 export type SenaEnterpriseServerJobQueueMode = "managed" | "webhook" | "qstash" | "local" | "not-configured";
 export type SenaEnterpriseServerJobSource = "project" | "snapshot" | "dataset" | "upload" | "mixed" | "unknown";
 export type SenaEnterpriseServerJobStatus = "queued" | "running" | "succeeded" | "failed" | "dead-lettered";
-export type SenaEnterpriseServerJobStatusAction = "mark-running" | "mark-succeeded" | "mark-failed" | "retry" | "dead-letter";
+export type SenaEnterpriseServerJobStatusAction = "mark-running" | "renew-lease" | "mark-succeeded" | "mark-failed" | "retry" | "dead-letter";
+
+const DEFAULT_SERVER_JOB_EXECUTION_LEASE_MS = 120_000;
+const DEFAULT_SERVER_JOB_LEGACY_LEASE_GRACE_MS = 300_000;
+
+export function senaEnterpriseServerJobExecutionLeaseMs(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+) {
+  const parsed = Number(env.SENA_SERVER_JOB_EXECUTION_LEASE_MS);
+  return Number.isFinite(parsed)
+    ? Math.max(5_000, Math.min(Math.trunc(parsed), 60 * 60_000))
+    : DEFAULT_SERVER_JOB_EXECUTION_LEASE_MS;
+}
+
+export function senaEnterpriseServerJobLegacyLeaseGraceMs(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+) {
+  const parsed = Number(env.SENA_SERVER_JOB_LEGACY_LEASE_GRACE_MS);
+  return Number.isFinite(parsed)
+    ? Math.max(60_000, Math.min(Math.trunc(parsed), 24 * 60 * 60_000))
+    : DEFAULT_SERVER_JOB_LEGACY_LEASE_GRACE_MS;
+}
+
+function leaseExpiry(timestamp: string, leaseMs = senaEnterpriseServerJobExecutionLeaseMs()) {
+  return new Date(Date.parse(timestamp) + leaseMs).toISOString();
+}
 
 /**
  * Tenant boundary for a session-authenticated ops caller.
@@ -291,6 +317,9 @@ export type SenaEnterpriseServerJobPayloadSummary = {
   projectTeamId?: string;
   snapshotFingerprint?: string;
   format?: string;
+  publicationScope?: "claim-ready-with-limits" | "exploratory-only";
+  workflowRunId?: string;
+  workflowNodeId?: string;
   fileCount?: number;
   uploadIds?: string[];
   reviewerEnvelopeUploadId?: string;
@@ -308,6 +337,36 @@ export type SenaEnterpriseServerJobPayloadSummary = {
   hasInlineSnapshot: boolean;
   hasInlineDataset: boolean;
   payloadValuesExcluded: true;
+};
+
+export type SenaEnterpriseServerJobResultReceipt = {
+  schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJobResult;
+  outputDigest: string;
+  artifactReferences: string[];
+  evidence: {
+    analysisRunId?: string;
+    importRunId?: string;
+    importDatasetContentHash?: string;
+    importCleaningManifestSha256?: string;
+    persistedProjectId?: string;
+    reliabilityRunId?: string;
+    validationRunId?: string;
+    validationRunEvidenceHash?: string;
+    publicationArtifactId?: string;
+    publicationFilename?: string;
+    publicationSha256?: string;
+    publicationBytes?: number;
+    publicationDerivationManifestSha256?: string;
+    publicationBoundaryManifestSha256?: string;
+    reportSha256?: string;
+    projectSnapshotSha256?: string;
+  };
+  recordedAt: string;
+  redaction: {
+    payloadValuesExcluded: true;
+    rawRowsExcluded: true;
+    secretValuesExcluded: true;
+  };
 };
 
 export type SenaEnterpriseServerJob = {
@@ -341,10 +400,14 @@ export type SenaEnterpriseServerJob = {
     retryRequestedAt?: string;
     deadLetteredAt?: string;
     workerRunId?: string;
+    lastHeartbeatAt?: string;
+    leaseExpiresAt?: string;
+    leaseReclaimedAt?: string;
     lastErrorCode?: string;
     lastErrorHash?: string;
     statusReason?: string;
   };
+  resultReceipt?: SenaEnterpriseServerJobResultReceipt;
   redaction: {
     payloadValuesExcluded: true;
     secretValuesExcluded: true;
@@ -468,6 +531,15 @@ export type SenaEnterpriseServerJobStatusUpdate = {
   // Additive optional field: worker-reported parse-repair warning counts that
   // were applied to the upload registry (H10 "until a parser reports").
   uploadWarnings?: Array<{ uploadId: string; warningCount: number }>;
+  workflowWake?: {
+    status: string;
+    runId?: string;
+    created?: boolean;
+    errorClass?: string;
+    errorHash?: string;
+    payloadValuesExcluded: true;
+    secretValuesExcluded: true;
+  };
   redaction: {
     payloadValuesExcluded: true;
     secretValuesExcluded: true;
@@ -549,6 +621,137 @@ function canonicalize(value: unknown): unknown {
 
 export function stableServerJobPayloadSha256(payload: unknown) {
   return createHash("sha256").update(JSON.stringify(canonicalize(payload))).digest("hex");
+}
+
+const serverJobResultIdFields = [
+  "analysisRunId",
+  "importRunId",
+  "persistedProjectId",
+  "reliabilityRunId",
+  "validationRunId",
+  "publicationArtifactId"
+] as const;
+const serverJobResultHashFields = [
+  "validationRunEvidenceHash",
+  "publicationSha256",
+  "publicationDerivationManifestSha256",
+  "publicationBoundaryManifestSha256",
+  "importCleaningManifestSha256",
+  "reportSha256",
+  "projectSnapshotSha256"
+] as const;
+const serverJobResultFields = new Set<string>([
+  ...serverJobResultIdFields,
+  ...serverJobResultHashFields,
+  "importDatasetContentHash",
+  "publicationFilename",
+  "publicationBytes"
+]);
+
+export function buildEnterpriseServerJobResultReceipt(input: {
+  kind: SenaEnterpriseServerJobKind;
+  result: unknown;
+  recordedAt: string;
+}): SenaEnterpriseServerJobResultReceipt {
+  if (!input.result || typeof input.result !== "object" || Array.isArray(input.result)) {
+    throw new SenaEnterpriseError(
+      "SENA server job success requires a structured result receipt.",
+      422,
+      "server_job_result_receipt_invalid"
+    );
+  }
+  const result = input.result as Record<string, unknown>;
+  if (Object.keys(result).some((key) => !serverJobResultFields.has(key))) {
+    throw new SenaEnterpriseError(
+      "SENA server job result receipt contains unsupported fields.",
+      422,
+      "server_job_result_receipt_invalid"
+    );
+  }
+  const evidence: SenaEnterpriseServerJobResultReceipt["evidence"] = {};
+  for (const key of serverJobResultIdFields) {
+    const value = result[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(value)) {
+      throw new SenaEnterpriseError("SENA server job result id is invalid.", 422, "server_job_result_receipt_invalid");
+    }
+    evidence[key] = value;
+  }
+  for (const key of serverJobResultHashFields) {
+    const value = result[key];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !/^[a-f0-9]{64}$/i.test(value)) {
+      throw new SenaEnterpriseError("SENA server job result hash is invalid.", 422, "server_job_result_receipt_invalid");
+    }
+    evidence[key] = value.toLowerCase();
+  }
+  if (result.publicationFilename !== undefined) {
+    if (
+      typeof result.publicationFilename !== "string" ||
+      !/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(result.publicationFilename) ||
+      result.publicationFilename.includes("..")
+    ) {
+      throw new SenaEnterpriseError(
+        "SENA publication result filename is invalid.",
+        422,
+        "server_job_result_receipt_invalid"
+      );
+    }
+    evidence.publicationFilename = result.publicationFilename;
+  }
+  if (result.importDatasetContentHash !== undefined) {
+    if (typeof result.importDatasetContentHash !== "string" || !/^0x[a-f0-9]{8}$/.test(result.importDatasetContentHash)) {
+      throw new SenaEnterpriseError(
+        "SENA import dataset content hash is invalid.",
+        422,
+        "server_job_result_receipt_invalid"
+      );
+    }
+    evidence.importDatasetContentHash = result.importDatasetContentHash;
+  }
+  if (result.publicationBytes !== undefined) {
+    if (!Number.isSafeInteger(result.publicationBytes) || Number(result.publicationBytes) < 0) {
+      throw new SenaEnterpriseError("SENA publication result size is invalid.", 422, "server_job_result_receipt_invalid");
+    }
+    evidence.publicationBytes = Number(result.publicationBytes);
+  }
+  const required = input.kind === "analysis"
+    ? [evidence.analysisRunId, evidence.reportSha256, evidence.projectSnapshotSha256]
+    : input.kind === "import"
+      ? [evidence.importRunId, evidence.importDatasetContentHash, evidence.importCleaningManifestSha256]
+      : input.kind === "reliability"
+        ? [evidence.reliabilityRunId]
+        : input.kind === "validation"
+          ? [evidence.validationRunId, evidence.validationRunEvidenceHash]
+          : [
+              evidence.publicationArtifactId,
+              evidence.publicationFilename,
+              evidence.publicationSha256,
+              evidence.publicationBytes,
+              evidence.publicationDerivationManifestSha256 ?? evidence.publicationBoundaryManifestSha256
+            ];
+  if (required.some((value) => value === undefined)) {
+    throw new SenaEnterpriseError(
+      "SENA server job result receipt is incomplete for its job kind.",
+      422,
+      "server_job_result_receipt_incomplete"
+    );
+  }
+  const artifactReferences = serverJobResultIdFields
+    .map((key) => evidence[key])
+    .filter((value): value is string => typeof value === "string");
+  return {
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobResult,
+    outputDigest: stableServerJobPayloadSha256({ kind: input.kind, evidence, artifactReferences }),
+    artifactReferences,
+    evidence,
+    recordedAt: new Date(input.recordedAt).toISOString(),
+    redaction: {
+      payloadValuesExcluded: true,
+      rawRowsExcluded: true,
+      secretValuesExcluded: true
+    }
+  };
 }
 
 function serverJobQueueSecret() {
@@ -708,6 +911,23 @@ function id(prefix: string) {
   return `${prefix}_${randomBytes(12).toString("hex")}`;
 }
 
+const deterministicServerJobId = /^server_job_[a-f0-9]{24}$/;
+const serverJobCreatedMarker = Symbol("sena-server-job-created");
+
+function markServerJobCreation(job: SenaEnterpriseServerJob, created: boolean) {
+  Object.defineProperty(job, serverJobCreatedMarker, {
+    value: created,
+    enumerable: false,
+    configurable: false,
+    writable: false
+  });
+  return job;
+}
+
+export function senaEnterpriseServerJobWasCreated(job: SenaEnterpriseServerJob) {
+  return (job as SenaEnterpriseServerJob & { [serverJobCreatedMarker]?: boolean })[serverJobCreatedMarker] === true;
+}
+
 function serverJobMaxAttempts() {
   return positiveIntegerEnv("SENA_JOB_QUEUE_MAX_ATTEMPTS", 3, 25);
 }
@@ -777,12 +997,13 @@ export function buildEnterpriseServerJobQueueContract(): SenaEnterpriseServerJob
   const acceptedProviderModes: SenaEnterpriseServerJobQueueMode[] = ["managed", "webhook", "qstash"];
   const acceptedActions: SenaEnterpriseServerJobStatusAction[] = [
     "mark-running",
+    "renew-lease",
     "mark-succeeded",
     "mark-failed",
     "retry",
     "dead-letter"
   ];
-  const status = senaEnterpriseServerJobKinds.length === 5 && acceptedActions.length === 5 ? "pass" : "review";
+  const status = senaEnterpriseServerJobKinds.length === 5 && acceptedActions.length === 6 ? "pass" : "review";
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueContract,
@@ -1115,7 +1336,16 @@ function externalAnalysisCommandCustodyError() {
   );
 }
 
+function externalWorkerCommandCustodyError() {
+  return new SenaEnterpriseError(
+    "The queued SENA server-job command does not match its encrypted custody envelope.",
+    409,
+    "server_job_worker_command_custody_invalid"
+  );
+}
+
 function serverJobWithoutDelivery(input: {
+  jobId?: string;
   kind: SenaEnterpriseServerJobKind;
   teamId: string;
   projectId?: string;
@@ -1124,6 +1354,13 @@ function serverJobWithoutDelivery(input: {
   payloadSummary: SenaEnterpriseServerJobPayloadSummary;
   queue?: SenaEnterpriseServerJobQueueStatus;
 }): Omit<SenaEnterpriseServerJob, "delivery"> {
+  if (input.jobId && !deterministicServerJobId.test(input.jobId)) {
+    throw new SenaEnterpriseError(
+      "Deterministic SENA server job id is invalid.",
+      422,
+      "server_job_idempotency_key_invalid"
+    );
+  }
   const queue = input.queue ?? serverJobQueueStatus();
   const payloadSummary = input.kind === "analysis"
     ? normalizedAnalysisPayloadSummary(input)
@@ -1163,7 +1400,7 @@ function serverJobWithoutDelivery(input: {
   const queuedAt = now();
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJob,
-    id: id("server_job"),
+    id: input.jobId ?? id("server_job"),
     kind: input.kind,
     status: "queued",
     queuedAt,
@@ -1590,6 +1827,57 @@ async function writeServerJob(job: SenaEnterpriseServerJob) {
   return job;
 }
 
+function assertDeterministicServerJobBinding(
+  existing: SenaEnterpriseServerJob,
+  candidate: SenaEnterpriseServerJob
+) {
+  if (
+    existing.provider.mode !== candidate.provider.mode ||
+    existing.provider.endpointHash !== candidate.provider.endpointHash
+  ) {
+    throw new SenaEnterpriseError(
+      "Deterministic SENA server job replay crossed its durable queue provider binding.",
+      409,
+      "server_job_provider_binding_conflict"
+    );
+  }
+  if (
+    existing.id !== candidate.id ||
+    existing.kind !== candidate.kind ||
+    existing.teamId !== candidate.teamId ||
+    existing.projectId !== candidate.projectId ||
+    existing.actorUserId !== candidate.actorUserId ||
+    existing.payloadSha256 !== candidate.payloadSha256 ||
+    stableServerJobPayloadSha256(existing.payloadSummary) !==
+      stableServerJobPayloadSha256(candidate.payloadSummary) ||
+    stableServerJobPayloadSha256(existing.worker) !== stableServerJobPayloadSha256(candidate.worker)
+  ) {
+    throw new SenaEnterpriseError(
+      "Deterministic SENA server job id is already bound to different evidence.",
+      409,
+      "server_job_idempotency_conflict"
+    );
+  }
+}
+
+async function insertServerJobIfAbsent(job: SenaEnterpriseServerJob) {
+  if (isPostgresServerJobStoreActive()) {
+    const result = await postgresServerJobStore().insertJobIfAbsent(job);
+    assertDeterministicServerJobBinding(result.job, job);
+    return result;
+  }
+  return mutateEnterpriseDbAtomically((db) => {
+    const existing = (db.serverJobs ?? []).find((candidate) => candidate.id === job.id);
+    if (existing) {
+      const projected = projectEnterpriseServerJobReadModel(existing);
+      assertDeterministicServerJobBinding(projected, job);
+      return { created: false, job: projected };
+    }
+    db.serverJobs = [job, ...(db.serverJobs ?? [])].slice(0, 2000);
+    return { created: true, job };
+  });
+}
+
 async function finalizeServerJobQueueDelivery(
   jobId: string,
   delivery: SenaEnterpriseServerJobQueueDelivery
@@ -1783,10 +2071,14 @@ function updatedLifecycle(input: {
     lifecycle.startedAt = input.timestamp;
     lifecycle.finishedAt = undefined;
     lifecycle.retryable = false;
+    lifecycle.lastHeartbeatAt = input.timestamp;
+    lifecycle.leaseExpiresAt = leaseExpiry(input.timestamp);
+    lifecycle.leaseReclaimedAt = undefined;
   }
   if (input.action === "mark-succeeded") {
     lifecycle.finishedAt = input.timestamp;
     lifecycle.retryable = false;
+    lifecycle.leaseExpiresAt = undefined;
   }
   if (input.action === "mark-failed") {
     lifecycle.finishedAt = input.timestamp;
@@ -1796,6 +2088,7 @@ function updatedLifecycle(input: {
     lifecycle.deadLetteredAt = lifecycle.attempts >= lifecycle.maxAttempts
       ? input.timestamp
       : undefined;
+    lifecycle.leaseExpiresAt = undefined;
   }
   if (input.action === "retry") {
     lifecycle.retryRequestedAt = input.timestamp;
@@ -1804,11 +2097,14 @@ function updatedLifecycle(input: {
     lifecycle.deadLetteredAt = undefined;
     lifecycle.startedAt = undefined;
     lifecycle.workerRunId = undefined;
+    lifecycle.lastHeartbeatAt = undefined;
+    lifecycle.leaseExpiresAt = undefined;
   }
   if (input.action === "dead-letter") {
     lifecycle.finishedAt = input.timestamp;
     lifecycle.deadLetteredAt = input.timestamp;
     lifecycle.retryable = false;
+    lifecycle.leaseExpiresAt = undefined;
   }
   return lifecycle;
 }
@@ -1828,6 +2124,7 @@ type SenaEnterpriseServerJobTransitionDecision = {
   idempotent: boolean;
   expectedStatus: SenaEnterpriseServerJobStatus;
   expectedWorkerRunId?: string;
+  expectedLeaseExpiresAt?: string;
   requireSourceReady: boolean;
   workerRunId?: string;
 };
@@ -1892,10 +2189,24 @@ function assertEnterpriseServerJobTransition(input: {
         "server_job_worker_run_mismatch"
       );
     }
+    if (job.status === "running") {
+      const leaseExpiresAt = job.lifecycle.leaseExpiresAt;
+      const leaseExpiresMillis = leaseExpiresAt ? Date.parse(leaseExpiresAt) : Number.NaN;
+      if (!Number.isFinite(leaseExpiresMillis) || leaseExpiresMillis <= Date.now()) {
+        throw new SenaEnterpriseError(
+          "The SENA server job execution lease is no longer owned by this worker.",
+          409,
+          "server_job_worker_lease_conflict"
+        );
+      }
+    }
     return {
       idempotent: terminalMatches,
       expectedStatus: job.status,
       expectedWorkerRunId: owner,
+      ...(job.status === "running" && job.lifecycle.leaseExpiresAt
+        ? { expectedLeaseExpiresAt: job.lifecycle.leaseExpiresAt }
+        : {}),
       requireSourceReady: false,
       workerRunId
     };
@@ -2024,6 +2335,189 @@ export async function claimEnterpriseServerJob(input: {
   });
 }
 
+function recoverExpiredServerJob(
+  job: SenaEnterpriseServerJob,
+  observedAt: string,
+  legacyLeaseMissing = false
+) {
+  const deadLettered = job.lifecycle.attempts >= job.lifecycle.maxAttempts;
+  return {
+    ...job,
+    status: deadLettered ? "dead-lettered" as const : "queued" as const,
+    updatedAt: observedAt,
+    lifecycle: {
+      ...job.lifecycle,
+      retryable: false,
+      lastTransition: deadLettered ? "dead-letter" as const : "retry" as const,
+      startedAt: undefined,
+      finishedAt: deadLettered ? observedAt : undefined,
+      retryRequestedAt: deadLettered ? job.lifecycle.retryRequestedAt : observedAt,
+      deadLetteredAt: deadLettered ? observedAt : undefined,
+      workerRunId: undefined,
+      lastHeartbeatAt: undefined,
+      leaseExpiresAt: undefined,
+      leaseReclaimedAt: observedAt,
+      statusReason: deadLettered
+        ? legacyLeaseMissing
+          ? "server-job-worker-legacy-lease-missing-dead-lettered"
+          : "server-job-worker-lease-expired-dead-lettered"
+        : legacyLeaseMissing
+          ? "server-job-worker-legacy-lease-missing-requeued"
+          : "server-job-worker-lease-expired-requeued"
+    }
+  } satisfies SenaEnterpriseServerJob;
+}
+
+/**
+ * Reclaims only running jobs whose durable execution lease is expired. The
+ * Postgres path uses the observed lease value as a CAS fence; the file path
+ * holds the enterprise-state lock across selection and rewrite. Re-execution is
+ * safe only because every in-repo executor uses deterministic effect ids.
+ */
+export async function recoverExpiredEnterpriseServerJobs(input: {
+  kinds: readonly SenaEnterpriseServerJobKind[];
+  teamId?: string;
+  observedAt?: string;
+  limit?: number;
+}) {
+  const observedAt = input.observedAt ?? now();
+  const observedMillis = Date.parse(observedAt);
+  if (!Number.isFinite(observedMillis)) {
+    throw new SenaEnterpriseError("SENA server job lease observation time is invalid.", 422, "server_job_lease_time_invalid");
+  }
+  const limit = Math.max(1, Math.min(input.limit ?? 100, 500));
+  const legacyGraceMs = senaEnterpriseServerJobLegacyLeaseGraceMs();
+  const matches = (job: SenaEnterpriseServerJob) => {
+    const leaseMillis = job.lifecycle.leaseExpiresAt ? Date.parse(job.lifecycle.leaseExpiresAt) : Number.NaN;
+    const lastObservedMillis = Date.parse(job.lifecycle.lastHeartbeatAt ?? job.lifecycle.startedAt ?? job.updatedAt);
+    const expired = Number.isFinite(leaseMillis)
+      ? leaseMillis <= observedMillis
+      : Number.isFinite(lastObservedMillis) && lastObservedMillis + legacyGraceMs <= observedMillis;
+    return job.status === "running" && expired &&
+      input.kinds.includes(job.kind) && (!input.teamId || job.teamId === input.teamId);
+  };
+
+  if (isPostgresServerJobStoreActive()) {
+    const adapter = postgresServerJobStore();
+    const candidates = await adapter.findExpiredRunningJobs({
+      kinds: input.kinds,
+      teamId: input.teamId,
+      observedAt,
+      legacyGraceMs,
+      limit
+    });
+    const recovered: SenaEnterpriseServerJob[] = [];
+    for (const candidate of candidates) {
+      if (!matches(candidate)) continue;
+      const legacyLeaseMissing = !candidate.lifecycle.leaseExpiresAt;
+      const next = recoverExpiredServerJob(candidate, observedAt, legacyLeaseMissing);
+      const committed = await adapter.transitionJobStatus({
+        job: next,
+        expectedStatus: "running",
+        expectedWorkerRunId: candidate.lifecycle.workerRunId,
+        expectedLeaseExpiresAt: candidate.lifecycle.leaseExpiresAt,
+        expectedLeaseMissing: legacyLeaseMissing,
+        requireSourceReady: false
+      });
+      if (committed) recovered.push(committed);
+    }
+    return {
+      inspected: candidates.length,
+      requeued: recovered.filter((job) => job.status === "queued").length,
+      deadLettered: recovered.filter((job) => job.status === "dead-lettered").length,
+      jobs: recovered
+    };
+  }
+
+  return mutateEnterpriseDbAtomically((db) => {
+    const candidates = (db.serverJobs ?? [])
+      .map((job) => projectEnterpriseServerJobReadModel(job))
+      .filter(matches)
+      .sort((left, right) => (
+        String(left.lifecycle.leaseExpiresAt).localeCompare(String(right.lifecycle.leaseExpiresAt)) ||
+        left.id.localeCompare(right.id)
+      ))
+      .slice(0, limit);
+    const recoveredById = new Map(candidates.map((job) => [
+      job.id,
+      recoverExpiredServerJob(job, observedAt, !job.lifecycle.leaseExpiresAt)
+    ]));
+    db.serverJobs = (db.serverJobs ?? []).map((stored) => recoveredById.get(stored.id) ?? stored);
+    const jobs = [...recoveredById.values()];
+    return {
+      inspected: candidates.length,
+      requeued: jobs.filter((job) => job.status === "queued").length,
+      deadLettered: jobs.filter((job) => job.status === "dead-lettered").length,
+      jobs
+    };
+  });
+}
+
+/** Extends a live worker lease only while the same worker still owns it. */
+export async function renewEnterpriseServerJobLease(input: {
+  jobId: string;
+  workerRunId: string;
+  leaseMs?: number;
+}) {
+  const workerRunId = requiredWorkerRunId(input.workerRunId);
+  const observedAt = now();
+  const observedMillis = Date.parse(observedAt);
+  if (!Number.isFinite(observedMillis)) {
+    throw new SenaEnterpriseError("SENA server job lease observation time is invalid.", 422, "server_job_lease_time_invalid");
+  }
+  const extend = (current: SenaEnterpriseServerJob) => {
+    const leaseMillis = current.lifecycle.leaseExpiresAt
+      ? Date.parse(current.lifecycle.leaseExpiresAt)
+      : Number.NaN;
+    if (current.status !== "running" || current.lifecycle.workerRunId !== workerRunId ||
+      !Number.isFinite(leaseMillis) || leaseMillis <= observedMillis) {
+      throw new SenaEnterpriseError(
+        "The SENA server job execution lease is no longer owned by this worker.",
+        409,
+        "server_job_worker_lease_conflict"
+      );
+    }
+    return {
+      ...current,
+      updatedAt: observedAt,
+      lifecycle: {
+        ...current.lifecycle,
+        lastHeartbeatAt: observedAt,
+        leaseExpiresAt: leaseExpiry(observedAt, input.leaseMs)
+      }
+    } satisfies SenaEnterpriseServerJob;
+  };
+
+  if (isPostgresServerJobStoreActive()) {
+    const current = await getEnterpriseServerJob(input.jobId);
+    const next = extend(current);
+    const committed = await postgresServerJobStore().transitionJobStatus({
+      job: next,
+      expectedStatus: "running",
+      expectedWorkerRunId: workerRunId,
+      expectedLeaseExpiresAt: current.lifecycle.leaseExpiresAt,
+      requireUnexpiredLease: true,
+      requireSourceReady: false
+    });
+    if (!committed) {
+      throw new SenaEnterpriseError(
+        "The SENA server job execution lease is no longer owned by this worker.",
+        409,
+        "server_job_worker_lease_conflict"
+      );
+    }
+    return committed;
+  }
+
+  return mutateEnterpriseDbAtomically((db) => {
+    const index = (db.serverJobs ?? []).findIndex((candidate) => candidate.id === input.jobId);
+    if (index < 0) throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
+    const next = extend(projectEnterpriseServerJobReadModel(db.serverJobs![index]));
+    db.serverJobs![index] = next;
+    return next;
+  });
+}
+
 /**
  * Atomically terminalizes an immutable queued command that cannot be admitted
  * or reproduced. No worker owns this claim, so it is rejected without
@@ -2143,6 +2637,7 @@ export async function updateEnterpriseServerJobStatus(input: {
   errorHash?: string;
   reason?: string;
   force?: boolean;
+  result?: unknown;
   uploadWarnings?: Array<{ uploadId?: unknown; warningCount?: unknown }>;
   callerScope?: SenaEnterpriseServerJobCallerScope;
   preclaimAdmission?: (job: SenaEnterpriseServerJob) => Promise<void>;
@@ -2154,6 +2649,36 @@ export async function updateEnterpriseServerJobStatus(input: {
   // Ownership is checked before any lifecycle validation or write, so a scoped
   // caller cannot mark another tenant's job running, succeeded, or failed.
   assertScopedServerJobAccess(input.callerScope, scopeTeamId, current);
+  if (input.callerScope && ["mark-running", "renew-lease", "mark-succeeded", "mark-failed"].includes(input.action)) {
+    throw new SenaEnterpriseError(
+      "SENA server job worker lifecycle callbacks require the service identity.",
+      403,
+      "server_job_worker_identity_required"
+    );
+  }
+  if (input.action === "renew-lease") {
+    const job = await renewEnterpriseServerJobLease({
+      jobId: input.jobId,
+      workerRunId: requiredWorkerRunId(input.workerRunId)
+    });
+    return {
+      schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate,
+      generatedAt: now(),
+      action: input.action,
+      job,
+      redaction: {
+        payloadValuesExcluded: true,
+        secretValuesExcluded: true
+      }
+    };
+  }
+  if (input.result !== undefined && input.action !== "mark-succeeded") {
+    throw new SenaEnterpriseError(
+      "SENA server job results may only accompany mark-succeeded.",
+      422,
+      "server_job_result_receipt_invalid"
+    );
+  }
   if (input.action === "mark-running" && current.kind === "analysis" &&
     !enterpriseServerJobHasValidAnalysisCommandCustodyProfile(current)) {
     const error = externalAnalysisCommandCustodyError();
@@ -2165,6 +2690,18 @@ export async function updateEnterpriseServerJobStatus(input: {
     });
     throw error;
   }
+  if (input.action === "mark-running" &&
+    (current.kind === "validation" || current.kind === "publication-export") &&
+    !enterpriseServerJobHasValidWorkerCommandCustodyProfile(current)) {
+    const error = externalWorkerCommandCustodyError();
+    await rejectEnterpriseServerJobBeforeClaim({
+      jobId: current.id,
+      errorCode: error.code,
+      errorHash: webhookErrorHash(error),
+      reason: "server-job-external-command-custody-invalid"
+    });
+    throw error;
+  }
   const uploadWarnings = sanitizedUploadWarnings(input.uploadWarnings, current);
   const initialDecision = assertEnterpriseServerJobTransition({
     job: current,
@@ -2172,17 +2709,24 @@ export async function updateEnterpriseServerJobStatus(input: {
     workerRunId: input.workerRunId,
     force: input.force
   });
-  if (!initialDecision.idempotent && input.action === "mark-running" &&
-    current.kind === "analysis" &&
-    current.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY) {
+  const requiresPreclaimAdmission = current.kind === "analysis"
+    ? current.payloadSummary.commandCustody === SENA_ANALYSIS_QUEUE_COMMAND_CUSTODY
+    : current.kind === "validation" || current.kind === "publication-export";
+  if (!initialDecision.idempotent && input.action === "mark-running" && requiresPreclaimAdmission) {
     let admissionError: unknown;
     try {
-      if (!input.preclaimAdmission) throw externalAnalysisCommandCustodyError();
+      if (!input.preclaimAdmission) {
+        throw current.kind === "analysis"
+          ? externalAnalysisCommandCustodyError()
+          : externalWorkerCommandCustodyError();
+      }
       await input.preclaimAdmission(current);
     } catch (error) {
       admissionError = error instanceof SenaEnterpriseError
         ? error
-        : externalAnalysisCommandCustodyError();
+        : current.kind === "analysis"
+          ? externalAnalysisCommandCustodyError()
+          : externalWorkerCommandCustodyError();
     }
     if (admissionError) {
       const error = admissionError as SenaEnterpriseError;
@@ -2190,12 +2734,25 @@ export async function updateEnterpriseServerJobStatus(input: {
         jobId: current.id,
         errorCode: error.code,
         errorHash: webhookErrorHash(error),
-        reason: "server-job-external-analysis-preclaim-rejected"
+        reason: current.kind === "analysis"
+          ? "server-job-external-analysis-preclaim-rejected"
+          : "server-job-external-command-preclaim-rejected"
       });
       throw error;
     }
   }
   const timestamp = now();
+  const resultReceipt = input.result === undefined
+    ? undefined
+    : buildEnterpriseServerJobResultReceipt({ kind: current.kind, result: input.result, recordedAt: timestamp });
+  if (initialDecision.idempotent && resultReceipt &&
+    current.resultReceipt?.outputDigest !== resultReceipt.outputDigest) {
+    throw new SenaEnterpriseError(
+      "The terminal SENA server job result differs from its durable receipt.",
+      409,
+      "server_job_result_receipt_conflict"
+    );
+  }
   let committedJob: SenaEnterpriseServerJob;
   if (initialDecision.idempotent) {
     committedJob = current;
@@ -2213,12 +2770,15 @@ export async function updateEnterpriseServerJobStatus(input: {
       ...current,
       status: statusForAction({ ...current, lifecycle }, input.action),
       updatedAt: timestamp,
-      lifecycle
+      lifecycle,
+      ...(resultReceipt ? { resultReceipt } : {})
     };
     const transitioned = await postgresServerJobStore().transitionJobStatus({
       job: nextJob,
       expectedStatus: initialDecision.expectedStatus,
       expectedWorkerRunId: initialDecision.expectedWorkerRunId,
+      expectedLeaseExpiresAt: initialDecision.expectedLeaseExpiresAt,
+      requireUnexpiredLease: Boolean(initialDecision.expectedLeaseExpiresAt),
       requireSourceReady: initialDecision.requireSourceReady
     });
     if (!transitioned) {
@@ -2257,7 +2817,8 @@ export async function updateEnterpriseServerJobStatus(input: {
         ...lockedCurrent,
         status: statusForAction({ ...lockedCurrent, lifecycle }, input.action),
         updatedAt: timestamp,
-        lifecycle
+        lifecycle,
+        ...(resultReceipt ? { resultReceipt } : {})
       };
       db.serverJobs = [
         nextJob,
@@ -2287,12 +2848,43 @@ export async function updateEnterpriseServerJobStatus(input: {
       );
     }
   }
+  let workflowWake: SenaEnterpriseServerJobStatusUpdate["workflowWake"];
+  if (
+    ["succeeded", "failed", "dead-lettered"].includes(committedJob.status) &&
+    committedJob.payloadSummary.workflowRunId
+  ) {
+    try {
+      const wake = await import("../workflow/job-terminal-bridge").then((module) => (
+        module.notifySenaWorkflowServerJobTerminal({ job: committedJob, now: timestamp })
+      ));
+      workflowWake = {
+        status: wake.status,
+        ...("runId" in wake && typeof wake.runId === "string" ? { runId: wake.runId } : {}),
+        ...("created" in wake && typeof wake.created === "boolean" ? { created: wake.created } : {}),
+        payloadValuesExcluded: true,
+        secretValuesExcluded: true
+      };
+    } catch (error) {
+      const errorClass = error instanceof Error ? error.name : "UnknownError";
+      workflowWake = {
+        status: "wake-failed",
+        errorClass,
+        errorHash: createHash("sha256").update(JSON.stringify({
+          errorClass,
+          message: error instanceof Error ? error.message : String(error)
+        })).digest("hex"),
+        payloadValuesExcluded: true,
+        secretValuesExcluded: true
+      };
+    }
+  }
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobStatusUpdate,
     generatedAt: timestamp,
     action: input.action,
     job: committedJob,
     ...(appliedUploadWarnings ? { uploadWarnings: appliedUploadWarnings } : {}),
+    ...(workflowWake ? { workflowWake } : {}),
     redaction: {
       payloadValuesExcluded: true,
       secretValuesExcluded: true
@@ -2542,6 +3134,7 @@ export async function verifyEnterpriseServerJobWorkerHeartbeat(): Promise<SenaEn
 }
 
 export async function enqueueEnterpriseServerJob(input: {
+  jobId?: string;
   kind: SenaEnterpriseServerJobKind;
   teamId: string;
   projectId?: string;
@@ -2565,16 +3158,81 @@ export async function enqueueEnterpriseServerJob(input: {
   // It deliberately remains non-claimable until the source-ready transition;
   // otherwise a local poller could execute a pointer whose artifacts do not
   // exist yet.
-  await writeServerJob(pendingJob);
-  if (input.beforeDispatch) {
+  let durableJob = pendingJob;
+  let created = true;
+  if (input.jobId) {
+    const inserted = await insertServerJobIfAbsent(pendingJob);
+    durableJob = inserted.job;
+    created = inserted.created;
+    if (!inserted.created) {
+      if (
+        durableJob.status === "failed" &&
+        durableJob.lifecycle.attempts === 0 &&
+        durableJob.delivery.sourceReady === true &&
+        durableJob.delivery.webhookStatus === "failed" &&
+        durableJob.delivery.failureStage === "queue-dispatch"
+      ) {
+        const timestamp = now();
+        const reopened: SenaEnterpriseServerJob = {
+          ...durableJob,
+          status: "queued",
+          updatedAt: timestamp,
+          delivery: {
+            attempted: false,
+            webhookStatus: "pending",
+            sourceReady: true,
+            endpointHash: durableJob.provider.endpointHash
+          },
+          lifecycle: {
+            ...durableJob.lifecycle,
+            retryable: false,
+            lastTransition: "retry",
+            finishedAt: undefined,
+            retryRequestedAt: timestamp,
+            deadLetteredAt: undefined,
+            lastErrorCode: undefined,
+            lastErrorHash: undefined,
+            statusReason: "queue-dispatch-failure-reopened"
+          }
+        };
+        if (isPostgresServerJobStoreActive()) {
+          durableJob = await postgresServerJobStore().reopenFailedDispatchJob({
+            job: reopened,
+            expectedErrorHash: durableJob.delivery.errorHash
+          }) ?? await getEnterpriseServerJob(durableJob.id);
+        } else {
+          durableJob = await mutateEnterpriseDbAtomically((db) => {
+            const index = (db.serverJobs ?? []).findIndex((candidate) => candidate.id === reopened.id);
+            if (index < 0) throw new SenaEnterpriseError("SENA server job was not found.", 404, "server_job_not_found");
+            const current = projectEnterpriseServerJobReadModel(db.serverJobs![index]);
+            const sameFailedDispatch = current.status === "failed" &&
+              current.lifecycle.attempts === 0 &&
+              current.delivery.webhookStatus === "failed" &&
+              current.delivery.failureStage === "queue-dispatch" &&
+              current.delivery.errorHash === durableJob.delivery.errorHash;
+            if (sameFailedDispatch) db.serverJobs![index] = reopened;
+            return sameFailedDispatch ? reopened : current;
+          });
+        }
+      }
+      if (durableJob.status !== "queued") return markServerJobCreation(durableJob, false);
+      if (durableJob.delivery.sourceReady === true &&
+        (durableJob.delivery.webhookStatus === "delivered" || durableJob.delivery.webhookStatus === "local-sink")) {
+        return markServerJobCreation(durableJob, false);
+      }
+    }
+  } else {
+    await writeServerJob(pendingJob);
+  }
+  if (durableJob.delivery.sourceReady !== true && input.beforeDispatch) {
     try {
-      await input.beforeDispatch(pendingJob);
+      await input.beforeDispatch(durableJob);
     } catch (error) {
-      await finalizeServerJobQueueDelivery(job.id, {
+      await finalizeServerJobQueueDelivery(durableJob.id, {
         attempted: false,
         webhookStatus: "failed",
         sourceReady: false,
-        endpointHash: job.provider.endpointHash,
+        endpointHash: durableJob.provider.endpointHash,
         failureStage: "source-persistence",
         errorCode: "server_job_source_persistence_failed",
         errorHash: webhookErrorHash(error)
@@ -2590,16 +3248,29 @@ export async function enqueueEnterpriseServerJob(input: {
   // fact before dispatch so a fast webhook receiver can claim immediately,
   // while a local poller can never observe the earlier preparation window as
   // executable work.
-  await finalizeServerJobQueueDelivery(job.id, {
-    attempted: false,
-    webhookStatus: "pending",
-    sourceReady: true,
-    endpointHash: job.provider.endpointHash
-  });
+  if (durableJob.delivery.sourceReady !== true) {
+    durableJob = await finalizeServerJobQueueDelivery(durableJob.id, {
+      attempted: false,
+      webhookStatus: "pending",
+      sourceReady: true,
+      endpointHash: durableJob.provider.endpointHash
+    });
+  }
   let delivery: SenaEnterpriseServerJobQueueDelivery;
   try {
+    // `durableJob` must carry the source-readiness receipt in authoritative
+    // storage, but that mutable delivery state is not part of the signed
+    // worker command. Strip it explicitly at the runtime boundary instead of
+    // relying on TypeScript's structural `Omit`, which does not remove fields
+    // from an already materialized object.
+    const { delivery: persistedDelivery, ...dispatchJob } = durableJob;
+    // The read-model bit also incorporates executable-command custody. Legacy
+    // quarantine rows can therefore project `sourceReady=false` after their
+    // source-persistence step; claim/capability gates, not transport shaping,
+    // remain responsible for rejecting those commands.
+    void persistedDelivery;
     delivery = await dispatchServerJobQueueWebhook({
-      job,
+      job: dispatchJob,
       workerPayload: input.payload
     });
   } catch (error) {
@@ -2607,7 +3278,7 @@ export async function enqueueEnterpriseServerJob(input: {
       attempted: false,
       webhookStatus: "failed",
       sourceReady: true,
-      endpointHash: job.provider.endpointHash,
+      endpointHash: durableJob.provider.endpointHash,
       failureStage: "queue-dispatch",
       errorCode: error instanceof SenaEnterpriseError ? error.code : "queue_dispatch_setup_failed",
       errorHash: webhookErrorHash(error)
@@ -2616,7 +3287,7 @@ export async function enqueueEnterpriseServerJob(input: {
   // Merge delivery evidence into the current durable record. A receiver may
   // already have advanced queued -> running -> succeeded before fetch returns;
   // never overwrite that lifecycle with the stale pre-dispatch job value.
-  const queuedJob = await finalizeServerJobQueueDelivery(job.id, delivery);
+  const queuedJob = await finalizeServerJobQueueDelivery(durableJob.id, delivery);
   if (delivery.webhookStatus === "failed") {
     throw new SenaEnterpriseError(
       "SENA server job queue dispatch failed.",
@@ -2624,7 +3295,7 @@ export async function enqueueEnterpriseServerJob(input: {
       "server_job_queue_dispatch_failed"
     );
   }
-  return queuedJob;
+  return markServerJobCreation(queuedJob, created);
 }
 
 export function serverJobHeaders(job: SenaEnterpriseServerJob): HeadersInit {

@@ -61,6 +61,7 @@ const frozenGroups = [
   "exports",
   "governance",
   "ops",
+  "workflows",
   "provisioning",
   "legacy-ena"
 ] as const satisfies readonly SenaApiGroupId[];

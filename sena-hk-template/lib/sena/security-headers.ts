@@ -12,8 +12,7 @@ export const SENA_SECURITY_HEADER_MANIFEST = {
     "style-src 'self' 'unsafe-inline'",
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
     "worker-src 'self' blob:",
-    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
-    "upgrade-insecure-requests"
+    "connect-src 'self' http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*"
   ],
   staticHeaders: {
     "x-content-type-options": "nosniff",

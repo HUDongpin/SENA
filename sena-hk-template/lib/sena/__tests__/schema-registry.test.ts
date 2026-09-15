@@ -150,6 +150,7 @@ const FROZEN_SCHEMA_VERSIONS = {
   enterpriseServerJobQueueWebhookReceipt: "sena-enterprise-server-job-queue-webhook-receipt/v2",
   enterpriseServerJobQueueProbe: "sena-enterprise-server-job-queue-probe/v1",
   enterpriseServerJobQueue: "sena-enterprise-server-job-queue/v1",
+  enterpriseServerJobResult: "sena-enterprise-server-job-result/v1",
   enterpriseServerJobList: "sena-enterprise-server-job-list/v1",
   enterpriseServerJobStoreRuntime: "sena-enterprise-server-job-store-runtime/v1",
   enterpriseServerJobStatusUpdate: "sena-enterprise-server-job-status-update/v1",
@@ -244,7 +245,25 @@ const FROZEN_SCHEMA_VERSIONS = {
   validationPreregistrationPlan: "sena-validation-preregistration-plan/v1",
   validationRunList: "sena-validation-run-list/v1",
   validationRunReview: "sena-validation-run-review/v1",
-  visualGrammar: "sena-visual-grammar/v1"
+  visualGrammar: "sena-visual-grammar/v1",
+  workflowApproval: "sena-workflow-approval/v1",
+  workflowApprovalRequest: "sena-workflow-approval-request/v1",
+  workflowActionCommand: "sena-workflow-action-command/v1",
+  workflowCloseout: "sena-workflow-closeout/v1",
+  workflowCloseoutCommitment: "sena-workflow-closeout-commitment/v1",
+  workflowDecision: "sena-workflow-decision/v1",
+  workflowDefinition: "sena-workflow-definition/v1",
+  workflowDefinitionList: "sena-workflow-definition-list/v1",
+  workflowEngineeringCandidateReceipt: "sena-engineering-candidate-receipt/v1",
+  workflowEngineeringGateReceipt: "sena-engineering-gate-receipt/v1",
+  workflowEngineeringRepositoryPreflight: "sena-engineering-repository-preflight/v1",
+  workflowEngineeringWorkOrder: "sena-engineering-work-order/v1",
+  workflowExploratoryPublication: "sena-workflow-exploratory-publication/v1",
+  workflowRedactedEvent: "sena-workflow-redacted-event/v1",
+  workflowRun: "sena-workflow-run/v1",
+  workflowRunCommand: "sena-workflow-run-command/v1",
+  workflowRunList: "sena-workflow-run-list/v1",
+  workflowStepReceipt: "sena-workflow-step-receipt/v1"
 } as const;
 
 const productionSourceRoots = ["app", "components", "lib"];
@@ -307,8 +326,8 @@ describe("SENA schema registry", () => {
     expect(disabled).toEqual({ optimization: { splitChunks: false } });
   });
 
-  it("preserves all 223 ordered schema values, data properties and exact literal types", () => {
-    expect(Object.keys(FROZEN_SCHEMA_VERSIONS)).toHaveLength(223);
+  it("preserves all 242 ordered schema values, data properties and exact literal types", () => {
+    expect(Object.keys(FROZEN_SCHEMA_VERSIONS)).toHaveLength(242);
     expect(JSON.stringify(SENA_SCHEMA_VERSIONS)).toBe(JSON.stringify(FROZEN_SCHEMA_VERSIONS));
     expect(Object.getOwnPropertyDescriptors(SENA_SCHEMA_VERSIONS)).toEqual(
       Object.getOwnPropertyDescriptors(FROZEN_SCHEMA_VERSIONS)
@@ -389,6 +408,32 @@ describe("SENA schema registry", () => {
     expect(SENA_SCHEMA_VERSIONS.humanConceptPublicationFigureManifest).toBe(
       "sena-human-concept-publication-figure-manifest/v1"
     );
+    expect(SENA_SCHEMA_VERSIONS.workflowDefinition).toBe("sena-workflow-definition/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowDefinitionList).toBe("sena-workflow-definition-list/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringWorkOrder).toBe("sena-engineering-work-order/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringCandidateReceipt).toBe(
+      "sena-engineering-candidate-receipt/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringGateReceipt).toBe(
+      "sena-engineering-gate-receipt/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowEngineeringRepositoryPreflight).toBe(
+      "sena-engineering-repository-preflight/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowExploratoryPublication).toBe(
+      "sena-workflow-exploratory-publication/v1"
+    );
+    expect(SENA_SCHEMA_VERSIONS.workflowRunList).toBe("sena-workflow-run-list/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowRunCommand).toBe("sena-workflow-run-command/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowActionCommand).toBe("sena-workflow-action-command/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowRedactedEvent).toBe("sena-workflow-redacted-event/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowDecision).toBe("sena-workflow-decision/v1");
+    expect(SENA_SCHEMA_VERSIONS.enterpriseServerJobResult).toBe("sena-enterprise-server-job-result/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowRun).toBe("sena-workflow-run/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowStepReceipt).toBe("sena-workflow-step-receipt/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowApproval).toBe("sena-workflow-approval/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowCloseout).toBe("sena-workflow-closeout/v1");
+    expect(SENA_SCHEMA_VERSIONS.workflowCloseoutCommitment).toBe("sena-workflow-closeout-commitment/v1");
 
     expect(getSenaSchemaVersion("productionPageContract")).toBe(buildSenaProductionPageContract().schemaVersion);
 

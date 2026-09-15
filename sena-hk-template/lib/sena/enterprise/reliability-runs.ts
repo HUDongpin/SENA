@@ -21,6 +21,12 @@ import {
 } from "./access-control";
 import { SenaEnterpriseError } from "./errors";
 import {
+  assertSenaEnterpriseExecutionIdempotency,
+  assertSenaEnterpriseIdempotentResult,
+  senaEnterpriseExecutionId,
+  type SenaEnterpriseExecutionIdempotency
+} from "./execution-idempotency";
+import {
   queueEnterpriseNotification
 } from "./notifications-delivery";
 import {
@@ -214,7 +220,31 @@ type CreateEnterpriseReliabilityRunInput = {
   inputFiles: SenaEnterpriseReliabilityRun["inputFiles"];
   dashboard: SenaReliabilityDashboard;
   reviewPatch: Partial<SenaCodingReliabilityReview>;
+  executionIdempotency?: SenaEnterpriseExecutionIdempotency;
 };
+
+function reliabilityExecutionBinding(run: SenaEnterpriseReliabilityRun) {
+  return {
+    id: run.id,
+    teamId: run.teamId,
+    projectId: run.projectId,
+    userId: run.userId,
+    reviewer: run.reviewer,
+    fileCount: run.fileCount,
+    annotationCount: run.annotationCount,
+    coderCount: run.coderCount,
+    itemCount: run.itemCount,
+    codeCount: run.codeCount,
+    meanPairwiseKappa: run.meanPairwiseKappa,
+    krippendorffAlphaNominal: run.krippendorffAlphaNominal,
+    disagreementCount: run.disagreementCount,
+    inputFiles: run.inputFiles,
+    dashboard: run.dashboard,
+    projectBinding: run.projectBinding,
+    reviewPatch: run.reviewPatch,
+    createdAt: run.createdAt
+  };
+}
 
 function createEnterpriseReliabilityRunInDb(
   context: SenaEnterpriseSessionContext,
@@ -278,9 +308,10 @@ function createEnterpriseReliabilityRunInDb(
       ...reliabilityDashboardToReview(dashboard, input.reviewer)
     };
   }
-  const timestamp = now();
+  const execution = assertSenaEnterpriseExecutionIdempotency(input.executionIdempotency, "Reliability");
+  const timestamp = execution?.createdAt ?? now();
   const run: SenaEnterpriseReliabilityRun = {
-    id: id("rel"),
+    id: execution ? senaEnterpriseExecutionId("rel", execution.key) : id("rel"),
     teamId: input.teamId,
     projectId: input.projectId,
     userId: context.user.id,
@@ -310,6 +341,16 @@ function createEnterpriseReliabilityRunInDb(
     createdAt: timestamp
   };
   refreshReliabilityAdjudicationCoverage(db, run);
+  const existingRun = db.reliabilityRuns.find((candidate) => candidate.id === run.id);
+  if (existingRun) {
+    assertSenaEnterpriseIdempotentResult({
+      existing: reliabilityExecutionBinding(existingRun),
+      candidate: reliabilityExecutionBinding(run),
+      context: "Reliability",
+      code: "reliability_execution_idempotency_conflict"
+    });
+    return existingRun;
+  }
   db.reliabilityRuns.unshift(run);
   db.reliabilityRuns = db.reliabilityRuns.slice(0, 1000);
   appendAudit(db, {

@@ -371,6 +371,8 @@ export function enterpriseClaimEvidencePackageRuntime(): SenaEnterpriseClaimEvid
 export type SenaEnterpriseClaimEvidencePackageBuildOptions = {
   /** `null` pins publication aggregation to no eligible reliability run. */
   approvedReliabilityRunId?: string | null;
+  /** `null` pins publication aggregation to no eligible validation run. */
+  approvedValidationRunId?: string | null;
   persistedSnapshotSha256?: string;
   stateRevisionSha256?: string;
   claimReadinessSnapshot?: SenaProjectSnapshot;
@@ -470,11 +472,15 @@ export function buildEnterpriseClaimEvidencePackageFromDb(
     : latestByTimestamp(projectExpertReviews.filter((review) => review.status === "approved"));
   const approvedValidationRuns = projectValidationRuns.filter((run) => run.status === "approved");
   const expertValidationTargetId = approvedExpertReview?.target.kind === "validation-run" ? approvedExpertReview.target.id : undefined;
-  const selectedApprovedValidation = approvedExpertReview
-    ? expertValidationTargetId
-      ? approvedValidationRuns.find((run) => run.id === expertValidationTargetId)
+  const selectedApprovedValidation = Object.hasOwn(options, "approvedValidationRunId")
+    ? options.approvedValidationRunId
+      ? approvedValidationRuns.find((run) => run.id === options.approvedValidationRunId)
       : undefined
-    : latestByTimestamp(approvedValidationRuns);
+    : approvedExpertReview
+      ? expertValidationTargetId
+        ? approvedValidationRuns.find((run) => run.id === expertValidationTargetId)
+        : undefined
+      : latestByTimestamp(approvedValidationRuns);
   let approvedValidation: SenaEnterpriseValidationRun | undefined;
   let validationIntegrityBlocker: "approved-validation-run-evidence-hash-required" |
     "validation-run-integrity-required" | undefined = validationTenantMismatch
@@ -768,7 +774,8 @@ export function getEnterpriseClaimEvidencePackage(
 
 export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
   context: SenaEnterpriseSessionContext,
-  input: { projectId: string }
+  input: { projectId: string },
+  options: SenaEnterpriseClaimEvidencePackageBuildOptions = {}
 ): Promise<SenaEnterpriseClaimEvidencePackage> {
   const state = await readEnterpriseState();
   const db = state.db;
@@ -807,6 +814,7 @@ export async function getEnterpriseClaimEvidencePackageWithPostgresEvidence(
       "claimEvidenceIndexedTables=ops-mirrors-only"
     ]
   }, {
+    ...options,
     persistedSnapshotSha256: artifactSha256(persistedProject.snapshot),
     stateRevisionSha256
   });

@@ -45,6 +45,14 @@ export const SENA_WORKSPACE_API_ROUTES = {
     scimUsers: "/api/sena/scim/v2/Users"
   },
   publicationExport: "/api/sena/exports/publication",
+  workflows: {
+    definitions: "/api/sena/workflows/definitions",
+    runs: "/api/sena/workflows/runs",
+    run: (runId: string) => `/api/sena/workflows/runs/${encodeURIComponent(runId)}`,
+    events: (runId: string) => `/api/sena/workflows/runs/${encodeURIComponent(runId)}/events`,
+    actions: (runId: string) => `/api/sena/workflows/runs/${encodeURIComponent(runId)}/actions`,
+    closeout: (runId: string) => `/api/sena/workflows/runs/${encodeURIComponent(runId)}/closeout`
+  },
   snapshotRestore: "/api/sena/snapshot/restore",
   pilotSample: "/sena-pilot/sample/lesson-study-sena-contract.json"
 } as const;

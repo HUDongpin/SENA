@@ -3,7 +3,8 @@ export const SENA_VITEST_SERIAL_TEST_FILES = Object.freeze([
   "lib/sena/__tests__/snapshot-restore-route-round21.test.ts",
   "lib/sena/__tests__/enterprise-go-live.test.ts",
   "lib/sena/__tests__/enterprise.test.ts",
-  "lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts"
+  "lib/sena/__tests__/publication-reliability-evidence-route-round14.test.ts",
+  "lib/sena/__tests__/production-evidence-bind-script.test.ts"
 ]);
 
 const SENA_VITEST_MAX_PARALLEL_WORKERS = 4;

@@ -545,6 +545,9 @@ describe("SENA server job Postgres store", () => {
         source: "project",
         projectVersion: 1,
         projectTeamId,
+        commandCustody: "encrypted-upload-v1" as const,
+        commandEnvelopeUploadId: `upload_${(suffix === "matching-team" ? "a" : "b").repeat(24)}`,
+        commandEnvelopeSha256: "a".repeat(64),
         hasInlineSnapshot: false,
         hasInlineDataset: false,
         payloadValuesExcluded: true
@@ -755,7 +758,7 @@ describe("SENA server job Postgres store", () => {
   });
 
   it.each([1, 2])(
-    "reserves an oldest executable Postgres row before %i newer unsupported rows consume the mixed limit",
+    "does not let %i newer nonclaimable legacy validation rows consume the Postgres executable slot",
     async (limit) => {
       enterpriseDbDir = mkdtempSync(path.join(tmpdir(), `sena-server-job-postgres-fairness-${limit}-`));
       process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
@@ -841,15 +844,14 @@ describe("SENA server job Postgres store", () => {
         errorCode: "server_job_worker_payload_not_reproducible",
         attempts: 0
       }));
-      expect(second.outcomes).toHaveLength(limit);
-      expect(second.outcomes).toEqual(expect.arrayContaining(unsupported.map((job) => (
-        expect.objectContaining({
-          jobId: job.id,
-          status: "skipped",
-          jobStatus: "queued",
-          skipReason: "server_job_worker_executor_unavailable"
-        })
-      ))));
+      expect(second.outcomes).toEqual([]);
+      for (const job of unsupported) {
+        await expect(queue.getEnterpriseServerJob(job.id)).resolves.toEqual(expect.objectContaining({
+          status: "queued",
+          delivery: expect.objectContaining({ sourceReady: false }),
+          lifecycle: expect.objectContaining({ attempts: 0 })
+        }));
+      }
       expect(pg.queries.some((query) => (
         /sena-worker-executable-kinds/i.test(query) &&
         /kind\s*=\s*ANY\(\$\d+::text\[\]\)/i.test(query) &&

@@ -10,7 +10,7 @@ import {
   type SenaEnterpriseServerJobStatusAction
 } from "@/lib/sena/enterprise/server-job-queue";
 import {
-  admitEnterpriseExternalAnalysisClaim
+  admitEnterpriseExternalServerJobClaim
 } from "@/lib/sena/enterprise/server-job-worker-runtime";
 import {
   recordEnterpriseAuditAsync
@@ -31,10 +31,17 @@ const jobStatuses = new Set<SenaEnterpriseServerJobStatus>([
 const jobKinds = new Set<SenaEnterpriseServerJobKind>(senaEnterpriseServerJobKinds);
 const statusActions = new Set<SenaEnterpriseServerJobStatusAction>([
   "mark-running",
+  "renew-lease",
   "mark-succeeded",
   "mark-failed",
   "retry",
   "dead-letter"
+]);
+const workerLifecycleActions = new Set<SenaEnterpriseServerJobStatusAction>([
+  "mark-running",
+  "renew-lease",
+  "mark-succeeded",
+  "mark-failed"
 ]);
 
 function maybeStatus(value: string | null) {
@@ -128,6 +135,7 @@ export async function POST(request: Request) {
       errorMessage?: unknown;
       reason?: unknown;
       force?: unknown;
+      result?: unknown;
       uploadWarnings?: unknown;
       teamId?: unknown;
     };
@@ -144,6 +152,13 @@ export async function POST(request: Request) {
     if (!action) {
       throw new SenaEnterpriseError("Unsupported SENA server job status action.", 400, "unsupported_server_job_status_action");
     }
+    if (access.mode !== "bearer" && workerLifecycleActions.has(action)) {
+      throw new SenaEnterpriseError(
+        "SENA server job worker lifecycle callbacks require the service bearer identity.",
+        403,
+        "server_job_worker_identity_required"
+      );
+    }
     if (!jobId) {
       throw new SenaEnterpriseError("SENA server job status updates require jobId.", 400, "server_job_id_required");
     }
@@ -155,6 +170,7 @@ export async function POST(request: Request) {
       errorHash: redactedErrorHash(body),
       reason: typeof body.reason === "string" ? body.reason : undefined,
       force: body.force === true,
+      result: body.result,
       // Worker-reported parse-repair warning counts (H10 disclosure channel);
       // validated in the job layer, which 400s on non-array or invalid entries
       // — a malformed report must fail loud, not be silently ignored.
@@ -163,7 +179,7 @@ export async function POST(request: Request) {
         : body.uploadWarnings as Array<{ uploadId?: unknown; warningCount?: unknown }>,
       callerScope,
       preclaimAdmission: action === "mark-running"
-        ? admitEnterpriseExternalAnalysisClaim
+        ? admitEnterpriseExternalServerJobClaim
         : undefined
     });
     await recordEnterpriseAuditAsync({

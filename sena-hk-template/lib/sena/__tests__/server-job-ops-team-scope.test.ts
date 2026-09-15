@@ -143,7 +143,7 @@ describe("SENA server job ops route tenant scope", () => {
         body: JSON.stringify({ action: "mark-failed", jobId: jobA.id, teamId: teamAId, errorCode: "cross_tenant" })
       }));
       expect(foreignTeamMutation.status).toBe(403);
-      expect((await foreignTeamMutation.json() as { code?: string }).code).toBe("permission_denied");
+      expect((await foreignTeamMutation.json() as { code?: string }).code).toBe("server_job_worker_identity_required");
 
       // 4b. And declaring a team they do own does not buy them a foreign job.
       const foreignJobMutation = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
@@ -153,7 +153,7 @@ describe("SENA server job ops route tenant scope", () => {
       }));
       const foreignJobBody = await foreignJobMutation.json() as { code?: string };
       expect(foreignJobMutation.status, JSON.stringify(foreignJobBody)).toBe(403);
-      expect(foreignJobBody.code).toBe("permission_denied");
+      expect(foreignJobBody.code).toBe("server_job_worker_identity_required");
 
       // 4c. Omitting the team does not fall back to an unscoped mutation.
       const unscopedMutation = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
@@ -169,7 +169,7 @@ describe("SENA server job ops route tenant scope", () => {
       expect(untouched.status).toBe("queued");
       expect(untouched.lifecycle.attempts).toBe(0);
 
-      // 5. Acting on the caller's own job still works.
+      // 5. A human team manager still cannot mint worker lifecycle evidence.
       const ownMutationResponse = await route.POST(new Request("https://sena.example.test/api/sena/ops/jobs", {
         method: "POST",
         headers: mutationHeaders,
@@ -180,9 +180,10 @@ describe("SENA server job ops route tenant scope", () => {
           workerRunId: "worker_run_scope"
         })
       }));
-      const ownMutationBody = await ownMutationResponse.json() as { job?: { status?: string } };
-      expect(ownMutationResponse.status, JSON.stringify(ownMutationBody)).toBe(200);
-      expect(ownMutationBody.job?.status).toBe("running");
+      const ownMutationBody = await ownMutationResponse.json() as { code?: string };
+      expect(ownMutationResponse.status, JSON.stringify(ownMutationBody)).toBe(403);
+      expect(ownMutationBody.code).toBe("server_job_worker_identity_required");
+      expect((await enterprise.getEnterpriseServerJob(jobB.id)).status).toBe("queued");
     } finally {
       vi.doUnmock("next/headers");
       vi.doUnmock("@/lib/sena/enterprise");

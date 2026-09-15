@@ -4,6 +4,7 @@ import {
   SENA_ANALYSIS_QUEUE_LEGACY_COMMAND_CUSTODY,
   SENA_ANALYSIS_QUEUE_SYNTHETIC_HEARTBEAT_CUSTODY
 } from "./analysis-queue-command";
+import { SENA_SERVER_JOB_COMMAND_CUSTODY } from "./server-job-command-envelope";
 import {
   SenaGroupComparisonSourceVerificationCache,
   type SenaGroupComparisonValidationReadModel
@@ -58,6 +59,7 @@ import type {
   SenaEnterpriseServerJobStatus
 } from "./enterprise/server-job-queue";
 import { projectEnterpriseServerJobReadModel } from "./enterprise/server-job-contract";
+import { SenaEnterpriseError } from "./enterprise/errors";
 import type { SenaEnterpriseObservedRequest } from "./enterprise/ops-observability";
 import type { SenaProjectSnapshot } from "./types";
 import {
@@ -83,6 +85,7 @@ import {
   type SenaEnterpriseValidationSnapshotHashCache
 } from "./enterprise/validation-integrity";
 import { senaValidationSourceVerificationCache } from "./enterprise/validation-request-scope";
+import { SENA_WORKFLOW_POSTGRES_SCHEMA_DEFINITIONS } from "./workflow/postgres-store";
 
 export type SenaEnterprisePostgresQuery = <T = Record<string, unknown>>(
   sql: string,
@@ -151,6 +154,7 @@ export type SenaEnterprisePostgresSchemaStatementKind =
   | "table"
   | "index"
   | "unique-index"
+  | "add-column"
   | "alter-column-nullability";
 
 export type SenaEnterprisePostgresSchemaContract = {
@@ -392,6 +396,17 @@ const enterprisePostgresSchemaTableDefinitions: EnterprisePostgresSchemaTableDef
     productionRequired: true,
     createEnsurer: ({ query, schemaName }) => createEnterprisePostgresObservedRequestAdapter({ query, schemaName })
   },
+  ...SENA_WORKFLOW_POSTGRES_SCHEMA_DEFINITIONS.map((definition) => ({
+    id: definition.id,
+    name: definition.name,
+    role: definition.role,
+    productionRequired: definition.productionRequired,
+    createEnsurer: ({ query, schemaName }: { query: SenaEnterprisePostgresQuery; schemaName: string }) => ({
+      ensureSchema: async () => {
+        for (const statement of definition.statements(schemaName)) await query(statement);
+      }
+    })
+  })),
   {
     id: "live-postgres-probe",
     name: defaultPostgresProbeTableName,
@@ -575,6 +590,17 @@ function postgresSchemaStatementMetadata(sql: string) {
     };
   }
 
+  const additiveColumnMatch = sql.match(
+    /^ALTER TABLE "[^"]+"\."([^"]+)" ADD COLUMN IF NOT EXISTS "?([a-z0-9_]+)"?\s+.+$/i
+  );
+  if (additiveColumnMatch) {
+    return {
+      kind: "add-column" as const,
+      name: additiveColumnMatch[2],
+      tableName: additiveColumnMatch[1]
+    };
+  }
+
   throw new SenaEnterprisePostgresError(
     "Unsupported SENA enterprise Postgres schema statement.",
     500,
@@ -656,7 +682,7 @@ export async function buildEnterprisePostgresSchemaContract(input: {
     evidence: [
       "schemaContractSource=enterprisePostgresAdapterEnsureSchema",
       "schemaContractSqlValues=hashed",
-      "migrationMode=create-table-if-not-exists|alter-column-nullability|create-index-if-not-exists",
+      "migrationMode=create-table-if-not-exists|add-column-if-not-exists|alter-column-nullability|create-index-if-not-exists",
       `schemaContractStatus=${status}`,
       `schemaContractTables=${tableStatements.length}`,
       `schemaContractProductionTables=${productionTableCount}`,
@@ -1102,6 +1128,9 @@ function normalizeStoredServerJob(row: Record<string, unknown>): SenaEnterpriseS
     delivery: normalizeStoredJson<SenaEnterpriseServerJob["delivery"]>(row.delivery),
     worker: normalizeStoredJson<SenaEnterpriseServerJob["worker"]>(row.worker),
     lifecycle: normalizeStoredJson<SenaEnterpriseServerJob["lifecycle"]>(row.lifecycle),
+    resultReceipt: row.result_receipt
+      ? normalizeStoredJson<SenaEnterpriseServerJob["resultReceipt"]>(row.result_receipt)
+      : undefined,
     redaction: normalizeStoredJson<SenaEnterpriseServerJob["redaction"]>(row.redaction)
   });
 }
@@ -3487,6 +3516,13 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       ELSE false
     END
   ), false)`;
+  const exactWorkerCommandCustodySql = `COALESCE((
+    payload_summary->>'commandCustody' = '${SENA_SERVER_JOB_COMMAND_CUSTODY}'
+    AND jsonb_typeof(payload_summary->'commandEnvelopeUploadId') = 'string'
+    AND (payload_summary->>'commandEnvelopeUploadId') ~ '^upload_[a-f0-9]{24}$'
+    AND jsonb_typeof(payload_summary->'commandEnvelopeSha256') = 'string'
+    AND (payload_summary->>'commandEnvelopeSha256') ~ '^[a-f0-9]{64}$'
+  ), false)`;
   const analysisCustodyQuarantineSql = `(
     /* sena-analysis-custody-quarantine */
     kind = 'analysis'
@@ -3514,6 +3550,15 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         AND btrim(project_id) <> ''
         AND ${exactProjectVersionSql}
         AND ${exactProjectTeamIdSql}
+        AND (${exactWorkerCommandCustodySql}) IS TRUE
+      WHEN kind = 'publication-export' THEN
+        payload_summary->>'source' = 'project'
+        AND worker->>'payloadDelivery' = 'project-pointer'
+        AND project_id IS NOT NULL
+        AND btrim(project_id) <> ''
+        AND ${exactProjectVersionSql}
+        AND ${exactProjectTeamIdSql}
+        AND (${exactWorkerCommandCustodySql}) IS TRUE
       WHEN kind IN ('import', 'reliability') THEN
         worker->>'payloadDelivery' = 'upload-pointer'
         AND ${exactUploadPointersSql}
@@ -3539,11 +3584,13 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         delivery jsonb NOT NULL,
         worker jsonb NOT NULL,
         lifecycle jsonb NOT NULL,
+        result_receipt jsonb,
         redaction jsonb NOT NULL,
         queued_at timestamptz NOT NULL,
         updated_at timestamptz NOT NULL
       )
     `);
+    await input.query(`ALTER TABLE ${tableRef} ADD COLUMN IF NOT EXISTS result_receipt jsonb`);
     await input.query(`CREATE INDEX IF NOT EXISTS ${statusIndex} ON ${tableRef} (status, updated_at DESC)`);
     await input.query(`CREATE INDEX IF NOT EXISTS ${teamIndex} ON ${tableRef} (team_id, updated_at DESC)`);
     await input.query(`CREATE INDEX IF NOT EXISTS ${projectIndex} ON ${tableRef} (project_id, updated_at DESC)`);
@@ -3568,6 +3615,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         delivery,
         worker,
         lifecycle,
+        result_receipt,
         redaction,
         queued_at,
         updated_at
@@ -3587,8 +3635,9 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         $12::jsonb,
         $13::jsonb,
         $14::jsonb,
-        $15,
-        $16
+        $15::jsonb,
+        $16,
+        $17
       )
       ON CONFLICT (id) DO UPDATE
       SET schema_version = EXCLUDED.schema_version,
@@ -3603,6 +3652,7 @@ export function createEnterprisePostgresServerJobAdapter(input: {
         delivery = EXCLUDED.delivery,
         worker = EXCLUDED.worker,
         lifecycle = EXCLUDED.lifecycle,
+        result_receipt = EXCLUDED.result_receipt,
         redaction = EXCLUDED.redaction,
         queued_at = EXCLUDED.queued_at,
         updated_at = EXCLUDED.updated_at
@@ -3620,10 +3670,89 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       roundTripJson(job.delivery),
       roundTripJson(job.worker),
       roundTripJson(job.lifecycle),
+      job.resultReceipt ? roundTripJson(job.resultReceipt) : null,
       roundTripJson(job.redaction),
       job.queuedAt,
       job.updatedAt
     ]);
+  }
+
+  async function insertJobIfAbsent(job: SenaEnterpriseServerJob) {
+    await ensureSchema();
+    const inserted = await input.query<Record<string, unknown>>(`
+      INSERT INTO ${tableRef} (
+        id,
+        schema_version,
+        kind,
+        status,
+        team_id,
+        project_id,
+        actor_user_id,
+        payload_sha256,
+        payload_summary,
+        provider,
+        delivery,
+        worker,
+        lifecycle,
+        result_receipt,
+        redaction,
+        queued_at,
+        updated_at
+      )
+      VALUES (
+        $1,
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9::jsonb,
+        $10::jsonb,
+        $11::jsonb,
+        $12::jsonb,
+        $13::jsonb,
+        $14::jsonb,
+        $15::jsonb,
+        $16,
+        $17
+      )
+      ON CONFLICT (id) DO NOTHING
+      RETURNING *
+    `, [
+      job.id,
+      job.schemaVersion,
+      job.kind,
+      job.status,
+      job.teamId,
+      job.projectId ?? null,
+      job.actorUserId,
+      job.payloadSha256,
+      roundTripJson(job.payloadSummary),
+      roundTripJson(job.provider),
+      roundTripJson(job.delivery),
+      roundTripJson(job.worker),
+      roundTripJson(job.lifecycle),
+      job.resultReceipt ? roundTripJson(job.resultReceipt) : null,
+      roundTripJson(job.redaction),
+      job.queuedAt,
+      job.updatedAt
+    ]);
+    if (inserted.rows[0]) {
+      return { created: true, job: normalizeStoredServerJob(inserted.rows[0]) };
+    }
+    const existing = await input.query<Record<string, unknown>>(`
+      SELECT * FROM ${tableRef} WHERE id = $1 LIMIT 1
+    `, [job.id]);
+    if (!existing.rows[0]) {
+      throw new SenaEnterpriseError(
+        "The deterministic SENA server job could not be read after its insert conflict.",
+        500,
+        "server_job_idempotency_read_failed"
+      );
+    }
+    return { created: false, job: normalizeStoredServerJob(existing.rows[0]) };
   }
 
   async function claimQueuedJob(job: SenaEnterpriseServerJob) {
@@ -3644,6 +3773,9 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     job: SenaEnterpriseServerJob;
     expectedStatus: SenaEnterpriseServerJobStatus;
     expectedWorkerRunId?: string;
+    expectedLeaseExpiresAt?: string;
+    expectedLeaseMissing?: boolean;
+    requireUnexpiredLease?: boolean;
     requireSourceReady: boolean;
   }) {
     await ensureSchema();
@@ -3651,20 +3783,30 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       inputTransition.job.id,
       inputTransition.job.status,
       roundTripJson(inputTransition.job.lifecycle),
+      inputTransition.job.resultReceipt ? roundTripJson(inputTransition.job.resultReceipt) : null,
       inputTransition.job.updatedAt,
       inputTransition.expectedStatus
     ];
-    const clauses = ["id = $1", "status = $5"];
+    const clauses = ["id = $1", "status = $6"];
     if (inputTransition.expectedWorkerRunId) {
       values.push(inputTransition.expectedWorkerRunId);
       clauses.push(`lifecycle->>'workerRunId' = $${values.length}`);
+    }
+    if (inputTransition.expectedLeaseExpiresAt) {
+      values.push(inputTransition.expectedLeaseExpiresAt);
+      clauses.push(`lifecycle->>'leaseExpiresAt' = $${values.length}`);
+    }
+    if (inputTransition.expectedLeaseMissing) clauses.push(`lifecycle->>'leaseExpiresAt' IS NULL`);
+    if (inputTransition.requireUnexpiredLease) {
+      clauses.push(`(lifecycle->>'leaseExpiresAt')::timestamptz > now()`);
     }
     if (inputTransition.requireSourceReady) clauses.push(claimableSourceSql);
     const result = await input.query<Record<string, unknown>>(`
       UPDATE ${tableRef}
       SET status = $2,
         lifecycle = $3::jsonb,
-        updated_at = $4
+        result_receipt = $4::jsonb,
+        updated_at = $5
       WHERE ${clauses.join(" AND ")}
       RETURNING *
     `, values);
@@ -3694,6 +3836,37 @@ export function createEnterprisePostgresServerJobAdapter(input: {
       roundTripJson(inputDelivery.failedLifecycle),
       inputDelivery.updatedAt
     ]);
+    return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
+  }
+
+  async function reopenFailedDispatchJob(inputReopen: {
+    job: SenaEnterpriseServerJob;
+    expectedErrorHash?: string;
+  }) {
+    await ensureSchema();
+    const values: unknown[] = [
+      inputReopen.job.id,
+      roundTripJson(inputReopen.job.lifecycle),
+      roundTripJson(inputReopen.job.delivery),
+      inputReopen.job.updatedAt
+    ];
+    const errorHashClause = inputReopen.expectedErrorHash
+      ? ` AND delivery->>'errorHash' = $${values.push(inputReopen.expectedErrorHash)}`
+      : " AND delivery->>'errorHash' IS NULL";
+    const result = await input.query<Record<string, unknown>>(`
+      UPDATE ${tableRef}
+      SET status = 'queued',
+        lifecycle = $2::jsonb,
+        delivery = $3::jsonb,
+        updated_at = $4
+      WHERE id = $1
+        AND status = 'failed'
+        AND delivery->>'webhookStatus' = 'failed'
+        AND delivery->>'failureStage' = 'queue-dispatch'
+        AND COALESCE((lifecycle->>'attempts')::integer, 0) = 0
+        ${errorHashClause}
+      RETURNING *
+    `, values);
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
   }
 
@@ -3824,6 +3997,54 @@ export function createEnterprisePostgresServerJobAdapter(input: {
     return result.rows[0] ? normalizeStoredServerJob(result.rows[0]) : null;
   }
 
+  async function findExpiredRunningJobs(inputFilters: {
+    kinds: readonly SenaEnterpriseServerJobKind[];
+    teamId?: string;
+    observedAt: string;
+    legacyGraceMs?: number;
+    limit?: number;
+  }) {
+    await ensureSchema();
+    const limit = Math.max(1, Math.min(inputFilters.limit ?? 100, 500));
+    const values: unknown[] = [
+      inputFilters.kinds,
+      inputFilters.observedAt,
+      Math.max(60_000, Math.min(inputFilters.legacyGraceMs ?? 300_000, 24 * 60 * 60_000))
+    ];
+    const teamClause = inputFilters.teamId
+      ? ` AND team_id = $${values.push(inputFilters.teamId)}`
+      : "";
+    values.push(limit);
+    const result = await input.query<Record<string, unknown>>(`
+      SELECT *
+      FROM ${tableRef}
+      WHERE status = 'running'
+        AND kind = ANY($1::text[])
+        AND (
+          (
+            lifecycle->>'leaseExpiresAt' IS NOT NULL
+            AND (lifecycle->>'leaseExpiresAt')::timestamptz <= $2::timestamptz
+          ) OR (
+            lifecycle->>'leaseExpiresAt' IS NULL
+            AND COALESCE(
+              NULLIF(lifecycle->>'lastHeartbeatAt', '')::timestamptz,
+              NULLIF(lifecycle->>'startedAt', '')::timestamptz,
+              updated_at
+            ) <= $2::timestamptz - ($3::double precision * interval '1 millisecond')
+          )
+        )
+        ${teamClause}
+      ORDER BY COALESCE(
+        NULLIF(lifecycle->>'leaseExpiresAt', '')::timestamptz,
+        NULLIF(lifecycle->>'lastHeartbeatAt', '')::timestamptz,
+        NULLIF(lifecycle->>'startedAt', '')::timestamptz,
+        updated_at
+      ) ASC, id ASC
+      LIMIT $${values.length}
+    `, values);
+    return result.rows.map((row) => normalizeStoredServerJob(row));
+  }
+
   async function getJob(jobId: string) {
     await ensureSchema();
     const result = await input.query<Record<string, unknown>>(`
@@ -3838,11 +4059,14 @@ export function createEnterprisePostgresServerJobAdapter(input: {
   return {
     ensureSchema,
     upsertJob,
+    insertJobIfAbsent,
     claimQueuedJob,
     transitionJobStatus,
     finalizeDelivery,
+    reopenFailedDispatchJob,
     listJobs,
     findOldestClaimableJob,
+    findExpiredRunningJobs,
     getJob
   };
 }

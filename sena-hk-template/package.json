@@ -40,6 +40,7 @@
     "sena:jobs:worker-contract": "vite-node scripts/verify-sena-job-worker-contract.ts",
     "sena:jobs:worker-heartbeat": "vite-node scripts/verify-sena-job-worker-heartbeat.ts",
     "sena:jobs:worker-run": "vite-node scripts/run-sena-job-worker.ts",
+    "sena:workflows:worker-run": "vite-node --script scripts/run-sena-workflow-worker.ts",
     "sena:production-evidence:check": "vite-node scripts/verify-sena-production-evidence-manifest.ts",
     "sena:production-evidence:archive": "vite-node --script scripts/archive-sena-production-evidence.ts",
     "sena:production-evidence:bind": "node scripts/bind-sena-production-evidence.mjs",
@@ -58,6 +59,9 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "@langchain/core": "1.2.9",
+    "@langchain/langgraph": "1.4.13",
+    "@langchain/langgraph-checkpoint-postgres": "1.0.5",
     "@types/node": "^20.11.30",
     "@types/react": "^18.2.67",
     "@types/react-dom": "^18.2.22",
@@ -81,7 +85,8 @@
     "sna.js": "npm:@peterhudongpin/sna.js@0.4.0",
     "tailwind-merge": "^2.2.1",
     "tailwindcss": "^3.4.1",
-    "typescript": "^5.4.2"
+    "typescript": "^5.4.2",
+    "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/pg": "^8.20.0",

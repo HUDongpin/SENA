@@ -90,6 +90,9 @@ describe("SENA ops status route", () => {
           if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_server_jobs"/i.test(normalizedSql)) {
             return { rows: [], rowCount: 0 };
           }
+          if (/ALTER TABLE "public"\."sena_enterprise_server_jobs" ADD COLUMN IF NOT EXISTS result_receipt/i.test(normalizedSql)) {
+            return { rows: [], rowCount: 0 };
+          }
           if (/CREATE TABLE IF NOT EXISTS "public"\."sena_enterprise_observed_requests"/i.test(normalizedSql)) {
             return { rows: [], rowCount: 0 };
           }

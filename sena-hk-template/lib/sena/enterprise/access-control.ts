@@ -15,11 +15,12 @@ export type SenaEnterprisePermission =
   | "reliability:adjudicate"
   | "expert:review"
   | "analysis:run"
+  | "release:approve"
   | "export:create";
 
 export const rolePermissions: Record<SenaEnterpriseRole, SenaEnterprisePermission[]> = {
-  owner: ["team:manage", "member:invite", "upload:create", "upload:read", "project:create", "project:read", "project:update", "project:delete", "project:comment", "reliability:adjudicate", "expert:review", "analysis:run", "export:create"],
-  pi: ["team:manage", "member:invite", "upload:create", "upload:read", "project:create", "project:read", "project:update", "project:delete", "project:comment", "reliability:adjudicate", "expert:review", "analysis:run", "export:create"],
+  owner: ["team:manage", "member:invite", "upload:create", "upload:read", "project:create", "project:read", "project:update", "project:delete", "project:comment", "reliability:adjudicate", "expert:review", "analysis:run", "release:approve", "export:create"],
+  pi: ["team:manage", "member:invite", "upload:create", "upload:read", "project:create", "project:read", "project:update", "project:delete", "project:comment", "reliability:adjudicate", "expert:review", "analysis:run", "release:approve", "export:create"],
   admin: ["member:invite", "upload:create", "upload:read", "project:create", "project:read", "project:update", "project:delete", "project:comment", "reliability:adjudicate", "expert:review", "analysis:run", "export:create"],
   coder: ["upload:create", "upload:read", "project:create", "project:read", "project:update", "project:comment", "reliability:adjudicate", "analysis:run", "export:create"],
   reviewer: ["upload:read", "project:read", "project:comment", "reliability:adjudicate", "expert:review", "analysis:run", "export:create"],
