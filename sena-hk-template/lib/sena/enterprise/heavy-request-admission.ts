@@ -52,6 +52,7 @@ const importCodes = {
 };
 
 const buildOptionKeys = [
+  "numericalRuntime",
   "alpha",
   "beta",
   "gamma",

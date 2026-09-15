@@ -161,6 +161,13 @@ describe("workspace import error state", () => {
 });
 
 describe("import error drawer effect wiring", () => {
+  it("exposes the true error as an atomic live alert with a stable browser hook", () => {
+    const feedback = readFileSync(resolve(workspaceDir, "workspace-data-import-feedback-section.tsx"), "utf8");
+    expect(feedback).toContain('data-testid="workspace-import-error"');
+    expect(feedback).toContain('role="alert"');
+    expect(feedback).toContain('aria-atomic="true"');
+    expect(feedback).not.toContain("text-rose-100");
+  });
   // The effect itself needs a DOM renderer to observe; this pins that it consumes
   // the signal the tests above exercise rather than the raw message.
   const mainShellSource = readFileSync(resolve(workspaceDir, "workspace-main-shell-section.tsx"), "utf8");

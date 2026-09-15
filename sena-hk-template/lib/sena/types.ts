@@ -128,7 +128,11 @@ export type SenaDataset = {
   warnings?: string[];
 };
 
+/** Absent means the legacy native numerical runtime. */
+export type SenaNumericalRuntime = "sena-deterministic-v1";
+
 export type SenaBuildOptions = {
+  numericalRuntime?: SenaNumericalRuntime;
   alpha: number;
   beta: number;
   gamma: number;
@@ -145,6 +149,7 @@ export type SenaBuildOptions = {
 };
 
 export type SenaResolvedBuildOptions = SenaAnalysisConfigDeclaration & {
+  numericalRuntime?: SenaNumericalRuntime;
   alpha: number;
   beta: number;
   gamma: number;
@@ -479,6 +484,7 @@ export type SenaEnaManifest = {
     activeCodeValue: "segment-confidence-or-1";
   };
   options?: {
+    numericalRuntime?: SenaNumericalRuntime;
     model: "EndPoint" | "AccumulatedTrajectory" | "SeparateTrajectory";
     window: "MovingStanzaWindow" | "Conversation";
     weightBy: "binary" | "sum";
@@ -734,6 +740,7 @@ export type SenaValidation = {
 };
 
 export type SenaRuntimeProvenance = {
+  numericalRuntime?: SenaNumericalRuntime;
   parityEvidence: Array<{
     id: string;
     referenceRuntime: string;
@@ -754,11 +761,19 @@ export type SenaRuntimeProvenance = {
     interpretation: string;
   }>;
   senaModel: {
+    numericalRuntime?: SenaNumericalRuntime;
     engine: "sena-js";
     implementation: "lib/sena/model.ts";
     matrixFormula: "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
   };
   enaRuntime: {
+    numericalAdapter?: {
+      profile: SenaNumericalRuntime;
+      implementation: "lib/sena/deterministic-ena.ts";
+      basis: string;
+      primitives: string[];
+      primitiveImplementation: "lib/sena/deterministic-numerics.ts";
+    };
     engine: "jena-js";
     version: string;
     packageName: "jena-js";

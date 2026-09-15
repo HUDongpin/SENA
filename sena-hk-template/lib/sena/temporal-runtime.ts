@@ -2,7 +2,7 @@ import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaEnaManifest } from "./ena-manifest";
 import { buildSenaMatrixFingerprints } from "./fusion-math";
 import { buildSenaModel, scopeSenaDatasetToWindow } from "./model";
-import { senaRuntimeProvenance } from "./runtime-constants";
+import { senaRuntimeProvenanceFor } from "./runtime-constants";
 import { buildSenaSnaManifest } from "./sna-manifest";
 import type {
   SenaBuildOptions,
@@ -141,7 +141,7 @@ export function buildSenaTemporalRuntimeTrace(
   const windows = timelineModel.temporal.windows.map((window) => {
     const scopedDataset = scopeSenaDatasetToWindow(dataset, window);
     const scopedModel = buildSenaModel(scopedDataset, timelineModel.options);
-    const enaManifest = buildSenaEnaManifest(scopedModel.dataset);
+    const enaManifest = buildSenaEnaManifest(scopedModel.dataset, { numericalRuntime: timelineModel.options.numericalRuntime });
     const snaManifest = buildSenaSnaManifest(scopedModel);
     const strongestGPair = [...scopedModel.pairReport]
       .filter((pair) => pair.totalContribution > 0)
@@ -205,7 +205,7 @@ export function buildSenaTemporalRuntimeTrace(
     sourceDatasetCounts: datasetCounts(dataset),
     buildOptions: timelineModel.options,
     temporalSettings: timelineModel.temporal.settings,
-    runtimeProvenance: senaRuntimeProvenance,
+    runtimeProvenance: senaRuntimeProvenanceFor(timelineModel.options.numericalRuntime),
     windows,
     transitions: buildTransitions(windows),
     warnings: uniqueWarnings(

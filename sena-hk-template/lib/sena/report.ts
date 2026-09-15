@@ -58,7 +58,7 @@ import { buildSenaModelCard } from "./model-card";
 import { buildSenaAttributionWordingCopy } from "./attribution-wording";
 import { buildSenaJenaConceptPairHandoffRows } from "./jena-handoff";
 import { buildSenaJsnaSocialTieHandoffRows } from "./jsna-handoff";
-import { senaRuntimeProvenance } from "./runtime-constants";
+import { senaRuntimeProvenanceFor } from "./runtime-constants";
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { senaVisualGrammar } from "./visual-grammar";
 import { SENA_ADMISSIBLE_NORMALIZATIONS } from "./operators";
@@ -121,7 +121,6 @@ const pendingReviewText = "Pending human review.";
 const pendingReliabilityText = "Pending coding reliability documentation.";
 const defaultNullModelIterations = 12;
 const nullModelSeed = 20260608;
-const runtimeProvenance = senaRuntimeProvenance;
 
 export function isSenaReportHumanReviewTextPresent(value: string) {
   return Boolean(value.trim()) && value.trim() !== pendingReviewText;
@@ -857,6 +856,7 @@ export function buildSenaReportCompletenessAudit({
   codingReliabilityGate: SenaCodingReliabilityGate;
   dataGovernance?: Partial<SenaDataGovernanceMetadata>;
 }): SenaReportCompletenessAudit {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
   const options = model.options;
   const hasFiniteWeights = [options.alpha, options.beta, options.gamma].every(Number.isFinite);
   const evidenceCounts = evidenceSourceCounts(evidenceSnippets);
@@ -1458,8 +1458,21 @@ function resolveHumanReview(options: SenaReportOptions, generatedAt: string): Se
     : review;
 }
 
+function metricProvenanceFor(model: SenaModel): SenaMetricProvenance[] {
+  if (model.options.numericalRuntime === undefined) return metricProvenance;
+  const provenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
+  return metricProvenance.map((metric) => metric.id !== "jena-connection-counts" ? metric : {
+    ...metric,
+    implementation: `The SENA deterministic ENA adapter uses ${provenance.enaRuntime.apiSurface.join(", ")} with published jena-js accumulation, projection, node placement and complete-basis variance.`,
+    parityStatus: "Separate adapter tests reuse the bundled rENA fixture for connection counts, line weights, sign-aligned unit and node positions, and conditional 2D variance within declared tolerances; complete-basis variance and exact cross-engine replay are checked separately. Runtime consistency checks concept-pair handoff to SENA W; this does not establish universal adapter parity."
+  });
+}
+
 function mergeBuildOptions(model: SenaModel, overrides: Partial<SenaBuildOptions> = {}): SenaBuildOptions {
   return {
+    ...((overrides.numericalRuntime ?? model.options.numericalRuntime) === undefined ? {} : {
+      numericalRuntime: overrides.numericalRuntime ?? model.options.numericalRuntime
+    }),
     alpha: overrides.alpha ?? model.options.alpha,
     beta: overrides.beta ?? model.options.beta,
     gamma: overrides.gamma ?? model.options.gamma,
@@ -1844,6 +1857,7 @@ function buildNullModelChecks(model: SenaModel, iterations = defaultNullModelIte
 }
 
 export function buildSenaValidation(model: SenaModel, options: SenaReportOptions = {}): SenaValidation {
+  const metricProvenance = metricProvenanceFor(model);
   return {
     metricProvenance,
     sensitivity: {
@@ -1859,6 +1873,7 @@ export function buildSenaValidation(model: SenaModel, options: SenaReportOptions
 }
 
 export function buildSenaEvidenceLedger(model: SenaModel, options: SenaEvidenceLedgerOptions = {}): SenaEvidenceLedger {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const evidenceLimit = Math.max(1, Math.round(options.evidenceLimit ?? 80));
   const snippets = collectEvidenceSnippets(model, evidenceLimit);
@@ -1888,9 +1903,10 @@ export function buildSenaEvidenceLedger(model: SenaModel, options: SenaEvidenceL
 }
 
 export function buildSenaReport(model: SenaModel, options: SenaReportOptions = {}): SenaReport {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const evidenceLimit = Math.max(1, Math.round(options.evidenceLimit ?? 40));
-  const enaManifest = buildSenaEnaManifest(model.dataset);
+  const enaManifest = buildSenaEnaManifest(model.dataset, { numericalRuntime: model.options.numericalRuntime });
   const snaManifest = buildSenaSnaManifest(model);
   const dataContractAudit = buildSenaDataContractAudit(model.dataset, { modelWarnings: model.summary.warnings });
   const runtimeConsistencyAudit = buildSenaRuntimeConsistencyAudit({ model, enaManifest, snaManifest });
@@ -2553,6 +2569,7 @@ function codingReliabilityGateToMarkdown(gate: SenaCodingReliabilityGate) {
 }
 
 export function buildSenaSnaReportArtifact(model: SenaModel, options: SenaSnaReportArtifactOptions = {}): SenaSnaReportArtifact {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const title = options.title?.trim() || "SENA jSNA Social Report";
   const manifest = buildSenaSnaManifest(model);
@@ -2586,9 +2603,11 @@ export function buildSenaMetricProvenanceArtifact(
   model: SenaModel,
   options: SenaMetricProvenanceArtifactOptions = {}
 ): SenaMetricProvenanceArtifact {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
+  const metricProvenance = metricProvenanceFor(model);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const title = options.title?.trim() || "SENA Metric Provenance";
-  const enaManifest = buildSenaEnaManifest(model.dataset);
+  const enaManifest = buildSenaEnaManifest(model.dataset, { numericalRuntime: model.options.numericalRuntime });
   const snaManifest = buildSenaSnaManifest(model);
   const runtimeConsistencyAudit = buildSenaRuntimeConsistencyAudit({
     model,
@@ -2665,9 +2684,11 @@ export function buildSenaMetricProvenanceArtifact(
 }
 
 export function buildSenaEnaReportArtifact(model: SenaModel, options: SenaEnaReportArtifactOptions = {}): SenaEnaReportArtifact {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
+  const metricProvenance = metricProvenanceFor(model);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const title = options.title?.trim() || "SENA jENA Epistemic Report";
-  const manifest = buildSenaEnaManifest(model.dataset);
+  const manifest = buildSenaEnaManifest(model.dataset, { numericalRuntime: model.options.numericalRuntime });
   const snaManifest = buildSenaSnaManifest(model);
   const runtimeConsistencyAudit = buildSenaRuntimeConsistencyAudit({
     model,
@@ -2711,6 +2732,8 @@ export function buildSenaEnaReportArtifact(model: SenaModel, options: SenaEnaRep
 }
 
 export function buildSenaPairContributionReportArtifact(model: SenaModel, options: SenaPairContributionReportArtifactOptions = {}): SenaPairContributionReportArtifact {
+  const runtimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
+  const metricProvenance = metricProvenanceFor(model);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const title = options.title?.trim() || "SENA Person-Code-Pair G Report";
   const attributionCopy = buildSenaAttributionWordingCopy(model.operatorDiagnostics.attribution.contributionWordingAllowed);

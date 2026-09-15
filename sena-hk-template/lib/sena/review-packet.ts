@@ -1,4 +1,5 @@
 import { senaJsonValuesEqual } from "./canonical-json";
+import { senaRuntimeProvenanceFor } from "./runtime-constants";
 import {
   buildSenaEnaReportArtifact,
   buildSenaMarkdownReport,
@@ -452,12 +453,22 @@ function buildSenaReviewPacketAudit(input: ReviewPacketAuditInput): SenaReviewPa
     !developmentPlan.scope.outOfScope.some((item) =>
       item.includes("Native managed database") && item.includes("signed webhook bridge handoffs")
     );
-  const methodProtocolReady = methodProtocol.schemaVersion === SENA_SCHEMA_VERSIONS.methodProtocol &&
+  const expectedRuntimeProvenance = senaRuntimeProvenanceFor(projectSnapshot.reproducibility.buildOptions.numericalRuntime);
+  const selectedProfileReady = projectSnapshot.reproducibility.buildOptions.numericalRuntime === undefined || (
+    senaJsonValuesEqual(report.runtimeProvenance, expectedRuntimeProvenance) &&
+    senaJsonValuesEqual(methodProtocol.runtimeIntegration.sena, expectedRuntimeProvenance.senaModel) &&
+    senaJsonValuesEqual(methodProtocol.runtimeIntegration.jena, expectedRuntimeProvenance.enaRuntime) &&
+    senaJsonValuesEqual(developmentPlan.runtimeIntegration.sena, expectedRuntimeProvenance.senaModel) &&
+    senaJsonValuesEqual(developmentPlan.runtimeIntegration.jena, expectedRuntimeProvenance.enaRuntime)
+  );
+  const methodProtocolReady = selectedProfileReady && methodProtocol.schemaVersion === SENA_SCHEMA_VERSIONS.methodProtocol &&
     methodProtocol.mathematicalFrame.graphType === "normalized-typed-heterogeneous-adjacency" &&
     methodProtocol.mathematicalFrame.formula === report.runtimeProvenance.senaModel.matrixFormula &&
     methodProtocol.runtimeIntegration.jena.dependencySpec === report.runtimeProvenance.enaRuntime.dependencySpec &&
     methodProtocol.runtimeIntegration.jsna.dependencySpec === report.runtimeProvenance.snaRuntime.dependencySpec &&
-    methodProtocol.runtimeIntegration.jena.apiSurface.includes("ena()") &&
+    (projectSnapshot.reproducibility.buildOptions.numericalRuntime === undefined
+      ? methodProtocol.runtimeIntegration.jena.apiSurface.includes("ena()")
+      : senaJsonValuesEqual(methodProtocol.runtimeIntegration.jena.apiSurface, expectedRuntimeProvenance.enaRuntime.apiSurface)) &&
     methodProtocol.runtimeIntegration.jsna.apiSurface.includes("geodist()") &&
     methodProtocol.runtimeParityEvidence.some((evidence) => evidence.id === "jena-rena-sample-parity" && evidence.status === "covered") &&
     methodProtocol.runtimeParityEvidence.some((evidence) => evidence.id === "jsna-r-sna-social-parity" && evidence.status === "covered") &&
