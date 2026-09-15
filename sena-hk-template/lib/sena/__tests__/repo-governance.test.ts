@@ -24,6 +24,44 @@ import { pathToFileURL } from "node:url";
 const projectRoot = resolve(process.cwd(), "..");
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
 const tempRoots: string[] = [];
+const GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_AUTHOR_DATE",
+  "GIT_AUTHOR_EMAIL",
+  "GIT_AUTHOR_NAME",
+  "GIT_COMMON_DIR",
+  "GIT_DIR",
+  "GIT_EDITOR",
+  "GIT_EXEC_PATH",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_OPTIONAL_LOCKS",
+  "GIT_PAGER",
+  "GIT_PREFIX",
+  "GIT_REFLOG_ACTION",
+  "GIT_WORK_TREE"
+]);
+
+function envWithoutUnexpectedCallerGit(
+  environment: NodeJS.ProcessEnv
+): NodeJS.ProcessEnv {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      ([name]) =>
+        !name.startsWith("GIT_") ||
+        GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST.has(name)
+    )
+  );
+}
+
+for (const name of Object.keys(process.env)) {
+  if (
+    name.startsWith("GIT_") &&
+    !GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST.has(name)
+  ) {
+    delete process.env[name];
+  }
+}
 
 function temporaryRoot(label: string) {
   const root = mkdtempSync(join(tmpdir(), `sena-${label}-`));
@@ -58,7 +96,10 @@ function runNode(
     cwd: options.cwd ?? projectRoot,
     input: options.input,
     encoding: "utf8",
-    env: { ...process.env, ...options.env },
+    env: {
+      ...envWithoutUnexpectedCallerGit(process.env),
+      ...options.env
+    },
     maxBuffer: 16 * 1024 * 1024
   });
 }
@@ -67,7 +108,7 @@ function runGit(root: string, args: string[]) {
   const result = spawnSync("git", args, {
     cwd: root,
     encoding: "utf8",
-    env: process.env
+    env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1" }
   });
   if (result.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
@@ -140,7 +181,7 @@ function runGitWithEnvironment(
   const result = spawnSync("git", args, {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, ...environment },
+    env: { ...process.env, GIT_LFS_SKIP_SMUDGE: "1", ...environment },
     input
   });
   if (result.status !== 0) {
@@ -548,6 +589,9 @@ function createLocalArchiveRetirementFixture(label: string) {
     "  fi",
     "  exit 0",
     "fi",
+    "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"--tags\" ] && [ \"$4\" = \"https://github.com/HUDongpin/SENA.git\" ]; then",
+    "  exit 1",
+    "fi",
     "if [ \"$1\" = \"ls-remote\" ] && [ \"$2\" = \"--heads\" ] && [ \"$3\" = \"https://github.com/HUDongpin/SENA.git\" ]; then",
     "  if [ \"$4\" = \"refs/heads/main\" ]; then",
     "    printf '%s\\trefs/heads/main\\n' \"$SENA_TEST_AUTHORIZATION_SHA\"",
@@ -567,7 +611,9 @@ function createLocalArchiveRetirementFixture(label: string) {
     PATH: `${helperDirectory}:${process.env.PATH ?? ""}`,
     SENA_TEST_AUTHORIZATION_SHA: authorizationCommit,
     SENA_TEST_TARGET_REF: targetRef,
-    SENA_TEST_REAL_GIT: realGit
+    SENA_TEST_REAL_GIT: realGit,
+    GH_TOKEN: "",
+    GH_ENTERPRISE_TOKEN: ""
   };
   return {
     fixture,
@@ -6564,7 +6610,7 @@ describe("SENA repository governance", () => {
     const result = runNode(
       context.fixture.script,
       ["registry", "--registry", context.fixture.registryPath],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
@@ -6587,7 +6633,7 @@ describe("SENA repository governance", () => {
     const result = runNode(
       context.fixture.script,
       ["registry", "--registry", context.fixture.registryPath],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("rule=local-ref-retirement-multiple-active");
@@ -6604,7 +6650,7 @@ describe("SENA repository governance", () => {
     const result = runNode(
       context.fixture.script,
       ["registry", "--registry", context.fixture.registryPath],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("rule=local-ref-retirement-authorization-id-invalid");
@@ -6637,7 +6683,7 @@ describe("SENA repository governance", () => {
     const result = runNode(
       context.fixture.script,
       ["registry", "--registry", context.fixture.registryPath],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("rule=local-ref-retirement-predecessor-not-consumed");
@@ -6673,7 +6719,7 @@ describe("SENA repository governance", () => {
     const registry = runNode(
       context.fixture.script,
       ["registry", "--registry-from-commit", context.authorizationCommit],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(registry.status, `${registry.stdout}${registry.stderr}`).toBe(0);
 
@@ -6694,7 +6740,7 @@ describe("SENA repository governance", () => {
     const registry = runNode(
       context.fixture.script,
       ["registry", "--registry-from-commit", context.authorizationCommit],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(registry.status, `${registry.stdout}${registry.stderr}`).toBe(0);
 
@@ -6713,7 +6759,7 @@ describe("SENA repository governance", () => {
     const registry = runNode(
       context.fixture.script,
       ["registry", "--registry-from-commit", context.authorizationCommit],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(registry.status).toBe(1);
     expect(registry.stderr).toContain(
@@ -6736,7 +6782,7 @@ describe("SENA repository governance", () => {
     const registry = runNode(
       context.fixture.script,
       ["registry", "--registry-from-commit", context.authorizationCommit],
-      { cwd: context.fixture.root }
+      { cwd: context.fixture.root, env: context.env }
     );
     expect(registry.status).toBe(1);
     expect(registry.stderr).toContain(
@@ -7022,7 +7068,7 @@ describe("SENA repository governance", () => {
 
   it("rejects dangerous Git environment overrides before local-ref retirement preflight", () => {
     const context = createLocalArchiveRetirementFixture("local-retirement-dangerous-git-env");
-    context.env.GIT_NAMESPACE = "retirement-test-namespace";
+    context.env.GIT_PREFIX = "retirement-test-prefix";
 
     const result = runLocalRefRetirementCli(context, "local-ref-retirement");
     expect(result.status).toBe(1);

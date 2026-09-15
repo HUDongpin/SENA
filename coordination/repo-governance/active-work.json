@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-15T17:37:14Z",
+  "updatedAt": "2026-09-09T02:37:09Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -4416,15 +4416,15 @@
       ],
       "createdAt": "2026-08-28T16:51:55Z",
       "lastHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-15T17:37:14Z",
-      "nextReviewAt": "2026-09-16T17:37:14Z",
+      "lastObservedAt": "2026-09-04T14:33:23Z",
+      "nextReviewAt": "2026-09-05T14:33:23Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "prNumber": 46,
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
       "noPrReason": null,
-      "dirtyState": "ordinary-no-ff-merge-of-current-main-84867c9-ported-human-ai-retirement-runtime-and-negative-tests-draft-pending-release-no-deletion-authorized",
+      "dirtyState": "clean-local-pr46-head-e24c635-live-pr-conflicting-dirty-current-main-b2d07177-observer-refresh-no-mutation-authorized",
       "sensitivePaths": [
         "All API Keys.docx",
         "sena-hk-template/All API Keys.docx"
@@ -5314,11 +5314,11 @@
         "docxOrCredentialContentsMayBeOpened": false
       },
       "evidenceState": {
-        "local": "PR46 is reconciling the dirty Draft against protected main 84867c9 by an ordinary no-ff merge. Mainline three-path files were taken as the conflict base, then the Human-AI local-ref retirement runtime, negative tests, and pending-release authorization contract were ported without widening scope. Local-ref deletion, force-push, reset, rebase, remote tag publication, deployment, and provider mutation remain unauthorized.",
-        "ci": "This merge candidate has not yet produced new exact-head CI. Exact-head build, repository-security, zero annotations, protected merge, and post-main CI remain required before Ready or any deletion release.",
-        "merged": "PR46 remains OPEN/Draft and is not Ready or merged. The Human-AI authorization stays pending-release with deletionRelease=null. Security-quarantine retirement remains rejected until a separate ledger runtime and protected authorization exist.",
+        "local": "PR46 local, cached named remote, live named remote, and live Draft PR head are exact clean e24c635 with tree 56be367; relative to live protected main b2d07177 it is ahead 8 and behind 40",
+        "ci": "Exact PR46 e24c635 passed 97/97, immutable spec and quality review, build 33458602803, PR repository-security 33458602756, push repository-security 33458598644, and zero annotations. PR80 has since completed its exact final-head and post-main checks, but no PR46 mutation is authorized by this currentness refresh",
+        "merged": "PR84 is merged as protected main b2d07177. PR46 remains OPEN/Draft/CONFLICTING/DIRTY at e24c635 and is not Ready or merged; all PR46 mutation remains frozen",
         "deployed": "not in scope and not authorized",
-        "live": "Target refs/heads/codex/sena-human-ai-research-docs remains authorized only at exact old SHA 5537582fbf820951777f88ef5bc5c63e23feada3. No local-ref deletion, worktree removal, receipt minting, or history rewrite is authorized by this Draft."
+        "live": "live and cached main are exact b2d07177; local, cached/live remote, and PR46 head are exact e24c635. This observer refresh changes no owner heartbeat and grants no PR46, CAS, ref, tag, quarantine, deletion, worktree, orphan, deployment, provider, or history mutation authority"
       },
       "currentCustodyHeartbeat": {
         "recordedAt": "2026-09-01T02:50:50Z",
@@ -8284,12 +8284,12 @@
       "prBase": "main",
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-15T17:37:14Z",
+      "lastObservedAt": "2026-09-04T14:33:23Z",
       "lastCommitAt": "2026-09-01T09:23:34+08:00",
-      "nextReviewAt": "2026-09-16T17:37:14Z",
+      "nextReviewAt": "2026-09-05T14:33:23Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "frozen-recovery",
-      "closeout": "Draft PR46 ordinary-merged current protected main and ported only the Human-AI local-ref retirement contract. Ready/merge and every cleanup or deletion mutation remain unauthorized.",
+      "closeout": "local, cached named remote, live named remote, and live Draft PR46 head remain exact clean e24c635; against live protected main b2d07177 it is ahead 8/behind 40 and CONFLICTING/DIRTY. Observer timestamps do not change owner heartbeats or authorize PR46, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation",
       "mergeable": "CONFLICTING",
       "mergeStateStatus": "DIRTY",
       "prStateObservationMode": "monotonic"
