@@ -16962,7 +16962,9 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_NEXT_REVIEW_AT = "2026-09-11T02:37:09Z";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-09-15T17:58:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-17T17:58:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-16T01:58:00+08:00";
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
   "branch head differs from registry: main",
@@ -17055,20 +17057,40 @@ function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
   const expected = protectedActivationNativeStructuredClone(source);
   const item = expected.workItems.find((entry) => entry.taskId === I_H_TASK);
   const branch = expected.branches.find((entry) => entry.name === I_H_BRANCH);
-  if (!item || !branch || !expected.oNPr88PostMainCurrentnessRepair) {
+  const gItem = expected.workItems.find(
+    (entry) => entry.taskId === H_GOVERNANCE_G_TASK
+  );
+  const gBranch = expected.branches.find(
+    (entry) => entry.name === H_GOVERNANCE_G_BRANCH
+  );
+  const mobileItem = expected.workItems.find(
+    (entry) => entry.taskId === MOBILE_PILOT_TASK
+  );
+  const mobileBranch = expected.branches.find(
+    (entry) => entry.name === MOBILE_PILOT_BRANCH
+  );
+  if (
+    !item ||
+    !branch ||
+    !gItem ||
+    !gBranch ||
+    !mobileItem ||
+    !mobileBranch ||
+    !expected.oNPr88PostMainCurrentnessRepair
+  ) {
     throw new Error("rule=p-o-pr89-pre-push-source-invalid");
   }
   const noPrReason =
     "The committed O repair was retained after its native pre-push audit failed closed; P stages one exact custody remediation before the same one-ref update and Draft PR #89.";
   const expectedCloseAt =
     "owner-gated:pr89-pre-push-custody-remediation";
-  expected.updatedAt = P_O_RECORDED_AT;
+  expected.updatedAt = P_O_CURRENTNESS_RECORDED_AT;
   Object.assign(item, {
     headSha: P_O_SOURCE_COMMIT,
     aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 1 },
-    lastHeartbeatAt: P_O_RECORDED_AT,
-    lastObservedAt: P_O_RECORDED_AT,
-    nextReviewAt: P_O_NEXT_REVIEW_AT,
+    lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
     expectedCloseAt,
     prNumber: null,
     noPrReason,
@@ -17096,7 +17118,7 @@ function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
     upstreamCacheState: "present",
     remotePresent: true,
     remoteHeadSha: O_N_SOURCE_COMMIT,
-    remoteObservedAt: P_O_RECORDED_AT,
+    remoteObservedAt: P_O_CURRENTNESS_RECORDED_AT,
     pr: null,
     noPrReason,
     prHeadSha: null,
@@ -17105,14 +17127,37 @@ function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
     prIsDraft: false,
     prReadyForReview: false,
     prStateObservationMode: "monotonic",
-    lastOwnerHeartbeatAt: P_O_RECORDED_AT,
-    lastObservedAt: P_O_RECORDED_AT,
+    lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
     lastCommitAt: "2026-09-09T10:21:08+08:00",
-    nextReviewAt: P_O_NEXT_REVIEW_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
     expectedCloseAt,
     disposition: "active",
     closeout:
       "PR #88 is merged; committed O is retained locally and P repairs only the failed pre-push retained-custody transition before Draft PR #89."
+  });
+  Object.assign(gItem, {
+    lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+  });
+  Object.assign(gBranch, {
+    remoteObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastCommitAt: P_O_CURRENTNESS_G_LAST_COMMIT_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+  });
+  Object.assign(mobileItem, {
+    lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+  });
+  Object.assign(mobileBranch, {
+    remoteObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
   });
   expected.pOPr89PrePushCustodyRemediation = {
     schemaVersion: "sena-p-o-pr89-pre-push-custody-remediation/v1",
