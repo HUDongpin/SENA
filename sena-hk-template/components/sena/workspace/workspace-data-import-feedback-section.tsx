@@ -27,7 +27,12 @@ export function WorkspaceDataImportFeedbackSection({
   return (
     <>
       {importError && (
-        <div className="rounded-lg border border-rose-300/35 bg-rose-300/10 p-3 text-sm font-semibold leading-6 text-rose-100">
+        <div
+          data-testid="workspace-import-error"
+          role="alert"
+          aria-atomic="true"
+          className="min-w-0 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm font-semibold leading-6 text-rose-900 [overflow-wrap:anywhere]"
+        >
           {importError}
         </div>
       )}

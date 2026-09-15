@@ -1,5 +1,6 @@
 import { SENA_LEGACY_SCHEMA_VERSIONS, SENA_SCHEMA_VERSIONS } from "./schema-registry";
 import { buildSenaModel } from "./model";
+import { SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "./runtime-constants";
 import {
   buildSenaAnalysisConfigHash,
   buildSenaStableContentHash
@@ -849,12 +850,16 @@ function admitAnalysisConfigCarrier(value: unknown, budget: SenaGroupComparisonC
   if (!hasExactCarrierKeys(value, [
     "alpha", "beta", "gamma", "normalization", "bridgeWeightRule", "direction",
     "deg_convention", "delta", "Phi", "d", "seed", "undirectedSocial", "temporal"
-  ]) || !hasExactCarrierKeys(value.temporal, [
+  ], ["numericalRuntime"]) || !hasExactCarrierKeys(value.temporal, [
     "mode", "movingWindowSize", "movingWindowStep", "turnWindowRadius"
   ])) return false;
   for (const key of ["alpha", "beta", "gamma", "d", "seed"] as const) {
     if (!isFiniteNumber(value[key])) return false;
   }
+  if (value.numericalRuntime !== undefined && (
+    value.numericalRuntime !== SENA_DETERMINISTIC_NUMERICAL_RUNTIME ||
+    !admitCarrierText(value.numericalRuntime, budget, { nonempty: true })
+  )) return false;
   if (typeof value.undirectedSocial !== "boolean") return false;
   for (const key of ["normalization", "bridgeWeightRule", "direction", "deg_convention", "delta", "Phi"] as const) {
     if (!admitCarrierText(value[key], budget, { nonempty: true })) return false;
@@ -1841,6 +1846,7 @@ function senaGroupComparisonSourceDigest(source: SenaGroupComparisonSourceContex
 }
 
 const sourceBuildOptionKeys = [
+  "numericalRuntime",
   "alpha",
   "beta",
   "gamma",

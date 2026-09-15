@@ -93,6 +93,51 @@ async function stopTestListener(child: ReturnType<typeof spawn>) {
 }
 
 describe("SENA browser smoke manifest", () => {
+  it("requires numerical profile transitions and accurate ENA API claims in both browser ladders", () => {
+    const matrix = readFileSync(new URL("../../../scripts/verify-sena-mobile-browser-matrix.mjs", import.meta.url), "utf8");
+    for (const marker of ["default numerical profile", "raw import numerical profile", "legacy restore retains absent profile", "sample after legacy restore selects deterministic profile", "raw after legacy restore selects deterministic profile"]) expect(matrix).toContain(marker);
+    expect(matrix.includes('assertExportedProfile(page, report, `deterministic-restore-after-${fault}`, deterministicProfile, beforeDatasetSha256)')).toBe(true);
+    const smoke = readFileSync(new URL("../../../scripts/verify-sena-browser-smoke.mjs", import.meta.url), "utf8");
+    expect(smoke).toContain("sena-deterministic-v1");
+    expect(smoke).toContain("buildSenaDeterministicEnaSet()");
+    expect(smoke).toContain("numericalAdapter");
+  });
+  it("rejects absent and forged mobile-matrix custody before launch or listener requests", async () => {
+    const matrixModuleUrl = new URL("../../../scripts/verify-sena-mobile-browser-matrix.mjs", import.meta.url);
+    const { verifySenaMobileBrowserMatrix } = await import(matrixModuleUrl.href) as {
+      verifySenaMobileBrowserMatrix: (url: string, options: unknown) => Promise<unknown>;
+    };
+    const listener = await startTestListener("127.0.0.1");
+    try {
+      for (const options of [{}, { serverCustody: {
+        mode: "verifier-controlled-loopback-temporary-server", serverProcess: listener.child,
+        serverWorkingDirectory: process.cwd(), serverReadyFromOwnedProcess: true,
+        serverLoopbackListenerVerified: true
+      } }]) {
+        await expect(verifySenaMobileBrowserMatrix(`${listener.origin}/workspace/sena`, options))
+          .rejects.toThrow(/live verifier-controlled temporary-server custody/i);
+      }
+    } finally { await stopTestListener(listener.child); }
+  });
+
+  it("keeps the default full pilot ladder and labels mobile diagnostics explicitly", () => {
+    const pilot = readFileSync(new URL("../../../scripts/verify-sena-pilot.mjs", import.meta.url), "utf8");
+    expect(pilot).toContain('process.argv.includes("--mobile-matrix-only")');
+    expect(pilot).toContain('if (!mobileMatrixOnly) {');
+    expect(pilot).toContain('run("Full test suite", ["test"]');
+    expect(pilot).toContain("runWithOwnedServer(() => verifySenaMobileBrowserMatrix(url, custodyOptions))");
+    expect(pilot).toContain("not full pilot verification");
+    for (const name of ["verifySenaBrowserSmoke", "verifySenaEnaBrowserSmoke", "verifySenaAuthBrowserSmoke", "verifySenaSsoBrowserSmoke", "verifySenaEnterpriseApiBrowserSmoke", "verifySenaRbacCollaborationBrowserSmoke", "verifySenaReliabilityBrowserSmoke", "verifySenaValidationClaimBrowserSmoke"]) {
+      expect(pilot).toContain(`runWithOwnedServer(() => ${name}(`);
+    }
+    const matrix = readFileSync(new URL("../../../scripts/verify-sena-mobile-browser-matrix.mjs", import.meta.url), "utf8");
+    expect(matrix.indexOf("requireVerifierControlledServerCustody(custodyOptions")).toBeLessThan(matrix.indexOf("await browserType.launch"));
+    expect(matrix).not.toContain("force: true");
+    expect(matrix).not.toContain("element.click()");
+    expect(matrix).not.toContain("isMobile:");
+    expect(matrix).not.toContain("context.tracing.start(");
+    expect(matrix).toContain('traceKind: "allowlisted-metadata-only"');
+  });
   it("declares the essential workspace responsive and disclosure smoke contract", () => {
     expect(SENA_BROWSER_SMOKE_MANIFEST.workspace).toEqual({
       route: "/workspace/sena",

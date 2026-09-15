@@ -7,6 +7,7 @@ import { cwd } from "node:process";
 import { join } from "node:path";
 import { verifySenaAuthBrowserSmoke } from "./verify-sena-auth-browser-smoke.mjs";
 import { verifySenaBrowserSmoke } from "./verify-sena-browser-smoke.mjs";
+import { verifySenaMobileBrowserMatrix } from "./verify-sena-mobile-browser-matrix.mjs";
 import { verifySenaEnaBrowserSmoke } from "./verify-sena-ena-browser-smoke.mjs";
 import {
   registerVerifierControlledServerCustody,
@@ -26,6 +27,8 @@ import {
 
 const allowRunningServer = process.env.SENA_VERIFY_ALLOW_RUNNING_SERVER === "1";
 const checkOnly = process.argv.includes("--check-only");
+// Diagnostic UI RED/GREEN only. This flag cannot produce a full-pilot receipt.
+const mobileMatrixOnly = process.argv.includes("--mobile-matrix-only");
 const projectRoot = cwd();
 const smokePortStart = parsePortStart(process.env.SENA_VERIFY_SMOKE_PORT ?? "3101");
 const productionPageContract = readJson("lib/sena/production-page-contract.json");
@@ -887,6 +890,9 @@ async function verifyProductionServerSmoke() {
       verifyWorkspaceDynamicShell(text);
     });
     assertOwnedServer();
+    console.log("\n> Verify mobile browser matrix");
+    await runWithOwnedServer(() => verifySenaMobileBrowserMatrix(url, custodyOptions));
+    if (mobileMatrixOnly) return;
     await Promise.race([
       Promise.resolve().then(() => run("Verify conference load smoke", ["run", "sena:conference:load-check"], {
         SENA_LOAD_TARGET_URL: origin,
@@ -967,7 +973,7 @@ async function verifyProductionServerSmoke() {
 
 const nextServers = projectNextServers();
 const nodeListeners = projectNodeListeners();
-if ((nextServers.length > 0 || nodeListeners.length > 0) && !allowRunningServer) {
+if ((nextServers.length > 0 || nodeListeners.length > 0) && (!allowRunningServer || mobileMatrixOnly)) {
   if (nextServers.length > 0) {
     console.error("This project already has a running Next.js server:");
     nextServers.forEach((line) => console.error(`  ${line}`));
@@ -990,6 +996,7 @@ if (checkOnly) {
   process.exit(0);
 }
 
+if (!mobileMatrixOnly) {
 const enterpriseTestDbDir = mkdtempSync(join(tmpdir(), "sena-pilot-test-db-"));
 try {
   run("SENA pilot smoke", ["run", "sena:pilot:smoke"], { SENA_ENTERPRISE_DB_DIR: enterpriseTestDbDir });
@@ -997,10 +1004,13 @@ try {
 } finally {
   rmSync(enterpriseTestDbDir, { force: true, recursive: true });
 }
+}
 cleanNextBuildDirectory();
 await runNextProductionBuild();
 verifyNextArtifacts();
 run("Verify performance budget artifact", ["run", "sena:performance:check"]);
 await verifyProductionServerSmoke();
 
-console.log("\nSENA pilot verification complete.");
+console.log(mobileMatrixOnly
+  ? "\nMobile matrix diagnostic complete; not full pilot verification."
+  : "\nSENA pilot verification complete.");

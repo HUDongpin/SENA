@@ -1,12 +1,102 @@
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { createElement, useState } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { useSenaFusionWorkspaceMainShellProps } from "../../../components/sena/workspace/use-sena-fusion-workspace-main-shell-props";
+import * as enterpriseImport from "../../../components/sena/workspace/use-enterprise-import-actions";
+import * as snapshotRestore from "../../../components/sena/workspace/use-project-snapshot-restore-action";
+import { buildSenaModel } from "../model";
+import { buildSenaProjectSnapshot } from "../snapshot";
+import { lessonStudySenaContract } from "../pilot-assets";
+import { POST as restoreSnapshotRoute } from "../../../app/api/sena/snapshot/restore/route";
+import type { SenaSnapshotRestoreResult } from "../snapshot-restore";
+import { WorkspaceMainShellSection } from "../../../components/sena/workspace/workspace-main-shell-section";
 
 function workspaceSource(fileName: string) {
   return readFileSync(join(process.cwd(), "components/sena/workspace", fileName), "utf8");
 }
 
 describe("SENA essential workspace shell", () => {
+  it("reserves desktop rail clearance for Research Details without lifting the rail over evidence", () => {
+    function Harness() {
+      return createElement(WorkspaceMainShellSection, useSenaFusionWorkspaceMainShellProps());
+    }
+    const markup = renderToStaticMarkup(createElement(Harness));
+    expect(markup.includes('class="xl:[&amp;&gt;#workspace-research-details-drawer]:left-20"')).toBe(true);
+  });
+  it("starts the real workspace model and direct ENA manifest on the explicit numerical profile", () => {
+    let props: ReturnType<typeof useSenaFusionWorkspaceMainShellProps> | undefined;
+    function Harness() {
+      props = useSenaFusionWorkspaceMainShellProps();
+      return null;
+    }
+    renderToStaticMarkup(createElement(Harness));
+    expect(props).toBeDefined();
+    const overlay = props!.fusionPlotMaximizedOverlayProps;
+    expect(overlay.model.options.numericalRuntime).toBe("sena-deterministic-v1");
+    expect(overlay.enaManifest.options?.numericalRuntime).toBe("sena-deterministic-v1");
+  });
+
+  it("keeps legacy profile during warning-only updates and starts raw replacements on the new profile", async () => {
+    const source = lessonStudySenaContract;
+    const full = buildSenaModel(source, { temporal: { mode: "stage" } });
+    const snapshot = buildSenaProjectSnapshot(full, { sourceDataset: source });
+    const response = await restoreSnapshotRoute(new Request("http://localhost/api/sena/snapshot/restore", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ schemaVersion: "sena-snapshot-restore-request/v1", source: snapshot })
+    }));
+    expect(response.status).toBe(200);
+    const validated = await response.json() as SenaSnapshotRestoreResult;
+    let rawSetter: enterpriseImport.EnterpriseImportActionsOptions["setDataset"];
+    let restore: ReturnType<typeof snapshotRestore.useProjectSnapshotRestoreAction>["restoreValidatedProjectSnapshot"];
+    const originalImport = enterpriseImport.useEnterpriseImportActions;
+    const originalRestore = snapshotRestore.useProjectSnapshotRestoreAction;
+    // Capture existing callback boundaries while mounting both original hooks.
+    // No replacement state implementation or test-only production API is used.
+    const importSpy = vi.spyOn(enterpriseImport, "useEnterpriseImportActions").mockImplementation((options) => {
+      rawSetter = options.setDataset;
+      return originalImport(options);
+    });
+    const restoreSpy = vi.spyOn(snapshotRestore, "useProjectSnapshotRestoreAction").mockImplementation((options) => {
+      const result = originalRestore(options);
+      restore = result.restoreValidatedProjectSnapshot;
+      return result;
+    });
+    const observations: Array<{ profile: unknown; manifestProfile: unknown; warnings: string[] }> = [];
+    function Harness() {
+      const props = useSenaFusionWorkspaceMainShellProps();
+      const [step, setStep] = useState(0);
+      const { model, enaManifest } = props.fusionPlotMaximizedOverlayProps;
+      observations.push({ profile: model.options.numericalRuntime, manifestProfile: enaManifest.options?.numericalRuntime, warnings: model.dataset.warnings ?? [] });
+      if (step === 0) { restore(validated, "legacy.json"); setStep(1); }
+      if (step === 1) { rawSetter((current) => ({ ...current, warnings: [...(current.warnings ?? []), "Synthetic import warning"] })); setStep(2); }
+      if (step === 2) { rawSetter(source); setStep(3); }
+      return null;
+    }
+    try { renderToStaticMarkup(createElement(Harness)); }
+    finally { importSpy.mockRestore(); restoreSpy.mockRestore(); }
+    expect(observations.map(({ profile }) => profile)).toEqual(["sena-deterministic-v1", undefined, undefined, "sena-deterministic-v1"]);
+    expect(observations.map(({ manifestProfile }) => manifestProfile)).toEqual(["sena-deterministic-v1", undefined, undefined, "sena-deterministic-v1"]);
+    expect(observations[2].warnings).toContain("Synthetic import warning");
+  });
+
+  it("shares the measured mobile rail clearance with the drawer and reserves its flow space", () => {
+    const shell = workspaceSource("workspace-main-shell-section.tsx");
+    expect(shell).toContain("ResizeObserver");
+    expect(shell).toContain("--workspace-mobile-rail-height");
+    expect(shell).toContain("workspace-rail-flow-space");
+    expect(shell).toContain("fixed inset-x-0 top-0");
+  });
+
+  it("allows all five research summaries to wrap inside zero-minimum grid tracks", () => {
+    const scope = workspaceSource("central-fusion-analysis-scope.tsx");
+    expect(scope).toContain("grid-cols-[minmax(0,1fr)]");
+    expect(scope).toContain("[overflow-wrap:anywhere]");
+    expect(scope).not.toContain("truncate");
+    for (const id of ["central-fusion-scope-layer-counts", "central-fusion-evidence-capsule", "central-active-window-brief", "central-fusion-transition-delta", "central-fusion-delta-g-pair"]) {
+      expect(scope).toContain(`data-testid="${id}"`);
+    }
+  });
   it("wraps mobile figure keyboard navigation at both tab edges", async () => {
     const helperPath = join(process.cwd(), "components/sena/workspace/workspace-mobile-figure-navigation.ts");
 

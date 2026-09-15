@@ -1,6 +1,7 @@
 "use client";
 
 import { type Dispatch, type SetStateAction, useCallback } from "react";
+import { SENA_DETERMINISTIC_NUMERICAL_RUNTIME } from "@/lib/sena/runtime-constants";
 import type { SenaEnterpriseImportResult } from "@/lib/sena/import-adapters";
 import type { SenaLocalReliabilityImportResult } from "@/lib/sena/reliability-adapters";
 import type {
@@ -154,6 +155,7 @@ export function useEnterpriseImportActions({
           teamId: activeEnterpriseTeamId || undefined,
           createProject: true,
           includeRuntimeBundle: true,
+          buildOptions: { numericalRuntime: SENA_DETERMINISTIC_NUMERICAL_RUNTIME },
           title: importTitle,
           description: `Created from enterprise import of ${files.map((file) => file.name).join(", ")}.`
         },

@@ -1,4 +1,13 @@
-import type { SenaRuntimeProvenance } from "./types";
+import type { SenaNumericalRuntime, SenaRuntimeProvenance } from "./types";
+
+export const SENA_DETERMINISTIC_NUMERICAL_RUNTIME: SenaNumericalRuntime = "sena-deterministic-v1";
+
+/** Validate before any early return or recoverable analytical failure. */
+export function assertSenaNumericalRuntime(value: unknown): asserts value is SenaNumericalRuntime | undefined {
+  if (value !== undefined && value !== SENA_DETERMINISTIC_NUMERICAL_RUNTIME) {
+    throw new Error("SENA numericalRuntime is not supported.");
+  }
+}
 
 export const senaMatrixFormula: SenaRuntimeProvenance["senaModel"]["matrixFormula"] = "A_fusion = [alpha*S gamma*B_PC; gamma*B_CP beta*W]";
 
@@ -114,3 +123,34 @@ export const senaRuntimeProvenance: SenaRuntimeProvenance = {
     "Report readers should treat jENA and sna.js versions as part of the reproducibility record."
   ]
 };
+
+/** Preserve the native record exactly; an explicit profile declares its adapter. */
+export function senaRuntimeProvenanceFor(numericalRuntime?: SenaNumericalRuntime): SenaRuntimeProvenance {
+  assertSenaNumericalRuntime(numericalRuntime);
+  if (numericalRuntime === undefined) return senaRuntimeProvenance;
+  return {
+    ...senaRuntimeProvenance,
+    numericalRuntime,
+    senaModel: { ...senaRuntimeProvenance.senaModel, numericalRuntime },
+    enaRuntime: {
+      ...senaRuntimeProvenance.enaRuntime,
+      apiSurface: ["buildSenaDeterministicEnaSet()", "accumulateData()", "makeSet()", "projectIn()", "senaDeterministicEnaCorrelations()"],
+      numericalAdapter: {
+        profile: numericalRuntime,
+        implementation: "lib/sena/deterministic-ena.ts",
+        basis: "SENA algebraic cyclic Jacobi SVD with complete full basis; ordered mean direction with Householder completion and residual SVD",
+        primitives: ["log", "log1p", "atanh", "tanh"],
+        primitiveImplementation: "lib/sena/deterministic-numerics.ts"
+      }
+    },
+    parityEvidence: senaRuntimeProvenance.parityEvidence.map((entry) => entry.id === "jena-rena-sample-parity" ? {
+      ...entry,
+      interpretation: "The rENA fixture covers the pinned native jENA engine; separate deterministic adapter tests reuse this fixture for connection counts, line weights, sign-aligned unit and node positions, and conditional 2D variance within their declared tolerances. Complete-basis variance is checked separately. Native parity does not establish universal adapter parity or exact cross-engine replay; adapter replay is tested separately."
+    } : entry),
+    notes: [
+      ...senaRuntimeProvenance.notes,
+      "The explicit SENA numerical adapter replaces ENA basis estimation and default Fisher interval primitives; published jena-js 0.6.2 still performs accumulation, normalization, projection, node placement and full-basis variance.",
+      "SENA model log normalization and epistemic entropy use fixed primitives for this profile. jSNA metrics and public jENA square-root and linear-algebra operations remain native."
+    ]
+  };
+}

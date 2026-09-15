@@ -3,6 +3,7 @@
 import { X } from "lucide-react";
 import {
   type ComponentProps,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   useCallback,
@@ -72,6 +73,8 @@ export function WorkspaceMainShellSection({
   const [isTaskPanelOpen, setIsTaskPanelOpen] = useState(false);
   const [mobileFigure, setMobileFigure] = useState<WorkspaceMobileFigure>("fusion");
   const isDesktopMode = useWorkspaceDesktopMode();
+  const [mobileRailHeight, setMobileRailHeight] = useState(0);
+  const isMobileTaskPanelOpen = isTaskPanelOpen && !isDesktopMode;
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const fusionFigureTabRef = useRef<HTMLButtonElement>(null);
   const dualFigureTabRef = useRef<HTMLButtonElement>(null);
@@ -81,6 +84,18 @@ export function WorkspaceMainShellSection({
   const analysisSurfaceRef = useRef<HTMLDivElement>(null);
   const reportSurfaceRef = useRef<HTMLDivElement>(null);
   const panelTriggerModeRef = useRef(railProps.active);
+
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    // Layout pixels also work with CSS zoom: the shared CSS clearance scales
+    // with the rail. Keep measuring when wrapping or the viewport changes.
+    const measureRail = () => setMobileRailHeight(rail.offsetHeight);
+    measureRail();
+    const observer = new ResizeObserver(measureRail);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, []);
 
   const closeTaskPanel = useCallback(() => {
     setIsTaskPanelOpen(false);
@@ -167,7 +182,15 @@ export function WorkspaceMainShellSection({
 
       const focusableItems = [railRef.current, dialogRef.current]
         .flatMap((scope) => Array.from(scope?.querySelectorAll<HTMLElement>(workspaceDialogFocusableSelector) ?? []))
-        .filter((item) => !item.hasAttribute("disabled") && item.getAttribute("aria-hidden") !== "true");
+        .filter((item) => {
+          if (item.tabIndex < 0 || item.matches(":disabled") ||
+            item.closest('[hidden], [inert], [aria-hidden="true"]') ||
+            item.getClientRects().length === 0) return false;
+          for (let ancestor: HTMLElement | null = item; ancestor; ancestor = ancestor.parentElement) {
+            if (["hidden", "collapse"].includes(window.getComputedStyle(ancestor).visibility)) return false;
+          }
+          return true;
+        });
       const currentIndex = focusableItems.indexOf(document.activeElement as HTMLElement);
       const nextIndex = cycleContainedFocusIndex({
         currentIndex,
@@ -184,7 +207,11 @@ export function WorkspaceMainShellSection({
   }, [closeTaskPanel, isTaskPanelOpen]);
 
   return (
-    <section data-theme="light" className="min-h-dvh overflow-x-hidden bg-background text-slate-950">
+    <section
+      data-theme="light"
+      style={{ "--workspace-mobile-rail-height": `${mobileRailHeight}px` } as CSSProperties}
+      className="min-h-dvh overflow-x-hidden bg-background text-slate-950"
+    >
       <div className="mx-auto flex min-h-dvh flex-col overflow-x-hidden border border-cardBorder/70 bg-background/80 shadow-soft xl:h-dvh xl:overflow-hidden 2xl:max-w-[118rem]">
         <div ref={headerSurfaceRef} aria-hidden={isTaskPanelOpen || undefined}>
           <WorkspaceHeaderSection {...headerProps} />
@@ -192,8 +219,16 @@ export function WorkspaceMainShellSection({
         </div>
 
         <div className="grid min-h-0 flex-1 xl:grid-cols-[4rem_minmax(0,1fr)]">
-          <div ref={railRef} data-testid="workspace-persistent-rail" className="relative z-50 min-w-0">
-            <WorkspaceRail {...railProps} onChange={handleRailChange} panelOpen={isTaskPanelOpen} />
+          <div data-testid="workspace-rail-flow-space" className="min-w-0" style={{ height: isMobileTaskPanelOpen ? mobileRailHeight : undefined }}>
+            <div
+              ref={railRef}
+              data-testid="workspace-persistent-rail"
+              className={isMobileTaskPanelOpen
+                ? "fixed inset-x-0 top-0 z-50 min-w-0"
+                : isTaskPanelOpen ? "relative z-50 min-w-0 xl:h-full" : "relative z-0 min-w-0 xl:h-full"}
+            >
+              <WorkspaceRail {...railProps} onChange={handleRailChange} panelOpen={isTaskPanelOpen} />
+            </div>
           </div>
 
           <div
@@ -270,7 +305,7 @@ export function WorkspaceMainShellSection({
         </div>
       </div>
 
-      <div ref={reportSurfaceRef} aria-hidden={isTaskPanelOpen || undefined}>
+      <div ref={reportSurfaceRef} aria-hidden={isTaskPanelOpen || undefined} className="xl:[&>#workspace-research-details-drawer]:left-20">
         <WorkspaceReportAndStatsDeckSection
           {...reportAndStatsDeckProps}
           enterpriseRuntimeProps={leftRailProps.enterpriseRuntimeProps}
@@ -281,7 +316,7 @@ export function WorkspaceMainShellSection({
         <div
           id="workspace-left-panel-overlay"
           data-testid="workspace-left-panel-overlay"
-          className="pointer-events-none fixed inset-0 z-40"
+          className="pointer-events-none fixed inset-x-0 bottom-0 top-[var(--workspace-mobile-rail-height)] z-40 xl:top-0"
         >
           <button
             type="button"

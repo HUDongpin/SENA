@@ -1,5 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "./schema-registry";
-import { senaRuntimeProvenance } from "./runtime-constants";
+import { senaRuntimeProvenanceFor } from "./runtime-constants";
 import type {
   SenaDemoVerification,
   SenaDemoWalkthrough,
@@ -490,6 +490,7 @@ function buildNextStageDevelopmentPlan(
 }
 
 export function buildSenaDevelopmentPlan(model: SenaModel, options: SenaDevelopmentPlanOptions): SenaDevelopmentPlan {
+  const senaRuntimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const readyItems = options.pilotReadinessAudit.items.filter((item) => item.status === "ready").map((item) => item.id);
   const reviewItems = options.pilotReadinessAudit.items.filter((item) => item.status === "review").map((item) => item.id);

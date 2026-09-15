@@ -8,6 +8,7 @@ import type {
   SenaDataGovernanceMetadata,
   SenaDataset,
   SenaNormalization,
+  SenaNumericalRuntime,
   SenaProjectSnapshot,
   SenaReportHumanReview,
   SenaTemporalMode,
@@ -51,6 +52,7 @@ export type ProjectSnapshotRestoreActionOptions = {
   setMovingWindowStep: StateSetter<number>;
   setNextActions: StateSetter<string>;
   setNormalization: StateSetter<SenaNormalization>;
+  setNumericalRuntime: StateSetter<SenaNumericalRuntime | undefined>;
   setReliabilityLimitations: StateSetter<string>;
   setReportTitle: StateSetter<string>;
   setReviewStatus: StateSetter<SenaReportHumanReview["status"]>;
@@ -92,6 +94,7 @@ export function useProjectSnapshotRestoreAction({
   setMovingWindowStep,
   setNextActions,
   setNormalization,
+  setNumericalRuntime,
   setReliabilityLimitations,
   setReportTitle,
   setReviewStatus,
@@ -119,6 +122,7 @@ export function useProjectSnapshotRestoreAction({
     setBeta(options.beta);
     setGamma(options.gamma);
     setNormalization(options.normalization);
+    setNumericalRuntime(options.numericalRuntime);
     setTemporalMode(options.temporal.mode);
     setMovingWindowSize(options.temporal.movingWindowSize);
     setMovingWindowStep(options.temporal.movingWindowStep);
@@ -180,6 +184,7 @@ export function useProjectSnapshotRestoreAction({
     setMovingWindowStep,
     setNextActions,
     setNormalization,
+    setNumericalRuntime,
     setReliabilityLimitations,
     setReportTitle,
     setReviewStatus,

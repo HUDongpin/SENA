@@ -3,7 +3,7 @@ import { buildSenaFusionMathAudit } from "./fusion-math";
 import { buildSenaEnaManifest } from "./ena-manifest";
 import { buildSenaRuntimeConsistencyAudit } from "./runtime-consistency";
 import { buildSenaSnaManifest } from "./sna-manifest";
-import { senaRuntimeProvenance } from "./runtime-constants";
+import { senaRuntimeProvenanceFor } from "./runtime-constants";
 import { senaVisualGrammar } from "./visual-grammar";
 import type { SenaFusionMathAudit, SenaMethodProtocol, SenaMethodProtocolLayer, SenaMethodProtocolRuntimeHandoff, SenaModel, SenaRuntimeConsistencyAudit, SenaTemporalWindow } from "./types";
 
@@ -153,10 +153,11 @@ function runtimeHandoffs(
 }
 
 export function buildSenaMethodProtocol(model: SenaModel, options: SenaMethodProtocolOptions = {}): SenaMethodProtocol {
+  const senaRuntimeProvenance = senaRuntimeProvenanceFor(model.options.numericalRuntime);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const activeTemporalWindow = options.activeTemporalWindow ?? null;
   const fusionMathAudit = buildSenaFusionMathAudit(model);
-  const enaManifest = buildSenaEnaManifest(model.dataset);
+  const enaManifest = buildSenaEnaManifest(model.dataset, { numericalRuntime: model.options.numericalRuntime });
   const snaManifest = buildSenaSnaManifest(model);
   const runtimeConsistencyAudit = buildSenaRuntimeConsistencyAudit({
     model,
