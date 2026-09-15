@@ -45,13 +45,16 @@ const GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST = new Set([
 function envWithoutUnexpectedCallerGit(
   environment: NodeJS.ProcessEnv
 ): NodeJS.ProcessEnv {
-  return Object.fromEntries(
-    Object.entries(environment).filter(
-      ([name]) =>
-        !name.startsWith("GIT_") ||
-        GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST.has(name)
-    )
-  );
+  const next: NodeJS.ProcessEnv = { ...environment };
+  for (const name of Object.keys(next)) {
+    if (
+      name.startsWith("GIT_") &&
+      !GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST.has(name)
+    ) {
+      delete next[name];
+    }
+  }
+  return next;
 }
 
 for (const name of Object.keys(process.env)) {
