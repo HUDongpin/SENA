@@ -122,7 +122,7 @@ describe("workspace numerical profile custody", () => {
 const nativeHost = `${process.platform}:${process.arch}`;
 // Native jENA SVD bytes are engine-local. darwin/arm64 is the authoring pin;
 // linux/x64 is the Actions/verify host. Deterministic-profile tests stay exact.
-const frozenNativeSnapshotDigests: Record<string, readonly [string, boolean, string][]> = {
+const frozenNativeSnapshotDigests: Record<string, readonly ["max" | "log1p-max", boolean, string][]> = {
   "darwin:arm64": [
     ["max", false, "37746c7d729459a9304099d2cbf98c45eb609d17bdc23eb810ff141505341e31"],
     ["max", true, "0ea6eece2773738301163bdac3d4147c7d4c1324cbfd6b006b72ac3dd5d49a99"],
