@@ -21610,3 +21610,119 @@ describe("P-O PR 89 pre-push custody remediation", () => {
     }
   });
 });
+
+describe("Human-AI local-ref retirement pending-release mint", () => {
+  const humanAiRetirementId = "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829";
+  const humanAiRef = "refs/heads/codex/sena-human-ai-research-docs";
+  const humanAiSha = "5537582fbf820951777f88ef5bc5c63e23feada3";
+  const pendingAuthorizationCommit = "8f4625772137336d53afc1e0e8289dcf703fe177";
+  const quarantineRef = "refs/heads/docs/ledger-reconciliation-2026-08-19";
+  const quarantineSha = "18d542f707e56aa9d043dd497e0efe48b540db20";
+
+  function liveRegistry() {
+    return JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+  }
+
+  function humanAiAuthorization(registry: {
+    policy?: { localRefRetirementAuthorizations?: Array<Record<string, unknown>> };
+  }) {
+    return registry.policy?.localRefRetirementAuthorizations?.find(
+      (entry) => entry.id === humanAiRetirementId
+    );
+  }
+
+  it("accepts a fresh unexpired pending-release with an explicit deletionRelease and does not treat it as executed", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const registry = liveRegistry();
+    const authorization = humanAiAuthorization(registry);
+    const result = governance.validateRegistry(registry);
+
+    expect(authorization).toMatchObject({
+      id: humanAiRetirementId,
+      status: "pending-release",
+      purpose: "archive-ref-retirement",
+      ref: humanAiRef,
+      expectedOldSha: humanAiSha,
+      authorizationRegistryCommit: null,
+      eventId: null,
+      consumedAt: null,
+      executedBy: null,
+      localRefAbsenceReadbackAt: null,
+      result: null
+    });
+    expect(authorization?.deletionRelease).toMatchObject({
+      pendingAuthorizationCommit,
+      exactTargetRef: humanAiRef,
+      exactExpectedOldSha: humanAiSha,
+      effectiveOnlyAfterReleaseReachesProtectedMain: true
+    });
+    expect(
+      governance.localRefRetirementDeletionReleaseIsStructurallyValid(authorization)
+    ).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(
+      result.errors.some((error: string) => error.includes("completion evidence"))
+    ).toBe(false);
+  });
+
+  it("rejects a pending-release without deletionRelease, expired windows, quarantine, and other refs", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+
+    const missingRelease = liveRegistry();
+    const missingAuth = humanAiAuthorization(missingRelease);
+    if (!missingAuth) throw new Error("missing Human-AI retirement authorization");
+    missingAuth.deletionRelease = null;
+    expect(governance.validateRegistry(missingRelease).errors).toContain(
+      `pending local-ref retirement authorization lacks deletion release: ${humanAiRetirementId}`
+    );
+
+    const expiredAuth = liveRegistry();
+    const expired = humanAiAuthorization(expiredAuth);
+    if (!expired) throw new Error("missing Human-AI retirement authorization");
+    expired.authorizedAt = "2026-08-31T01:59:54Z";
+    expired.expiresAt = "2026-09-02T01:59:54Z";
+    (expired.deletionRelease as Record<string, string>).releasedAt = "2026-08-31T01:59:54Z";
+    (expired.deletionRelease as Record<string, string>).expiresAt = "2026-09-02T01:59:54Z";
+    expect(governance.validateRegistry(expiredAuth).errors).toContain(
+      `local-ref retirement authorization is expired: ${humanAiRetirementId}`
+    );
+
+    const quarantine = liveRegistry();
+    const quarantineAuth = humanAiAuthorization(quarantine);
+    if (!quarantineAuth) throw new Error("missing Human-AI retirement authorization");
+    quarantineAuth.ref = quarantineRef;
+    quarantineAuth.expectedOldSha = quarantineSha;
+    (quarantineAuth.deletionRelease as Record<string, string>).exactTargetRef = quarantineRef;
+    (quarantineAuth.deletionRelease as Record<string, string>).exactExpectedOldSha = quarantineSha;
+    expect(
+      governance.validateRegistry(quarantine).errors.some((error: string) =>
+        error.includes("rule=local-ref-retirement-ordinary-quarantine-isolation")
+      )
+    ).toBe(true);
+
+    const otherRef = liveRegistry();
+    const otherAuth = humanAiAuthorization(otherRef);
+    if (!otherAuth) throw new Error("missing Human-AI retirement authorization");
+    otherAuth.ref = "refs/heads/claude/quirky-merkle-da02fa";
+    otherAuth.expectedOldSha = "1248ec261711e1ed544b9bda4c04aa17034072d6";
+    (otherAuth.deletionRelease as Record<string, string>).exactTargetRef =
+      "refs/heads/claude/quirky-merkle-da02fa";
+    (otherAuth.deletionRelease as Record<string, string>).exactExpectedOldSha =
+      "1248ec261711e1ed544b9bda4c04aa17034072d6";
+    expect(governance.validateRegistry(otherRef).errors).toContain(
+      `local-ref retirement authorization target state is invalid: ${humanAiRetirementId}`
+    );
+
+    const wrongSha = liveRegistry();
+    const wrongAuth = humanAiAuthorization(wrongSha);
+    if (!wrongAuth) throw new Error("missing Human-AI retirement authorization");
+    wrongAuth.expectedOldSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    (wrongAuth.deletionRelease as Record<string, string>).exactExpectedOldSha =
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    expect(governance.validateRegistry(wrongSha).errors).toContain(
+      `local-ref retirement authorization target state is invalid: ${humanAiRetirementId}`
+    );
+  });
+});

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-15T17:58:00Z",
+  "updatedAt": "2026-09-16T01:32:00Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -283,9 +283,9 @@
         "operatorTaskId": "SENA-BRANCH-RETIREMENT-20260829",
         "operatorOwnerKey": "Codex-branch-retirement-01a04916",
         "authorizedBy": "SENA owner",
-        "authorizationBasis": "Explicit restored owner instruction in task 01a04916-4ba7-7c11-8fee-7760f7bb3659 to advance the protected branch-retirement heartbeat while keeping Human-AI pending-release and non-executable until a later exact deletionRelease.",
-        "authorizedAt": "2026-08-31T01:59:54Z",
-        "expiresAt": "2026-09-02T01:59:54Z",
+        "authorizationBasis": "CTO instruction to mint a fresh unexpired pending-release for SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829 on a new Draft PR from protected main 8f4625772137336d53afc1e0e8289dcf703fe177, with an explicit deletionRelease bound to that pending snapshot. Closed PR #46 is not revived. No local-ref deletion, worktree removal, force, reset, rebase, stash, or history rewrite is authorized by this mint.",
+        "authorizedAt": "2026-09-16T01:32:00Z",
+        "expiresAt": "2026-09-19T01:32:00Z",
         "registeredWorktreeOccupancyRequired": "none",
         "remoteHeadRequiredAbsent": true,
         "custody": {
@@ -302,7 +302,19 @@
           "peeledCommitSha": "5537582fbf820951777f88ef5bc5c63e23feada3"
         },
         "receiptDirectory": "/Volumes/Starship/SENA的衍生文件/SENA-backups/20260829-branch-retirement/ordinary/receipts",
-        "deletionRelease": null,
+        "deletionRelease": {
+          "id": "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829-DELETION-RELEASE-20260916",
+          "releasedBy": "SENA owner",
+          "releaseBasis": "CTO instruction for a new Draft PR with fresh pending-release plus explicit deletionRelease for Human-AI local-ref retirement. Execution remains blocked while status is pending-release. No actual git ref deletion is authorized or performed by this mint.",
+          "releasedAt": "2026-09-16T01:32:00Z",
+          "expiresAt": "2026-09-19T01:32:00Z",
+          "pendingAuthorizationCommit": "8f4625772137336d53afc1e0e8289dcf703fe177",
+          "exactTargetRef": "refs/heads/codex/sena-human-ai-research-docs",
+          "exactExpectedOldSha": "5537582fbf820951777f88ef5bc5c63e23feada3",
+          "operatorTaskId": "SENA-BRANCH-RETIREMENT-20260829",
+          "operatorOwnerKey": "Codex-branch-retirement-01a04916",
+          "effectiveOnlyAfterReleaseReachesProtectedMain": true
+        },
         "authorizationRegistryCommit": null,
         "eventId": null,
         "consumedAt": null,
@@ -7485,7 +7497,7 @@
       },
       "patchEquivalence": "Two topology-unique commits remain, while both authored document blobs are byte-identical to protected main 366cb5f2; archive custody preserves the original commit topology.",
       "disposition": "preservation-review",
-      "closeout": "Human-AI remains the first local retirement candidate. The refreshed authorization remains pending-release with deletionRelease=null, so the local ref must stay present; no CAS, receipt, or ref mutation is authorized by this heartbeat."
+      "closeout": "Human-AI remains the first local retirement candidate. A fresh pending-release now includes an explicit deletionRelease bound to protected main 8f462577; the local ref must stay present. This ledger mint does not authorize CAS, receipt minting, or ref mutation."
     },
     {
       "name": "main",
