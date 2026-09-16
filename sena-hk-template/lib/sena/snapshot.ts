@@ -1284,7 +1284,10 @@ function assertSenaProjectSnapshotCanonicalAnalysis(
     [report.pairReport, canonicalModel.pairReport],
     [report.figures.fusionGraph, canonicalFusionGraph(canonicalModel)],
     [report.figures.temporalTrace, canonicalModel.temporal],
-    [report.enaManifest, canonicalEnaManifest],
+    // Native jENA SVD coordinates are not bit-stable across V8/OS. Historical
+    // v1 packets were minted on one engine; current-v2 snapshots still compare
+    // the manifest exactly, including one-ULP tamper rejection.
+    ...(!historicalStatisticalReadProjection ? [[report.enaManifest, canonicalEnaManifest] as [unknown, unknown]] : []),
     [report.snaManifest, canonicalSnaManifest],
     [report.dataContractAudit, canonicalDataContractAudit],
     [report.runtimeConsistencyAudit, canonicalRuntimeConsistencyAudit],
