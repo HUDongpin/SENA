@@ -119,13 +119,33 @@ describe("workspace numerical profile custody", () => {
   });
 });
 
-describe("numerical profile downstream artifacts", () => {
-  const frozen = [
+const nativeHost = `${process.platform}:${process.arch}`;
+// Native jENA SVD bytes are engine-local. darwin/arm64 is the authoring pin;
+// linux/x64 is the Actions/verify host. Deterministic-profile tests stay exact.
+const frozenNativeSnapshotDigests: Record<string, readonly ["max" | "log1p-max", boolean, string][]> = {
+  "darwin:arm64": [
     ["max", false, "37746c7d729459a9304099d2cbf98c45eb609d17bdc23eb810ff141505341e31"],
     ["max", true, "0ea6eece2773738301163bdac3d4147c7d4c1324cbfd6b006b72ac3dd5d49a99"],
     ["log1p-max", false, "b5a136b31cda0be358f6e46ce0db337eaf23a06249bf3e57e5e083c378ef1017"],
     ["log1p-max", true, "f166ec1359767bcef69b4f666f9538ac8981ba78a5c86efcb91fd913d049b9cc"],
-  ] as const;
+  ],
+  "linux:x64": [
+    ["max", false, "ae6b4b3cd5e316fa32e8acc34ce78be01cb40cc8311b60a0e48c72d3c70f8931"],
+    ["max", true, "45d295adb0817493496ca4ebdd4fb766528a2c11f08b619d386d9f7441500a44"],
+    ["log1p-max", false, "d3e7884f83988a3548af1bc1401d61e15857af2d4fcc5041ed1da28d3e9a69fb"],
+    ["log1p-max", true, "d4edcb7151d274a6b961ccbc0c4215ab95cc48ee991f1309ed8cbcc23836ecdb"],
+  ]
+};
+const frozenNativeManifestDigests: Record<string, string> = {
+  "darwin:arm64": "a4400723325d881fe3c4f6251245039ea7a722e8f58890e87cafdf19f143ea00",
+  "linux:x64": "95904682304a537fe5b3a55cb49c543951c827d2eaf6a74f1e129173bf6a61e3"
+};
+
+describe("numerical profile downstream artifacts", () => {
+  const frozen = frozenNativeSnapshotDigests[nativeHost];
+  if (!frozen) {
+    throw new Error(`No frozen native snapshot digest table for ${nativeHost}.`);
+  }
   for (const [normalization, scoped, hash] of frozen) {
     it(`retains native snapshot bytes and canonical restore ${normalization}/${scoped}`, () => {
       const snapshot = profileSnapshot(normalization, scoped, false);
@@ -249,7 +269,11 @@ describe("legacy numerical runtime byte compatibility", () => {
     expect(digest(buildSenaModel(lessonStudySenaContract))).toBe("b9c6f1a88b3c85d33e852e3922b1a17590f5d86361bc9305566988f230bcaa41");
   });
   it("retains the frozen native manifest bytes", () => {
-    expect(digest(buildSenaEnaManifest(lessonStudySenaContract))).toBe("a4400723325d881fe3c4f6251245039ea7a722e8f58890e87cafdf19f143ea00");
+    const expected = frozenNativeManifestDigests[nativeHost];
+    if (!expected) {
+      throw new Error(`No frozen native manifest digest for ${nativeHost}.`);
+    }
+    expect(digest(buildSenaEnaManifest(lessonStudySenaContract))).toBe(expected);
   });
   it("retains the frozen native provenance bytes", () => {
     expect(digest(senaRuntimeProvenance)).toBe("908c4480febcd0edba7832af05a192d56e372d26abad69a57186ab1ccd65bf06");

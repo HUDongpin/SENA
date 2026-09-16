@@ -96,7 +96,12 @@ describe("snapshot cross-engine roundtrip", () => {
           expect(result.ownAccepted).toBe(true);
           expect(result.repeatIdentical).toBe(true);
           expect(JSON.parse(result.text).reproducibility.buildOptions.numericalRuntime).toBeUndefined();
-          if (engine === "chromium" && scope === "first-stage") {
+          const chromiumFirstStageAdmitsOnNode =
+            engine === "chromium" &&
+            scope === "first-stage" &&
+            process.platform === "darwin" &&
+            process.arch === "arm64";
+          if (chromiumFirstStageAdmitsOnNode) {
             expect(() => importSenaProjectSnapshot(result.text)).not.toThrow();
           } else {
             expect(() => importSenaProjectSnapshot(result.text)).toThrow("SENA project snapshot persisted analysis does not match the canonical dataset and build options.");
