@@ -76,6 +76,36 @@ const MAX_ACTIVE_FEATURE_LANES = 2;
 const MAX_ACTIVE_GOVERNANCE_BOOTSTRAP_LANES = 1;
 const ACTIVE_WRITE_DISPOSITIONS = new Set(["active", "ready-for-pr"]);
 const REF_DELETION_AUTHORIZATION_STATUSES = new Set(["pending-provider-readback", "active", "consumed"]);
+const LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES = new Set(["pending-release", "active", "consumed"]);
+const LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,127}$/;
+const QUARANTINED_LEDGER_BRANCH_REF = "refs/heads/docs/ledger-reconciliation-2026-08-19";
+const QUARANTINED_LEDGER_TIP = "18d542f707e56aa9d043dd497e0efe48b540db20";
+const HUMAN_AI_RETIREMENT_ID = "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829";
+const HUMAN_AI_LOCAL_REF = "refs/heads/codex/sena-human-ai-research-docs";
+const HUMAN_AI_EXPECTED_OLD_SHA = "5537582fbf820951777f88ef5bc5c63e23feada3";
+const HUMAN_AI_PENDING_AUTHORIZATION_COMMIT = "8f4625772137336d53afc1e0e8289dcf703fe177";
+const HUMAN_AI_RETIREMENT_RECORDED_AT = "2026-09-16T01:32:00Z";
+const HUMAN_AI_RETIREMENT_EXPIRES_AT = "2026-09-19T01:32:00Z";
+const HUMAN_AI_DELETION_RELEASE_ID = "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829-DELETION-RELEASE-20260916";
+const HUMAN_AI_RETIREMENT_AUTHORIZATION_BASIS =
+  "CTO instruction to mint a fresh unexpired pending-release for SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829 on a new Draft PR from protected main 8f4625772137336d53afc1e0e8289dcf703fe177, with an explicit deletionRelease bound to that pending snapshot. Closed PR #46 is not revived. No local-ref deletion, worktree removal, force, reset, rebase, stash, or history rewrite is authorized by this mint.";
+const HUMAN_AI_DELETION_RELEASE_BASIS =
+  "CTO instruction for a new Draft PR with fresh pending-release plus explicit deletionRelease for Human-AI local-ref retirement. Execution remains blocked while status is pending-release. No actual git ref deletion is authorized or performed by this mint.";
+const HUMAN_AI_PENDING_RELEASE_CLOSEOUT =
+  "Human-AI remains the first local retirement candidate. A fresh pending-release now includes an explicit deletionRelease bound to protected main 8f462577; the local ref must stay present. This ledger mint does not authorize CAS, receipt minting, or ref mutation.";
+const HUMAN_AI_DELETION_RELEASE = Object.freeze({
+  id: HUMAN_AI_DELETION_RELEASE_ID,
+  releasedBy: "SENA owner",
+  releaseBasis: HUMAN_AI_DELETION_RELEASE_BASIS,
+  releasedAt: HUMAN_AI_RETIREMENT_RECORDED_AT,
+  expiresAt: HUMAN_AI_RETIREMENT_EXPIRES_AT,
+  pendingAuthorizationCommit: HUMAN_AI_PENDING_AUTHORIZATION_COMMIT,
+  exactTargetRef: HUMAN_AI_LOCAL_REF,
+  exactExpectedOldSha: HUMAN_AI_EXPECTED_OLD_SHA,
+  operatorTaskId: "SENA-BRANCH-RETIREMENT-20260829",
+  operatorOwnerKey: "Codex-branch-retirement-01a04916",
+  effectiveOnlyAfterReleaseReachesProtectedMain: true
+});
 const EXPECTED_REMOTE_IDENTITY = Object.freeze({
   name: "origin",
   provider: "github.com",
@@ -17159,6 +17189,7 @@ function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
     nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
   });
+  applyHumanAiLocalRefRetirementMint(expected);
   expected.pOPr89PrePushCustodyRemediation = {
     schemaVersion: "sena-p-o-pr89-pre-push-custody-remediation/v1",
     status: "exact-committed-o-custody-remediation-staged",
@@ -18794,6 +18825,286 @@ export function protectedLaneMainAdvanceObservationAllowed(
   ).allowed;
 }
 
+function applyHumanAiLocalRefRetirementMint(registry) {
+  const authorization = (registry.policy?.localRefRetirementAuthorizations ?? []).find(
+    (entry) => entry.id === HUMAN_AI_RETIREMENT_ID
+  );
+  const branch = (registry.branches ?? []).find(
+    (entry) => entry.name === HUMAN_AI_LOCAL_REF.slice("refs/heads/".length)
+  );
+  if (!authorization || !branch) {
+    throw new Error("rule=human-ai-local-ref-retirement-mint-source-invalid");
+  }
+  registry.updatedAt = HUMAN_AI_RETIREMENT_RECORDED_AT;
+  authorization.authorizationBasis = HUMAN_AI_RETIREMENT_AUTHORIZATION_BASIS;
+  authorization.authorizedAt = HUMAN_AI_RETIREMENT_RECORDED_AT;
+  authorization.expiresAt = HUMAN_AI_RETIREMENT_EXPIRES_AT;
+  authorization.deletionRelease = {
+    ...HUMAN_AI_DELETION_RELEASE
+  };
+  branch.closeout = HUMAN_AI_PENDING_RELEASE_CLOSEOUT;
+  return registry;
+}
+
+export function localRefRetirementDeletionReleaseIsStructurallyValid(authorization) {
+  const release = authorization.deletionRelease;
+  if (!release || typeof release !== "object" || Array.isArray(release)) return false;
+  const releasedAtMs = Date.parse(release.releasedAt);
+  const releaseExpiresAtMs = Date.parse(release.expiresAt);
+  const authorizedAtMs = Date.parse(authorization.authorizedAt);
+  const authorizationExpiresAtMs = Date.parse(authorization.expiresAt);
+  return Boolean(
+    LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN.test(release.id ?? "") &&
+      typeof release.releasedBy === "string" &&
+      release.releasedBy.length > 0 &&
+      typeof release.releaseBasis === "string" &&
+      release.releaseBasis.length > 0 &&
+      isIsoTimestamp(release.releasedAt) &&
+      isIsoTimestamp(release.expiresAt) &&
+      Number.isFinite(releasedAtMs) &&
+      Number.isFinite(releaseExpiresAtMs) &&
+      releaseExpiresAtMs > releasedAtMs &&
+      releaseExpiresAtMs - releasedAtMs <= 72 * 60 * 60 * 1000 &&
+      releasedAtMs >= authorizedAtMs &&
+      releaseExpiresAtMs <= authorizationExpiresAtMs &&
+      isSha(release.pendingAuthorizationCommit) &&
+      release.exactTargetRef === authorization.ref &&
+      release.exactExpectedOldSha === authorization.expectedOldSha &&
+      release.operatorTaskId === authorization.operatorTaskId &&
+      release.operatorOwnerKey === authorization.operatorOwnerKey &&
+      release.effectiveOnlyAfterReleaseReachesProtectedMain === true
+  );
+}
+
+function appendLocalRefRetirementAuthorizationErrors(registry, errors, validationNow = Date.now()) {
+  const localRefRetirementAuthorizations = registry.policy?.localRefRetirementAuthorizations ?? [];
+  if (!Array.isArray(localRefRetirementAuthorizations)) {
+    errors.push("policy.localRefRetirementAuthorizations must be an array");
+    return;
+  }
+  const localRetirementAuthorizationIds = new Set();
+  const activeLocalRetirementTargets = new Set();
+  let activeLocalRetirementCount = 0;
+  for (const [index, authorization] of localRefRetirementAuthorizations.entries()) {
+    if (!LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN.test(authorization.id ?? "")) {
+      errors.push("rule=local-ref-retirement-authorization-id-invalid");
+    }
+    const custody = authorization.custody;
+    const deletionRelease = authorization.deletionRelease;
+    const operatorItem = (registry.workItems ?? []).find(
+      (item) =>
+        item.branch === authorization.operatorBranch &&
+        item.taskId === authorization.operatorTaskId &&
+        item.ownerKey === authorization.operatorOwnerKey
+    );
+    const targetBranchName = authorization.ref?.startsWith("refs/heads/")
+      ? authorization.ref.slice("refs/heads/".length)
+      : null;
+    const targetBranchRecord = (registry.branches ?? []).find(
+      (branch) => branch.name === targetBranchName
+    );
+    const commonInvalid =
+      typeof authorization.id !== "string" ||
+      authorization.id.length === 0 ||
+      !LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES.has(authorization.status) ||
+      authorization.purpose !== "archive-ref-retirement" ||
+      !(
+        authorization.predecessorAuthorizationId === null ||
+        (typeof authorization.predecessorAuthorizationId === "string" &&
+          authorization.predecessorAuthorizationId.length > 0)
+      ) ||
+      typeof authorization.ref !== "string" ||
+      !authorization.ref.startsWith("refs/heads/") ||
+      authorization.ref === "refs/heads/main" ||
+      !isSha(authorization.expectedOldSha) ||
+      authorization.expectedOldSha === ZERO_SHA ||
+      !BRANCH_DISPOSITIONS.has(authorization.targetDispositionBeforeRetirement) ||
+      !BRANCH_DISPOSITIONS.has(authorization.targetDispositionAfterRetirement) ||
+      authorization.effectiveOnlyAfterAuthorizationReachesProtectedMain !== true ||
+      authorization.exactCasRequired !== true ||
+      authorization.ordinaryBranchDAllowed !== false ||
+      authorization.forceBranchDAllowed !== false ||
+      authorization.historyRewriteAllowed !== false ||
+      authorization.oneShot !== true ||
+      typeof authorization.operatorBranch !== "string" ||
+      typeof authorization.operatorTaskId !== "string" ||
+      typeof authorization.operatorOwnerKey !== "string" ||
+      typeof authorization.authorizedBy !== "string" ||
+      authorization.authorizedBy.length === 0 ||
+      typeof authorization.authorizationBasis !== "string" ||
+      authorization.authorizationBasis.length === 0 ||
+      !isIsoTimestamp(authorization.authorizedAt) ||
+      !isIsoTimestamp(authorization.expiresAt) ||
+      Date.parse(authorization.expiresAt) <= Date.parse(authorization.authorizedAt) ||
+      authorization.registeredWorktreeOccupancyRequired !== "none" ||
+      authorization.remoteHeadRequiredAbsent !== true ||
+      !custody ||
+      typeof custody.kind !== "string" ||
+      typeof custody.root !== "string" ||
+      typeof custody.manifestPath !== "string" ||
+      !/^[0-9a-f]{64}$/.test(custody.manifestSha256 ?? "") ||
+      typeof custody.bundlePath !== "string" ||
+      !/^[0-9a-f]{64}$/.test(custody.bundleSha256 ?? "") ||
+      !Number.isInteger(custody.bundleBytes) ||
+      custody.bundleBytes <= 0 ||
+      typeof custody.bundleRef !== "string" ||
+      typeof authorization.receiptDirectory !== "string" ||
+      authorization.receiptDirectory.length === 0 ||
+      !Object.hasOwn(authorization, "deletionRelease") ||
+      !(
+        deletionRelease === null ||
+        (typeof deletionRelease === "object" && !Array.isArray(deletionRelease))
+      ) ||
+      !Object.hasOwn(authorization, "authorizationRegistryCommit") ||
+      !(
+        authorization.authorizationRegistryCommit === null ||
+        isSha(authorization.authorizationRegistryCommit)
+      ) ||
+      !Object.hasOwn(authorization, "eventId") ||
+      !(authorization.eventId === null || /^[0-9a-f]{64}$/.test(authorization.eventId)) ||
+      !Object.hasOwn(authorization, "consumedAt") ||
+      !isNullableIsoTimestamp(authorization.consumedAt) ||
+      !Object.hasOwn(authorization, "executedBy") ||
+      ![null, "string"].includes(authorization.executedBy === null ? null : typeof authorization.executedBy) ||
+      !Object.hasOwn(authorization, "localRefAbsenceReadbackAt") ||
+      !isNullableIsoTimestamp(authorization.localRefAbsenceReadbackAt) ||
+      !Object.hasOwn(authorization, "result") ||
+      ![null, "string"].includes(authorization.result === null ? null : typeof authorization.result) ||
+      !Object.hasOwn(authorization, "preparedReceiptPath") ||
+      ![null, "string"].includes(
+        authorization.preparedReceiptPath === null ? null : typeof authorization.preparedReceiptPath
+      ) ||
+      !Object.hasOwn(authorization, "preparedReceiptSha256") ||
+      ![null, "string"].includes(
+        authorization.preparedReceiptSha256 === null ? null : typeof authorization.preparedReceiptSha256
+      ) ||
+      !Object.hasOwn(authorization, "completedReceiptPath") ||
+      ![null, "string"].includes(
+        authorization.completedReceiptPath === null ? null : typeof authorization.completedReceiptPath
+      ) ||
+      !Object.hasOwn(authorization, "completedReceiptSha256") ||
+      ![null, "string"].includes(
+        authorization.completedReceiptSha256 === null ? null : typeof authorization.completedReceiptSha256
+      );
+    const ordinaryCustodyInvalid =
+      authorization.purpose === "archive-ref-retirement" &&
+      (custody?.kind !== "ordinary-archive" ||
+        authorization.targetDispositionAfterRetirement !== "archived" ||
+        typeof custody.tagRef !== "string" ||
+        !custody.tagRef.startsWith("refs/tags/archive/") ||
+        custody.bundleRef !== custody.tagRef ||
+        !isSha(custody.tagObjectSha) ||
+        custody.peeledCommitSha !== authorization.expectedOldSha);
+    const deletionReleaseInvalid =
+      (new Set(["pending-release", "active"]).has(authorization.status) &&
+        !localRefRetirementDeletionReleaseIsStructurallyValid(authorization)) ||
+      (authorization.status === "consumed" &&
+        deletionRelease !== null &&
+        !localRefRetirementDeletionReleaseIsStructurallyValid(authorization));
+    if (commonInvalid || ordinaryCustodyInvalid) {
+      errors.push(`invalid local-ref retirement authorization: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (deletionReleaseInvalid) {
+      errors.push(
+        `${authorization.status === "pending-release" ? "pending" : "active"} local-ref retirement authorization lacks deletion release: ${authorization.id ?? "<unknown>"}`
+      );
+    }
+    if (!operatorItem) {
+      errors.push(
+        `local-ref retirement authorization operator is not a registered workItem: ${authorization.id ?? "<unknown>"}`
+      );
+    }
+    if (
+      authorization.ref === QUARANTINED_LEDGER_BRANCH_REF ||
+      authorization.expectedOldSha === QUARANTINED_LEDGER_TIP ||
+      targetBranchRecord?.disposition === "security-quarantine"
+    ) {
+      errors.push(`rule=local-ref-retirement-ordinary-quarantine-isolation id=${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      !targetBranchRecord ||
+      targetBranchRecord.headSha !== authorization.expectedOldSha ||
+      targetBranchRecord.retirementAuthorizationId !== authorization.id ||
+      (new Set(["pending-release", "active"]).has(authorization.status) &&
+        (targetBranchRecord.localRefState !== "present" ||
+          targetBranchRecord.disposition !== authorization.targetDispositionBeforeRetirement)) ||
+      (authorization.status === "consumed" &&
+        (targetBranchRecord.localRefState !== "retired" ||
+          targetBranchRecord.disposition !== authorization.targetDispositionAfterRetirement))
+    ) {
+      errors.push(`local-ref retirement authorization target state is invalid: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      timestampIsInFuture(authorization.authorizedAt, validationNow) ||
+      timestampIsInFuture(authorization.consumedAt, validationNow) ||
+      timestampIsInFuture(authorization.localRefAbsenceReadbackAt, validationNow) ||
+      timestampIsInFuture(deletionRelease?.releasedAt, validationNow) ||
+      Date.parse(authorization.expiresAt) - Date.parse(authorization.authorizedAt) > 72 * 60 * 60 * 1000
+    ) {
+      errors.push(`local-ref retirement authorization timestamps exceed policy: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      new Set(["pending-release", "active"]).has(authorization.status) &&
+      Number.isFinite(Date.parse(authorization.expiresAt)) &&
+      Date.parse(authorization.expiresAt) <= validationNow
+    ) {
+      errors.push(`local-ref retirement authorization is expired: ${authorization.id ?? "<unknown>"}`);
+    }
+    if (
+      new Set(["pending-release", "active"]).has(authorization.status) &&
+      localRefRetirementDeletionReleaseIsStructurallyValid(authorization) &&
+      Date.parse(deletionRelease.expiresAt) <= validationNow
+    ) {
+      errors.push(`local-ref retirement deletion release expired: ${authorization.id}`);
+    }
+    const completionEvidencePresent =
+      authorization.authorizationRegistryCommit !== null ||
+      authorization.eventId !== null ||
+      authorization.consumedAt !== null ||
+      authorization.executedBy !== null ||
+      authorization.localRefAbsenceReadbackAt !== null ||
+      authorization.result !== null ||
+      authorization.preparedReceiptPath !== null ||
+      authorization.preparedReceiptSha256 !== null ||
+      authorization.completedReceiptPath !== null ||
+      authorization.completedReceiptSha256 !== null;
+    if (
+      new Set(["pending-release", "active"]).has(authorization.status) &&
+      completionEvidencePresent
+    ) {
+      errors.push(
+        `active local-ref retirement authorization contains completion evidence: ${authorization.id ?? "<unknown>"}`
+      );
+    }
+    if (localRetirementAuthorizationIds.has(authorization.id)) {
+      errors.push(`duplicate local-ref retirement authorization: ${authorization.id}`);
+    }
+    localRetirementAuthorizationIds.add(authorization.id);
+    if (authorization.status === "active") {
+      activeLocalRetirementCount += 1;
+      if (activeLocalRetirementTargets.has(authorization.ref)) {
+        errors.push(`duplicate active local-ref retirement target: ${authorization.ref}`);
+      }
+      activeLocalRetirementTargets.add(authorization.ref);
+    }
+    const predecessor =
+      typeof authorization.predecessorAuthorizationId === "string"
+        ? localRefRetirementAuthorizations
+            .slice(0, index)
+            .find((entry) => entry.id === authorization.predecessorAuthorizationId)
+        : null;
+    if (
+      (index === 0 && authorization.predecessorAuthorizationId !== null) ||
+      (index > 0 && (!predecessor || predecessor.status !== "consumed"))
+    ) {
+      errors.push("rule=local-ref-retirement-predecessor-not-consumed");
+    }
+  }
+  if (activeLocalRetirementCount > 1) {
+    errors.push("rule=local-ref-retirement-multiple-active");
+  }
+}
+
 export function validateRegistry(registry) {
   return validateRegistrySnapshot(registry);
 }
@@ -19016,6 +19327,7 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
       activeRefDeletionTargets.add(target);
     }
   }
+  appendLocalRefRetirementAuthorizationErrors(registry, errors);
   if (!Array.isArray(registry.workItems)) errors.push("workItems must be an array");
   if (!Array.isArray(registry.branches)) errors.push("branches must be an array");
   if (!Array.isArray(registry.orphanWorktrees)) errors.push("orphanWorktrees must be an array");
