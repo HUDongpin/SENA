@@ -16995,6 +16995,7 @@ const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
 const P_O_CURRENTNESS_RECORDED_AT = "2026-09-15T17:58:00Z";
 const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-17T17:58:00Z";
 const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-16T01:58:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-16T10:30:00+08:00";
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
   "branch head differs from registry: main",
@@ -17159,7 +17160,7 @@ function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
     prStateObservationMode: "monotonic",
     lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-    lastCommitAt: "2026-09-09T10:21:08+08:00",
+    lastCommitAt: P_O_CURRENTNESS_IH_LAST_COMMIT_AT,
     nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
     expectedCloseAt,
     disposition: "active",
