@@ -21,11 +21,21 @@ function listTrackedVitestFiles() {
 
 describe("Vitest gate custody", () => {
   it("excludes ignored temporary artifacts from every test invocation", () => {
-    const exclude = (vitestConfig as {
-      test?: { exclude?: string[] };
-    }).test?.exclude ?? [];
+    const testConfig = (vitestConfig as {
+      test?: { exclude?: string[]; testTimeout?: number; hookTimeout?: number };
+    }).test;
+    const exclude = testConfig?.exclude ?? [];
 
     expect(exclude).toContain("**/.tmp/**");
+  });
+
+  it("keeps enterprise-capability-audit above Vitest's 5s default timeout", () => {
+    const testConfig = (vitestConfig as {
+      test?: { testTimeout?: number; hookTimeout?: number };
+    }).test;
+
+    expect(testConfig?.testTimeout).toBeGreaterThanOrEqual(30_000);
+    expect(testConfig?.hookTimeout).toBeGreaterThanOrEqual(30_000);
   });
 
   it("caps the broad phase and gives every serial test exactly one phase", () => {

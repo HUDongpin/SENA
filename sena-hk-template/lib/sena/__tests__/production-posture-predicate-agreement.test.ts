@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { senaTestProcessEnv } from "./sena-test-env";
 import {
   SENA_PRODUCTION_POSTURE_ENV_KEYS,
   senaProductionPosture,
@@ -97,9 +98,10 @@ const watchedEnvKeys = [
 const [performancePathKey, evidenceManifestKey, saasOperatingModelKey] = SENA_PRODUCTION_POSTURE_ENV_KEYS;
 
 function setEnv(env: Record<string, string | undefined>) {
-  for (const key of watchedEnvKeys) delete (process.env as Record<string, string | undefined>)[key];
+  const processEnv = senaTestProcessEnv();
+  for (const key of watchedEnvKeys) delete processEnv[key];
   for (const [key, value] of Object.entries(env)) {
-    if (value !== undefined) (process.env as Record<string, string | undefined>)[key] = value;
+    if (value !== undefined) processEnv[key] = value;
   }
 }
 
@@ -161,9 +163,10 @@ describe("SENA production posture predicate agreement", () => {
   });
 
   afterAll(() => {
+    const processEnv = senaTestProcessEnv();
     for (const [key, value] of originalEnv) {
-      if (value === undefined) delete (process.env as Record<string, string | undefined>)[key];
-      else (process.env as Record<string, string | undefined>)[key] = value;
+      if (value === undefined) delete processEnv[key];
+      else processEnv[key] = value;
     }
   });
 
@@ -263,9 +266,10 @@ describe("SENA enterprise file state write policy posture divergence", () => {
   });
 
   afterAll(() => {
+    const processEnv = senaTestProcessEnv();
     for (const [key, value] of originalEnv) {
-      if (value === undefined) delete (process.env as Record<string, string | undefined>)[key];
-      else (process.env as Record<string, string | undefined>)[key] = value;
+      if (value === undefined) delete processEnv[key];
+      else processEnv[key] = value;
     }
   });
 

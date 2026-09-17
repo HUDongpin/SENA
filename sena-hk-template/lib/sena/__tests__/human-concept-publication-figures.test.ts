@@ -205,7 +205,7 @@ function expectValidationError(
 function runGenerator(
   args: string[],
   cwd = appRoot,
-  extraEnv: Partial<NodeJS.ProcessEnv> = {}
+  extraEnv: SenaTestProcessEnv = {}
 ): SpawnSyncReturns<string> {
   return spawnSync(process.execPath, [viteNodePath, "--script", generatorPath, ...args], {
     cwd,
