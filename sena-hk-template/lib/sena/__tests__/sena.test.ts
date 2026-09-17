@@ -16,6 +16,7 @@ import {
   buildSenaDemoVerificationCompatibilityAudit,
   buildSenaDemoWalkthrough,
   buildSenaDevelopmentPlan,
+  SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT,
   buildSenaFusionMathAudit,
   buildSenaFusionMathAuditArtifact,
   buildSenaJenaConceptPairHandoffRows,
@@ -1821,6 +1822,19 @@ describe("SENA model builder", () => {
       "Inspect evidence",
       "Export review packet"
     ]);
+    expect(plan.deliveryCandidate.demoScript.map((step) => ({
+      step: step.step,
+      label: step.label,
+      zh: step.zh,
+      en: step.en,
+      anchor: step.anchor
+    }))).toEqual(SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT.map((step) => ({
+      step: step.step,
+      label: step.label,
+      zh: step.zh,
+      en: step.en,
+      anchor: step.anchor
+    })));
     expect(plan.deliveryCandidate.demoScript.find((step) => step.label === "Export review packet")?.zh).toContain("导出 review packet");
     expect(plan.deliveryCandidate.boundaries.join(" ")).toContain("local JavaScript jENA and jSNA runtimes only");
     expect(plan.nextStage.status).toBe("baseline-verified");
