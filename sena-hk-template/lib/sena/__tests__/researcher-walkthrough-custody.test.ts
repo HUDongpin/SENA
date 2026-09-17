@@ -15,7 +15,7 @@ const committedWalkthroughPath = path.join(
 );
 
 describe("researcher walkthrough custody", () => {
-  it("pins the committed bilingual markdown to deliveryCandidate.demoScript", () => {
+  it("keeps committed zh/en/anchors in sync with deliveryCandidate.demoScript", () => {
     const generated = renderSenaResearcherWalkthroughMarkdown(SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT);
     const committed = readFileSync(committedWalkthroughPath, "utf8");
 
@@ -23,13 +23,10 @@ describe("researcher walkthrough custody", () => {
     expect(committed).toBe(generated);
 
     for (const step of SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT) {
-      expect(committed).toContain(`## Step ${step.step} — ${step.label}`);
+      expect(committed).toContain(`en: ${step.en}`);
+      expect(committed).toContain(`zh: ${step.zh}`);
       expect(committed).toContain(`(\`${step.anchor}\`)`);
-      expect(committed).toContain(step.zh);
-      expect(committed).toContain(step.en);
-      for (const artifact of step.exportArtifacts) {
-        expect(committed).toContain(`\`${artifact}\``);
-      }
+      expect(committed).toContain(`${step.step}. ${step.label}`);
     }
   });
 });

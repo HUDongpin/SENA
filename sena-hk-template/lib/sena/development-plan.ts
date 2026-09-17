@@ -102,53 +102,17 @@ export const SENA_RESEARCHER_WALKTHROUGH_MARKDOWN_RELATIVE_PATH =
 export function renderSenaResearcherWalkthroughMarkdown(
   demoScript: readonly SenaDeliveryCandidateDemoScriptStep[] = SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT
 ): string {
-  const stepSections = demoScript.map((step) => {
-    const artifacts = step.exportArtifacts.map((name) => `\`${name}\``).join(", ");
-    return [
-      `## Step ${step.step} — ${step.label}  (\`${step.anchor}\`)`,
-      "",
-      `**EN.** ${step.en}`,
-      "",
-      `**中文.** ${step.zh}`,
-      "",
-      `**Export / 导出:** ${artifacts}`
-    ].join("\n");
-  });
+  const steps = demoScript.map((step) => [
+    `## ${step.step}. ${step.label} (\`${step.anchor}\`)`,
+    "",
+    `en: ${step.en}`,
+    "",
+    `zh: ${step.zh}`,
+    "",
+    `exportArtifacts: ${step.exportArtifacts.map((name) => `\`${name}\``).join(", ")}`
+  ].join("\n"));
 
-  return [
-    "# SENA Researcher Walkthrough (中文 / English)",
-    "",
-    "**Route:** `/workspace/sena`  ",
-    "**Sample:** bundled lesson-study contract (`/sena-pilot/sample/lesson-study-sena-contract.json`)",
-    "",
-    "> **Exploratory-only / 仅供探索.** Every output below is exploratory network evidence. It is **not** a causal, assessment, or publication claim until coding-reliability, data-governance, and human-review gates pass. `A_fusion` is a normalized typed supra-adjacency, not a causal model, and Joint-layout distance is not an inferential statistic.",
-    "",
-    "This committed walkthrough is generated from `deliveryCandidate.demoScript` in `sena-hk-template/lib/sena/development-plan.ts`. Follow it on `/workspace/sena` without opening the in-app generator.",
-    "",
-    "The workspace still has a Model Builder panel (`#workflow-model`) between import and Fusion Canvas. It is supporting UI, not a sixth `demoScript` step.",
-    "",
-    "---",
-    "",
-    stepSections.join("\n\n"),
-    "",
-    "---",
-    "",
-    "## What SENA can / cannot answer · SENA 能与不能回答",
-    "",
-    "**Can (exploratory).** Who interacts with whom around which concepts; whether social centrality and epistemic contribution/brokerage sit with different actors; how S/W/B/G shift across Plan/Teach/Reflect.",
-    "",
-    "**Cannot (from SENA alone).** Whether anyone *understood*; whether code co-occurrence is causal; whether centrality/G equals quality; whether adjacency is peer influence vs selection/homophily. Causal claims still need randomised / quasi-experimental / longitudinal design with valid independent units.",
-    "",
-    "## Pilot handoff-freeze checklist · 交付冻结清单",
-    "",
-    "Run before sharing the package with a reviewer:",
-    "",
-    "- [ ] `npm run sena:pilot:verify` passes (stop local `next dev` / `next start` servers first).",
-    "- [ ] Follow every `demoScript` step above on the bundled lesson-study sample.",
-    "- [ ] Handoff package present: sample + blank templates, `sena-project-snapshot.json`, `sena-runtime-bundle.json`, `sena-review-packet.json`, `sena-demo-verification.json`, `sena-demo-walkthrough.json`, `sena-development-plan.json`.",
-    "- [ ] JSON/Markdown reports state that `A_fusion` is not causal and Joint distance is not inferential.",
-    ""
-  ].join("\n");
+  return ["# deliveryCandidate.demoScript", "", steps.join("\n\n"), ""].join("\n");
 }
 
 function resolveDeliveryCandidateDemoScript(
