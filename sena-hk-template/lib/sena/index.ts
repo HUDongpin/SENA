@@ -138,7 +138,14 @@ export {
   type SenaOrbitModelInput,
   type SenaOrbitPerson
 } from "./orbit-layout";
-export { buildSenaDevelopmentPlan, type SenaDevelopmentPlanOptions } from "./development-plan";
+export {
+  buildSenaDevelopmentPlan,
+  renderSenaResearcherWalkthroughMarkdown,
+  SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT,
+  SENA_RESEARCHER_WALKTHROUGH_MARKDOWN_RELATIVE_PATH,
+  type SenaDeliveryCandidateDemoScriptStep,
+  type SenaDevelopmentPlanOptions
+} from "./development-plan";
 export { buildSenaDemoWalkthrough, type SenaDemoWalkthroughOptions } from "./demo-walkthrough";
 export {
   buildSenaProductionPageContract,

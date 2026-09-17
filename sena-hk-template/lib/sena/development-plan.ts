@@ -21,6 +21,119 @@ export type SenaDevelopmentPlanOptions = {
   demoVerification: SenaDemoVerification;
 };
 
+export type SenaDeliveryCandidateDemoScriptStep = SenaDeliveryCandidatePlan["demoScript"][number];
+
+type DeliveryCandidateDemoScriptDefinition = SenaDeliveryCandidateDemoScriptStep & {
+  walkthroughId: "data-import" | "fusion-canvas" | "temporal-trace" | "evidence" | "report";
+};
+
+const deliveryCandidateDemoScriptDefinitions: readonly DeliveryCandidateDemoScriptDefinition[] = [
+  {
+    step: 1,
+    walkthroughId: "data-import",
+    label: "Import data",
+    zh: "导入 lesson-study 样例或五表 CSV，确认 Data contract audit 有效。",
+    en: "Import the lesson-study sample or five CSV tables and confirm the Data contract audit is valid.",
+    anchor: "#workflow-data",
+    exportArtifacts: ["sena-project-snapshot.json"]
+  },
+  {
+    step: 2,
+    walkthroughId: "fusion-canvas",
+    label: "Review Fusion Canvas",
+    zh: "查看 Fusion Canvas，切换 Explanatory、ENA Space、Joint，并保留 A1 图层语法。",
+    en: "Review Fusion Canvas, switch Explanatory, ENA Space, and Joint layouts, and keep the A1 layer grammar visible.",
+    anchor: "#workflow-canvas",
+    exportArtifacts: ["sena-visual-grammar.json"]
+  },
+  {
+    step: 3,
+    walkthroughId: "temporal-trace",
+    label: "Inspect Temporal Trace",
+    zh: "切换 Stage、Moving、Turn 时序模式，检查每个窗口的 jENA/jSNA/SENA 状态和 A_fusion checksum。",
+    en: "Switch Stage, Moving, and Turn temporal modes, then inspect per-window jENA/jSNA/SENA status and A_fusion checksums.",
+    anchor: "#workflow-temporal",
+    exportArtifacts: ["sena-temporal-runtime-trace.json"]
+  },
+  {
+    step: 4,
+    walkthroughId: "evidence",
+    label: "Inspect evidence",
+    zh: "选择节点、边和 G 贡献，回看原始 utterance evidence 后再写解释。",
+    en: "Select nodes, edges, and G contributions, then inspect original utterance evidence before writing interpretations.",
+    anchor: "#workflow-evidence",
+    exportArtifacts: ["sena-evidence-ledger.json"]
+  },
+  {
+    step: 5,
+    walkthroughId: "report",
+    label: "Export review packet",
+    zh: "填写 human review 与 coding reliability，导出 review packet、runtime bundle、report JSON/Markdown。",
+    en: "Fill human review and coding reliability fields, then export the review packet, runtime bundle, and report JSON/Markdown.",
+    anchor: "#workflow-report",
+    exportArtifacts: [
+      "sena-review-packet.json",
+      "sena-runtime-bundle.json",
+      "sena-analysis-report.json",
+      "sena-analysis-report.md"
+    ]
+  }
+];
+
+function toDeliveryCandidateDemoScriptStep(
+  definition: DeliveryCandidateDemoScriptDefinition
+): SenaDeliveryCandidateDemoScriptStep {
+  return {
+    step: definition.step,
+    label: definition.label,
+    zh: definition.zh,
+    en: definition.en,
+    anchor: definition.anchor,
+    exportArtifacts: [...definition.exportArtifacts]
+  };
+}
+
+export const SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT: readonly SenaDeliveryCandidateDemoScriptStep[] =
+  deliveryCandidateDemoScriptDefinitions.map(toDeliveryCandidateDemoScriptStep);
+
+export const SENA_RESEARCHER_WALKTHROUGH_MARKDOWN_RELATIVE_PATH =
+  "docs/pilot/researcher-walkthrough-zh-en.md";
+
+export function renderSenaResearcherWalkthroughMarkdown(
+  demoScript: readonly SenaDeliveryCandidateDemoScriptStep[] = SENA_DELIVERY_CANDIDATE_DEMO_SCRIPT
+): string {
+  const steps = demoScript.map((step) => [
+    `## ${step.step}. ${step.label} (\`${step.anchor}\`)`,
+    "",
+    `en: ${step.en}`,
+    "",
+    `zh: ${step.zh}`,
+    "",
+    `exportArtifacts: ${step.exportArtifacts.map((name) => `\`${name}\``).join(", ")}`
+  ].join("\n"));
+
+  return ["# deliveryCandidate.demoScript", "", steps.join("\n\n"), ""].join("\n");
+}
+
+function resolveDeliveryCandidateDemoScript(
+  walkthroughById: Map<string, SenaDemoWalkthrough["steps"][number]>
+): SenaDeliveryCandidatePlan["demoScript"] {
+  return deliveryCandidateDemoScriptDefinitions.map((definition) => {
+    const walkthrough = walkthroughById.get(definition.walkthroughId);
+    const useWalkthroughArtifacts = definition.walkthroughId !== "report";
+    return {
+      step: definition.step,
+      label: definition.label,
+      zh: definition.zh,
+      en: definition.en,
+      anchor: walkthrough?.anchor ?? definition.anchor,
+      exportArtifacts: useWalkthroughArtifacts
+        ? [...(walkthrough?.exportArtifacts ?? definition.exportArtifacts)]
+        : [...definition.exportArtifacts]
+    };
+  });
+}
+
 const inScope = [
   "Local demo readiness for researchers and education pilot users.",
   "Five-table SENA data contract import, templates, lesson-study sample data, and asset-integrity fingerprints.",
@@ -313,53 +426,7 @@ function buildDeliveryCandidatePlan(
     verificationCommands: deliveryVerificationCommands,
     browserAcceptanceScenarios,
     handoffPackage,
-    demoScript: [
-      {
-        step: 1,
-        label: "Import data",
-        zh: "导入 lesson-study 样例或五表 CSV，确认 Data contract audit 有效。",
-        en: "Import the lesson-study sample or five CSV tables and confirm the Data contract audit is valid.",
-        anchor: walkthroughById.get("data-import")?.anchor ?? "#workflow-data",
-        exportArtifacts: walkthroughById.get("data-import")?.exportArtifacts ?? ["sena-project-snapshot.json"]
-      },
-      {
-        step: 2,
-        label: "Review Fusion Canvas",
-        zh: "查看 Fusion Canvas，切换 Explanatory、ENA Space、Joint，并保留 A1 图层语法。",
-        en: "Review Fusion Canvas, switch Explanatory, ENA Space, and Joint layouts, and keep the A1 layer grammar visible.",
-        anchor: walkthroughById.get("fusion-canvas")?.anchor ?? "#workflow-canvas",
-        exportArtifacts: walkthroughById.get("fusion-canvas")?.exportArtifacts ?? ["sena-visual-grammar.json"]
-      },
-      {
-        step: 3,
-        label: "Inspect Temporal Trace",
-        zh: "切换 Stage、Moving、Turn 时序模式，检查每个窗口的 jENA/jSNA/SENA 状态和 A_fusion checksum。",
-        en: "Switch Stage, Moving, and Turn temporal modes, then inspect per-window jENA/jSNA/SENA status and A_fusion checksums.",
-        anchor: walkthroughById.get("temporal-trace")?.anchor ?? "#workflow-temporal",
-        exportArtifacts: walkthroughById.get("temporal-trace")?.exportArtifacts ?? ["sena-temporal-runtime-trace.json"]
-      },
-      {
-        step: 4,
-        label: "Inspect evidence",
-        zh: "选择节点、边和 G 贡献，回看原始 utterance evidence 后再写解释。",
-        en: "Select nodes, edges, and G contributions, then inspect original utterance evidence before writing interpretations.",
-        anchor: walkthroughById.get("evidence")?.anchor ?? "#workflow-evidence",
-        exportArtifacts: walkthroughById.get("evidence")?.exportArtifacts ?? ["sena-evidence-ledger.json"]
-      },
-      {
-        step: 5,
-        label: "Export review packet",
-        zh: "填写 human review 与 coding reliability，导出 review packet、runtime bundle、report JSON/Markdown。",
-        en: "Fill human review and coding reliability fields, then export the review packet, runtime bundle, and report JSON/Markdown.",
-        anchor: walkthroughById.get("report")?.anchor ?? "#workflow-report",
-        exportArtifacts: [
-          "sena-review-packet.json",
-          "sena-runtime-bundle.json",
-          "sena-analysis-report.json",
-          "sena-analysis-report.md"
-        ]
-      }
-    ],
+    demoScript: resolveDeliveryCandidateDemoScript(walkthroughById),
     boundaries: deliveryBoundaries
   };
 }

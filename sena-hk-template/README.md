@@ -40,7 +40,7 @@ The fixed pilot handoff package is:
 - `sena-demo-walkthrough.json`
 - `sena-development-plan.json`
 
-Demo script: import data -> review Fusion Canvas -> inspect Temporal Trace -> inspect evidence -> export review packet.
+Demo script: import data -> review Fusion Canvas -> inspect Temporal Trace -> inspect evidence -> export review packet. [`../docs/pilot/researcher-walkthrough-zh-en.md`](../docs/pilot/researcher-walkthrough-zh-en.md)
 
 ## Next Stage Development Plan
 
