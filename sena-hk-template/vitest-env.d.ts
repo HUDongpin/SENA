@@ -12,7 +12,7 @@ declare namespace NodeJS {
 
 /**
  * Writable env bag for Vitest helpers. `process.env.NODE_ENV` stays readonly
- * via Next.js; tests should assign through this type or `vi.stubEnv`.
+ * via Next.js; tests should mutate through `senaTestProcessEnv()` or `vi.stubEnv`.
  */
 type SenaTestProcessEnv = {
   -readonly [K in keyof NodeJS.ProcessEnv]?: NodeJS.ProcessEnv[K];
