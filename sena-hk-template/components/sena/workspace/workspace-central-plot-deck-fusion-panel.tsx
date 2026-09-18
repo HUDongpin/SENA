@@ -5,6 +5,26 @@ import { FusionPlaneOrbitPlot } from "./fusion-plane-orbit";
 import { JointEmbeddingProvenanceStrip } from "./runtime-provenance-panels";
 import { ActivePlotViewToolbar } from "./workspace-shell-panels";
 import type { CentralFusionPlotViewPanelProps } from "./workspace-central-plot-deck-view-panel-props";
+import type { SenaModel } from "./analysis-runtime";
+
+export function isEmptySenaPlotDataset(model: SenaModel) {
+  return model.summary.people === 0 && model.summary.concepts === 0;
+}
+
+export function FusionPlotEmptyState() {
+  return (
+    <div
+      data-testid="fusion-plot-empty-state"
+      data-visual-role="fusion-plot-empty-state"
+      className="pointer-events-none absolute inset-0 z-10 grid place-content-center bg-slate-50/92 p-6 text-center"
+    >
+      <p className="text-sm font-black text-slate-800">No SENA contract is loaded on this plot.</p>
+      <p className="mt-2 max-w-md text-xs font-bold leading-5 text-slate-500">
+        Load the lesson-study sample, download the contract template, or upload the five SENA tables (people, interactions, utterances, coded_segments, codebook).
+      </p>
+    </div>
+  );
+}
 
 export function CentralFusionPlotViewPanel({
   model,
@@ -59,7 +79,7 @@ export function CentralFusionPlotViewPanel({
         <div
           data-testid="central-fusion-canvas-frame"
           data-visual-role="fusion-canvas-current-window-frame"
-          className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+          className="relative min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
         >
           {layout === "plane-orbit" ? (
             <FusionPlaneOrbitPlot
@@ -99,6 +119,7 @@ export function CentralFusionPlotViewPanel({
               className="h-[min(48dvh,34rem)] min-h-[22rem]"
             />
           )}
+          {isEmptySenaPlotDataset(model) && <FusionPlotEmptyState />}
         </div>
       </div>
       <ActivePlotViewToolbar

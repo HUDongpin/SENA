@@ -219,7 +219,7 @@ export function FusionPlotMaximizedOverlay({
             grammar when the reader made it bigger. Every branch takes the same
             threshold/layers/selection/zoom props and the same overlay height.
           */}
-          <div className="min-h-0 overflow-hidden rounded-lg border border-slate-300/80 bg-slate-50 shadow-[0_16px_38px_rgb(15_23_42/0.12)]">
+          <div className="relative min-h-0 overflow-hidden rounded-lg border border-slate-300/80 bg-slate-50 shadow-[0_16px_38px_rgb(15_23_42/0.12)]">
             {layout === "plane-orbit" ? (
               <FusionPlaneOrbitPlot
                 model={model}
@@ -257,6 +257,18 @@ export function FusionPlotMaximizedOverlay({
                 zoom={zoom}
                 className="h-[calc(100vh-14rem)] min-h-[34rem]"
               />
+            )}
+            {model.summary.people === 0 && model.summary.concepts === 0 && (
+              <div
+                data-testid="fusion-plot-empty-state"
+                data-visual-role="fusion-plot-empty-state"
+                className="pointer-events-none absolute inset-0 z-10 grid place-content-center bg-slate-50/92 p-6 text-center"
+              >
+                <p className="text-sm font-black text-slate-800">No SENA contract is loaded on this plot.</p>
+                <p className="mt-2 max-w-md text-xs font-bold leading-5 text-slate-500">
+                  Load the lesson-study sample, download the contract template, or upload the five SENA tables (people, interactions, utterances, coded_segments, codebook).
+                </p>
+              </div>
             )}
           </div>
         </div>

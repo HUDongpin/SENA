@@ -166,6 +166,7 @@ describe("import error drawer effect wiring", () => {
     expect(feedback).toContain('data-testid="workspace-import-error"');
     expect(feedback).toContain('role="alert"');
     expect(feedback).toContain('aria-atomic="true"');
+    expect(feedback).toContain('data-testid="workspace-import-error-recovery"');
     expect(feedback).not.toContain("text-rose-100");
   });
   // The effect itself needs a DOM renderer to observe; this pins that it consumes

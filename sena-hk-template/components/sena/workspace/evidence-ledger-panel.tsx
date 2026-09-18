@@ -122,8 +122,13 @@ export function EvidenceLedgerPanel({
           ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-4 text-sm font-semibold text-muted">
-          No evidence snippets for this source in the current analysis window.
+        <div
+          data-testid="evidence-ledger-empty-state"
+          className="rounded-lg border border-cardBorder/35 bg-background/30 p-4 text-sm font-semibold leading-6 text-muted"
+        >
+          {sourceFilter === "all"
+            ? "No evidence snippets in the current analysis window. Load the lesson-study sample, or inspect a person, concept, or typed edge after a valid import."
+            : "No evidence snippets for this source in the current analysis window. Choose All, switch the temporal window, or select a different S/W/B/G filter."}
         </div>
       )}
 

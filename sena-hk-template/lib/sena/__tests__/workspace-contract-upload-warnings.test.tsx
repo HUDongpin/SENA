@@ -209,4 +209,19 @@ describe("SENA workspace contract upload warnings", () => {
     expect(store.importError).toBeNull();
     expect(input.value).toBe("");
   });
+
+  it("sanitizes JSON parse failures so the error plate never echoes file content", async () => {
+    const store = createStore();
+    const input = {
+      files: [new File(['{"token":"sk-live-secret"'], "broken-contract.json", { type: "application/json" })],
+      value: "broken-contract.json"
+    };
+
+    await mountWorkspace(store).handleContractUpload({ currentTarget: input } as unknown as ChangeEvent<HTMLInputElement>);
+
+    expect(store.importError).toBe("The JSON file could not be parsed. Use the contract template or load the lesson-study sample.");
+    expect(store.importError).not.toContain("sk-live-secret");
+    expect(store.importError).not.toContain("Unexpected");
+    expect(input.value).toBe("");
+  });
 });
