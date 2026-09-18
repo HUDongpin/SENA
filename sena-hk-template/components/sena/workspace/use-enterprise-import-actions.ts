@@ -17,6 +17,7 @@ import type {
   LocalEnterpriseValidationResult
 } from "./enterprise-contracts";
 import type { UploadedSenaTable } from "./uploaded-table-mapper";
+import { formatResearcherImportError } from "./workspace-data-import-feedback-section";
 import type { WorkspaceRailMode } from "./workspace-shell-panels";
 
 type StateSetter<T> = Dispatch<SetStateAction<T>>;
@@ -119,7 +120,7 @@ export function useEnterpriseImportActions({
       setImportError(null);
       setEnterpriseMessage(`Local import completed without sign-in: ${result.dataset.people.length} people, ${result.dataset.utterances.length} utterances, ${result.warnings.length} warnings. Sign in to persist uploads, import runs, and saved projects.`);
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : "Local enterprise import failed.");
+      setImportError(formatResearcherImportError(error, "Local enterprise import failed."));
     } finally {
       setEnterpriseBusy(false);
     }
@@ -216,7 +217,7 @@ export function useEnterpriseImportActions({
         await touchEnterprisePresence(payload.persistedProject.id, { quiet: true });
       }
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : "Enterprise import failed.");
+      setImportError(formatResearcherImportError(error, "Enterprise import failed."));
     } finally {
       setEnterpriseBusy(false);
     }

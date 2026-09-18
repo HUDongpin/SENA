@@ -9,6 +9,7 @@ import { buttonStyles } from "@/components/Primitives";
 import type { SenaDataset } from "@/lib/sena/types";
 import type { SenaModel } from "./analysis-runtime";
 import { PilotAssetsPanel } from "./pilot-assets-panel";
+import { RESEARCHER_FIVE_TABLE_RECOVERY } from "./workspace-data-import-feedback-section";
 import {
   MetricCell,
   Panel
@@ -82,6 +83,15 @@ export function WorkspaceDataImportPanel({
         <div className="rounded-lg border border-cardBorder/45 bg-background/30 p-3 text-sm font-semibold leading-6 text-muted">
           {importMessage}
         </div>
+
+        {model.summary.people === 0 && model.summary.concepts === 0 && (
+          <div
+            data-testid="workspace-empty-import-state"
+            className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950"
+          >
+            No people or codes are loaded. {RESEARCHER_FIVE_TABLE_RECOVERY}
+          </div>
+        )}
 
         {children}
       </div>

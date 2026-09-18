@@ -383,7 +383,7 @@ export function Inspector({
         <div>
           <h4 className="mb-2 text-sm font-black text-foreground">Evidence</h4>
           <div className="grid max-h-72 gap-2 overflow-auto pr-1">
-            {selected.evidence.map((snippet) => (
+            {selected.evidence.length > 0 ? selected.evidence.map((snippet) => (
               <div key={snippet.id} className="rounded-lg border border-cardBorder/35 bg-background/35 p-3">
                 <div className="flex items-center justify-between gap-2 text-xs font-black text-muted">
                   <span>{snippet.label}</span>
@@ -392,7 +392,14 @@ export function Inspector({
                 <p className="mt-2 text-sm leading-6 text-foreground/82">{snippet.text}</p>
                 <EvidenceLineageBadges snippet={snippet} />
               </div>
-            ))}
+            )) : (
+              <div
+                data-testid="evidence-inspector-missing-evidence"
+                className="rounded-lg border border-cardBorder/35 bg-background/35 p-3 text-xs font-semibold leading-5 text-muted"
+              >
+                No evidence snippets are attached to this selection. Open the Evidence Ledger, switch the temporal window, or inspect a different person, concept, or typed edge after a valid import.
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -424,6 +431,9 @@ export function Inspector({
           <RankedList title="Top interactors" rows={selected.metrics.topInteractors.map((row) => [row.label, row.weight])} />
           <RankedList title="Top code-pairs" rows={selected.metrics.topPairs.map((row) => [row.label, row.weight])} />
         </div>
+        <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3 text-xs font-semibold leading-5 text-muted">
+          Source snippets for this person appear on typed S and B edges. Click a social arc or bridge ribbon to inspect evidence.
+        </div>
       </div>
     );
   }
@@ -443,6 +453,9 @@ export function Inspector({
       </div>
       <RankedList title="Top co-occurring concepts" rows={selected.metrics.topCooccurring.map((row) => [row.label, row.weight])} />
       <RankedList title="Top contributors" rows={selected.metrics.topContributors.map((row) => [row.label, row.weight])} />
+      <div className="rounded-lg border border-cardBorder/35 bg-background/30 p-3 text-xs font-semibold leading-5 text-muted">
+        Source snippets for this concept appear on typed W and B edges. Click a concept link or bridge ribbon to inspect evidence.
+      </div>
     </div>
   );
 }

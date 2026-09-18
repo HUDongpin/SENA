@@ -202,6 +202,13 @@ export function WorkspaceSecondaryComparisonLens({
       data-visual-role="secondary-plot-current-window-comparison"
       className="mb-3 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3"
     >
+      <div
+        data-testid="evidence-inspector-empty-selection"
+        className="rounded-lg border border-cyan-200 bg-cyan-50 p-3 text-xs font-bold leading-5 text-slate-700"
+      >
+        Click a person, concept, or typed edge on Fusion Canvas to open Evidence Inspector with snippets, matrix provenance, and G attribution.
+      </div>
+
       <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="text-xs font-black uppercase text-slate-500">Current-window comparison lens</div>

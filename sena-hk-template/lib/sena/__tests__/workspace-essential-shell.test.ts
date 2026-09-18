@@ -187,6 +187,7 @@ describe("SENA essential workspace shell", () => {
     expect(rightColumn).toContain('aria-label="Close evidence inspector"');
     expect(rightColumn).toContain('onCanvasSelect("")');
     expect(rightColumn).toContain("<WorkspaceSecondaryComparisonLens");
+    expect(workspaceSource("workspace-secondary-comparison-lens.tsx")).toContain('data-testid="evidence-inspector-empty-selection"');
     expect(selectionState).toContain('useState("")');
     expect(selectionState).not.toContain("useState(defaultSelection)");
     expect(selectionState).toContain("const selected = selectedId ?");

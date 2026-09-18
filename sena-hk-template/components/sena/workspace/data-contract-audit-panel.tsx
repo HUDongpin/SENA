@@ -6,7 +6,26 @@ import {
 import { buttonStyles } from "@/components/Primitives";
 import { cn } from "@/lib/utils";
 import type { SenaDataContractAudit } from "./analysis-runtime";
+import { RESEARCHER_FIVE_TABLE_RECOVERY } from "./workspace-data-import-feedback-section";
 import { MetricCell } from "./workspace-primitives";
+
+function researcherContractAuditRecovery(audit: SenaDataContractAudit): string | null {
+  switch (audit.status) {
+    case "valid":
+      return null;
+    case "needs-review": {
+      const fiveTable = audit.items.find((item) => item.id === "five-table-shape");
+      if (fiveTable?.status === "review") {
+        return `The five-table contract is incomplete. ${RESEARCHER_FIVE_TABLE_RECOVERY}`;
+      }
+      return "Review the flagged tables, then re-import or restore a project snapshot. Export the data audit for the review packet.";
+    }
+    default: {
+      const exhaustive: never = audit.status;
+      return exhaustive;
+    }
+  }
+}
 
 export type DataContractAuditPanelProps = {
   audit: SenaDataContractAudit;
@@ -19,6 +38,7 @@ export function DataContractAuditPanel({
 }: DataContractAuditPanelProps) {
   const reviewItems = audit.items.filter((item) => item.status === "review");
   const visibleItems = reviewItems.length > 0 ? reviewItems : audit.items;
+  const recovery = researcherContractAuditRecovery(audit);
 
   return (
     <div className="grid gap-3 rounded-lg border border-cardBorder/35 bg-background/25 p-3">
@@ -38,6 +58,15 @@ export function DataContractAuditPanel({
         <MetricCell label="Passed" value={audit.passed} />
         <MetricCell label="Review" value={audit.reviewNeeded} />
       </div>
+
+      {recovery && (
+        <div
+          data-testid="data-contract-audit-recovery"
+          className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-950"
+        >
+          {recovery}
+        </div>
+      )}
 
       <div className="grid max-h-64 gap-2 overflow-auto pr-1">
         {visibleItems.map((item) => {

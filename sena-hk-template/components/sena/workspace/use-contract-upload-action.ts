@@ -21,6 +21,7 @@ import {
   senaDatasetMetadataFromJson
 } from "./analysis-runtime";
 import type { UploadedSenaTable } from "./uploaded-table-mapper";
+import { formatResearcherImportError } from "./workspace-data-import-feedback-section";
 import type { WorkspaceRailMode } from "./workspace-shell-panels";
 import type { DemoManualReviewState } from "./use-demo-verification-manual-review-actions";
 
@@ -153,7 +154,7 @@ export function useContractUploadAction({
         commitUploadedTables([...uploadedTables, ...nextTables]);
       }
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : "SENA import failed.");
+      setImportError(formatResearcherImportError(error, "SENA import failed."));
     } finally {
       input.value = "";
     }

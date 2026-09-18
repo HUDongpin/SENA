@@ -19,6 +19,7 @@ import {
   type SenaReportHumanReview
 } from "./analysis-runtime";
 import type { UploadedSenaTable } from "./uploaded-table-mapper";
+import { formatResearcherImportError } from "./workspace-data-import-feedback-section";
 import type { WorkspaceRailMode } from "./workspace-shell-panels";
 import type { DemoManualReviewState } from "./use-demo-verification-manual-review-actions";
 
@@ -168,7 +169,7 @@ export function useDataImportMappedTableActions({
       setImportMessage("Lesson-study sample loaded from the research pilot package.");
       setImportError(null);
     } catch (error) {
-      setImportError(error instanceof Error ? error.message : "Could not load the lesson-study sample.");
+      setImportError(formatResearcherImportError(error, "Could not load the lesson-study sample."));
     } finally {
       setIsLoadingSample(false);
     }
