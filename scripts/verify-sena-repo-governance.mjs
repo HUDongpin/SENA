@@ -16992,10 +16992,11 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-09-15T17:58:00Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-17T17:58:00Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-16T01:58:00+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-16T10:30:00+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-09-18T02:18:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-20T02:18:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-18T10:18:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-18T10:19:00+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-18T10:20:00+08:00";
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
   "branch head differs from registry: main",
@@ -17188,6 +17189,7 @@ function pOPr89PrePushCustodyRemediationExpectedCandidate(source) {
     remoteObservedAt: P_O_CURRENTNESS_RECORDED_AT,
     lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastCommitAt: P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT,
     nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
   });
   applyHumanAiLocalRefRetirementMint(expected);
