@@ -73,7 +73,7 @@ export const senaPilotTemplateAssets: SenaPilotAssetLink[] = [
   {
     label: "People CSV template",
     href: "/sena-pilot/templates/people.csv",
-    detail: "Participant table header. Optional actor_type marks a row human (default when empty) or ai_agent (ADR-0006 D2); typing an AI row is roster semantics only — model/run provenance is not captured yet"
+    detail: "Participant table header. Optional actor_type marks a row human (default when empty) or ai_agent (ADR-0006 D2); typing an AI row is roster semantics only — Human-AI claims still need ADR-0013 run provenance"
   },
   {
     label: "Interactions CSV template",
@@ -94,6 +94,11 @@ export const senaPilotTemplateAssets: SenaPilotAssetLink[] = [
     label: "Codebook CSV template",
     href: "/sena-pilot/templates/codebook.csv",
     detail: "Code definitions table header"
+  },
+  {
+    label: "AI agent runs CSV template",
+    href: "/sena-pilot/templates/ai_agent_runs.csv",
+    detail: "Optional additive AI-run provenance header (ADR-0013). Unavailable fields store unknown or not_exposed; absence of this table does not break five-table v1 import"
   }
 ];
 

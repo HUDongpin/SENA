@@ -1,7 +1,7 @@
 {
   "schemaVersion": "sena-pilot-package-manifest/v1",
   "packageName": "SENA Research Pilot Package",
-  "updatedOn": "2026-08-01",
+  "updatedOn": "2026-09-18",
   "workspaceRoute": "/workspace/sena",
   "runtimeRoles": {
     "sena": "Browser-side TypeScript model builder for S/W/B/G and A_fusion.",
@@ -101,7 +101,8 @@
       "/sena-pilot/templates/interactions.csv",
       "/sena-pilot/templates/utterances.csv",
       "/sena-pilot/templates/coded_segments.csv",
-      "/sena-pilot/templates/codebook.csv"
+      "/sena-pilot/templates/codebook.csv",
+      "/sena-pilot/templates/ai_agent_runs.csv"
     ]
   },
   "assetIntegrity": [
@@ -195,6 +196,13 @@
       "format": "csv",
       "bytes": 39,
       "sha256": "4a59ad2604989c00d8e491ba186dd64a82eeac9be05741afe46765aa3b92f8e4"
+    },
+    {
+      "href": "/sena-pilot/templates/ai_agent_runs.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 253,
+      "sha256": "1d164de0e1c87bef6dbd88fcd509bd7ea242cb75b7e93f41732ed757a9f94bce"
     }
   ],
   "handoffChecks": [

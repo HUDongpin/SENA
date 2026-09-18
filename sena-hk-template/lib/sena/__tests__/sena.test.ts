@@ -1618,8 +1618,8 @@ describe("SENA model builder", () => {
     expect(verification.checks.find((check) => check.id === "sample-import")?.status).toBe("pass");
     expect(verification.checks.find((check) => check.id === "sample-import")?.manualAction).toContain("assetIntegrity fingerprints");
     expect(verification.checks.find((check) => check.id === "sample-import")?.expectedOutcome).toContain("manifest fingerprints");
-    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=13");
-    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegritySha256=13");
+    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=14");
+    expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegritySha256=14");
     expect(verification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("handoff=pilot-asset-integrity");
     expect(verification.checks.find((check) => check.id === "report-exports")?.status).toBe("review");
     expect(verification.checks.every((check) => check.manualReview.status === "pending")).toBe(true);
@@ -2633,8 +2633,8 @@ describe("SENA model builder", () => {
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-metric-provenance.json")?.handoffChecks).toContain("jena-concept-matrix");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-metric-provenance.json")?.handoffChecks).toContain("fusion-matrix-snapshot");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.schemaVersion).toBe("sena-pilot-package-manifest/v1");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.matrixCoverage).toContain("assetIntegrity=13");
-    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.evidenceCoverage).toContain("sha256=13");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.matrixCoverage).toContain("assetIntegrity=14");
+    expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.evidenceCoverage).toContain("sha256=14");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json")?.handoffChecks).toContain("pilot-asset-integrity");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.schemaVersion).toBe("sena-coding-reliability-gate/v2");
     expect(bundle.artifactEvidence.find((artifact) => artifact.filename === "sena-coding-reliability-gate.json")?.matrixCoverage).toContain(`claimUse=${bundle.codingReliabilityGate.claimUse}`);
@@ -3732,11 +3732,11 @@ describe("SENA model builder", () => {
     expect(packet.reviewPacketAudit.items.every((item) => item.status === "pass")).toBe(true);
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("exportCoverage=true");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("schemaCoverage=true");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("assetIntegrity=13");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("assetIntegrity=14");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("assetIntegrityCoverage=true");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.actual).toContain("handoffChecks=6");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("sampleContract=/sena-pilot/sample/lesson-study-sena-contract.json");
-    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrity=13");
+    expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrity=14");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrityArtifact=sena-pilot-package-manifest.json");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("assetIntegrityEvidence=assetIntegrity|bytes|sha256|sample assets|template assets");
     expect(packet.reviewPacketAudit.items.find((item) => item.id === "pilot-package-manifest")?.evidence).toContain("modelJsonArtifact=sena-project-snapshot.json");
@@ -3877,7 +3877,7 @@ describe("SENA model builder", () => {
     expect(packet.contents.pilotPackageManifest.workspaceRoute).toBe("/workspace/sena");
     expect(packet.contents.pilotPackageManifest.assets.sample).toContain("/sena-pilot/sample/lesson-study-sena-contract.json");
     expect(packet.contents.pilotPackageManifest.assets.templates).toContain("/sena-pilot/templates/coded_segments.csv");
-    expect(packet.contents.pilotPackageManifest.assetIntegrity).toHaveLength(13);
+    expect(packet.contents.pilotPackageManifest.assetIntegrity).toHaveLength(14);
     expect(packet.contents.pilotPackageManifest.assetIntegrity.find((asset) => asset.href === "/sena-pilot/sample/lesson-study-sena-contract.json")?.sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(packet.contents.pilotPackageManifest.exportArtifacts).toContain("sena-pilot-package-manifest.json");
     expect(packet.contents.pilotPackageManifest.exportArtifacts).toContain("sena-jena-manifest.json");
@@ -5497,7 +5497,7 @@ describe("SENA model builder", () => {
     expect(senaPilotSampleAssets[0]?.href).toBe(lessonStudySampleUrl);
     expect(senaPilotSampleCsvAssets).toHaveLength(5);
     expect(senaPilotSampleAssets).toHaveLength(6);
-    expect(senaPilotTemplateAssets).toHaveLength(7);
+    expect(senaPilotTemplateAssets).toHaveLength(8);
     expect(new Set([...sampleHrefs, ...templateHrefs]).size).toBe(sampleHrefs.length + templateHrefs.length);
     expect(sampleHrefs.every((href) => href.includes("/sample/"))).toBe(true);
     expect(templateHrefs.every((href) => href.includes("/templates/"))).toBe(true);

@@ -145,7 +145,8 @@ function datasetToTables(dataset: SenaDataset, name: string): SenaMappedTable[] 
     ...uploadedTable("interactions", dataset.interactions as unknown as SenaImportRow[]),
     ...uploadedTable("utterances", dataset.utterances as unknown as SenaImportRow[]),
     ...uploadedTable("coded_segments", dataset.coded_segments as unknown as SenaImportRow[]),
-    ...uploadedTable("codebook", dataset.codebook as unknown as SenaImportRow[])
+    ...uploadedTable("codebook", dataset.codebook as unknown as SenaImportRow[]),
+    ...uploadedTable("ai_agent_runs", (dataset.ai_agent_runs ?? []) as unknown as SenaImportRow[])
   ];
 }
 

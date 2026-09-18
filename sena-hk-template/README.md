@@ -278,6 +278,7 @@ Blank templates:
 - `public/sena-pilot/templates/utterances.csv`
 - `public/sena-pilot/templates/coded_segments.csv`
 - `public/sena-pilot/templates/codebook.csv`
+- `public/sena-pilot/templates/ai_agent_runs.csv`
 - `public/sena-pilot/templates/sena-data-contract-template.json`
 
 Sample lesson-study dataset:

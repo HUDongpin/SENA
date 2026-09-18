@@ -803,6 +803,9 @@ function assertDataset(value: unknown, context: string): asserts value is SenaDa
   assertArrayField(root, "utterances", context);
   assertArrayField(root, "coded_segments", context);
   assertArrayField(root, "codebook", context);
+  if (root.ai_agent_runs !== undefined) {
+    assertArrayField(root, "ai_agent_runs", context);
+  }
 }
 
 function assertFiniteNumber(value: unknown, context: string) {

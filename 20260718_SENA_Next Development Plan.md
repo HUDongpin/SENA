@@ -225,8 +225,9 @@ built on turns-as-samples.
    ADR-0006 D2 is implemented: additive `actorType = human | ai_agent` on the roster,
    `target_actor_ids`/`targetActorIds` import aliases, `actor_type` exposed in the blank
    `people.csv` template (manifest refreshed), and the §8-guardrail disclosure when a roster
-   declares an AI actor. Next Track C increments: an `ai_agent_runs` provenance ADR, then the
-   C-P1 event ledger (after Track B defines valid units).
+   declares an AI actor. ADR-0013 lands the next C-P0 increment: an additive `ai_agent_runs`
+   provenance sidecar (provider/model/config/sampling with explicit `unknown`/`not_exposed`).
+   Next Track C increment: the C-P1 event ledger (after Track B defines valid units).
 2. **First real datasets (A3) — open, Peter's call.** Depends on data access; no default exists.
 3. **PR #3 — resolved 2026-07-18.** Closed; the Human–AI brief lives in-tree at
    `docs/research/human-ai/` as the Track C design-of-record, actioned by ADR-0006.

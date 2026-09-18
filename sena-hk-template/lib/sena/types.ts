@@ -41,6 +41,38 @@ export type SenaTemporalOptions = {
 
 export type SenaActorType = "human" | "ai_agent";
 
+export type SenaProvenanceUnavailable = "unknown" | "not_exposed";
+
+export type SenaProvenanceNumber = number | SenaProvenanceUnavailable;
+
+/**
+ * ADR-0013: additive AI-run provenance. Textual fields use `unknown` /
+ * `not_exposed` when the value is unavailable rather than omitting the key on a
+ * declared run row. Sampling fields keep a number-or-unavailable union because
+ * `0` is a legal temperature/top_p/seed.
+ */
+export type SenaAiAgentRun = {
+  agentRunId: string;
+  actorId: string;
+  actorInstanceId?: string | SenaProvenanceUnavailable;
+  contextId?: string | SenaProvenanceUnavailable;
+  provider: string;
+  modelFamily: string;
+  modelSnapshot: string;
+  deploymentId: string;
+  apiVersion: string;
+  agentConfigVersion: string;
+  systemPromptHash: string;
+  retrievalCorpusVersion?: string;
+  toolPolicyVersion?: string;
+  temperature: SenaProvenanceNumber;
+  topP: SenaProvenanceNumber;
+  seed: SenaProvenanceNumber;
+  requestId?: string;
+  startedAt: string;
+  endedAt: string;
+};
+
 export type SenaPerson = {
   id: string;
   label: string;
@@ -125,6 +157,9 @@ export type SenaDataset = {
   utterances: SenaUtterance[];
   coded_segments: SenaCodedSegment[];
   codebook: SenaCode[];
+  // ADR-0013: optional additive sidecar. Omitted when absent so five-table
+  // v1 datasets stay byte-identical. No matrix semantics read this field.
+  ai_agent_runs?: SenaAiAgentRun[];
   warnings?: string[];
 };
 
