@@ -2036,7 +2036,7 @@ function projectSenaGroupComparisonSourceContextCarrier(
     "utterances",
     "coded_segments",
     "codebook"
-  ], ["metadata", "warnings"], traversalBudget);
+  ], ["metadata", "warnings", "ai_agent_runs"], traversalBudget);
   const people = projectSourceDatasetRows(
     dataset.people,
     ["id", "label", "role", "group"],
@@ -2263,7 +2263,7 @@ function preflightSenaGroupComparisonSourceContextCarrier(
     "utterances",
     "coded_segments",
     "codebook"
-  ], ["metadata", "warnings"], workOnlyBudget);
+  ], ["metadata", "warnings", "ai_agent_runs"], workOnlyBudget);
   const preflightRows = (
     rows: unknown,
     requiredKeys: readonly string[],

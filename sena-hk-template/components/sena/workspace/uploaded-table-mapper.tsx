@@ -9,7 +9,7 @@ import type {
 import {
   missingRequiredSenaFields,
   senaImportFields,
-  senaImportTables
+  senaRecognizedImportTables
 } from "./analysis-runtime";
 import { MappingSelect } from "./workspace-primitives";
 
@@ -52,7 +52,7 @@ export function UploadedTableMapper({
           onChange={(event) => onTableChange(event.currentTarget.value as SenaImportTable)}
           className="h-10 rounded-lg border border-cardBorder/55 bg-background/55 px-2 text-sm font-semibold text-foreground outline-none focus:border-cyanGlow"
         >
-          {senaImportTables.map((item) => (
+          {senaRecognizedImportTables.map((item) => (
             <option key={item.value} value={item.value}>{item.label}</option>
           ))}
         </select>

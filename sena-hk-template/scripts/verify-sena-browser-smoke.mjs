@@ -1138,8 +1138,8 @@ async function verifyRuntimeMethodArtifactDownloads(page) {
   const pilotManifestEvidence = artifactEvidence.find((artifact) => artifact.filename === "sena-pilot-package-manifest.json");
   if (pilotManifestEvidence?.status !== "ready" ||
     !pilotManifestEvidence.handoffChecks?.includes("pilot-asset-integrity") ||
-    !pilotManifestEvidence.matrixCoverage?.includes("assetIntegrity=13") ||
-    !pilotManifestEvidence.evidenceCoverage?.includes("sha256=13")) {
+    !pilotManifestEvidence.matrixCoverage?.includes("assetIntegrity=14") ||
+    !pilotManifestEvidence.evidenceCoverage?.includes("sha256=14")) {
     throw new Error("Runtime bundle artifact evidence is missing pilot asset-integrity handoff coverage.");
   }
   const runtimeBundleEvidence = artifactEvidence.find((artifact) => artifact.filename === "sena-runtime-bundle.json");
@@ -1425,8 +1425,8 @@ async function verifyWorkflowHandoffArtifactDownloads(page) {
     !sampleImportCheck?.expectedOutcome?.includes("manifest fingerprints")) {
     throw new Error("Demo verification sample-import check is missing asset-integrity manual review wording.");
   }
-  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegrity=13", "demo verification sample-import evidence");
-  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegritySha256=13", "demo verification sample-import evidence");
+  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegrity=14", "demo verification sample-import evidence");
+  assertArrayIncludes(sampleImportCheck.observedEvidence, "assetIntegritySha256=14", "demo verification sample-import evidence");
   assertArrayIncludes(sampleImportCheck.observedEvidence, "handoff=pilot-asset-integrity", "demo verification sample-import evidence");
 
   const { parsed: compatibilityAudit } = await downloadJsonByButton(
@@ -1894,7 +1894,7 @@ async function verifyArtifactDownloadsAndRestore(page) {
     throw new Error("Review packet audit is missing a passing pilot-package manifest handoff item.");
   }
   assertTextIncludes(pilotPackageHandoff.actual ?? "", "assetIntegrityCoverage=true", "review packet pilot package handoff");
-  assertArrayIncludes(pilotPackageHandoff.evidence, "assetIntegrity=13", "review packet pilot package handoff evidence");
+  assertArrayIncludes(pilotPackageHandoff.evidence, "assetIntegrity=14", "review packet pilot package handoff evidence");
   assertArrayIncludes(pilotPackageHandoff.evidence, "runtimeArtifact=sena-runtime-bundle.json", "review packet pilot package runtime handoff evidence");
   assertArrayIncludes(
     pilotPackageHandoff.evidence,

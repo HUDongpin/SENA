@@ -121,6 +121,7 @@ function collectSenaDatasetContractIssues(
     "utterances",
     "coded_segments",
     "codebook",
+    "ai_agent_runs",
     "warnings"
   ], path);
 
@@ -137,6 +138,11 @@ function collectSenaDatasetContractIssues(
   const utterances = table("utterances");
   const codedSegments = table("coded_segments");
   const codebook = table("codebook");
+  const aiAgentRuns = value.ai_agent_runs === undefined
+    ? []
+    : Array.isArray(value.ai_agent_runs)
+      ? value.ai_agent_runs
+      : (add(`${path}.ai_agent_runs`, "array"), []);
 
   const requiredString = (record: Record<string, unknown>, field: string, rowPath: string) => {
     if (!isNonemptyString(record[field])) add(`${rowPath}.${field}`, "nonempty-string");
@@ -344,6 +350,74 @@ function collectSenaDatasetContractIssues(
           add(`${rowPath}.codes[${codeIndex}]`, "reference");
         }
       });
+    }
+  });
+
+  const provenanceUnavailable = (candidate: unknown) => candidate === "unknown" || candidate === "not_exposed";
+  const provenanceTextFields = [
+    "provider",
+    "modelFamily",
+    "modelSnapshot",
+    "deploymentId",
+    "apiVersion",
+    "agentConfigVersion",
+    "systemPromptHash",
+    "startedAt",
+    "endedAt"
+  ] as const;
+  const optionalProvenanceTextFields = [
+    "actorInstanceId",
+    "contextId",
+    "retrievalCorpusVersion",
+    "toolPolicyVersion",
+    "requestId"
+  ] as const;
+  const samplingFields = ["temperature", "topP", "seed"] as const;
+  const runIds = new Set<string>();
+  aiAgentRuns.forEach((row, index) => {
+    const rowPath = `${path}.ai_agent_runs[${index}]`;
+    if (!isRecord(row)) {
+      add(rowPath, "object");
+      return;
+    }
+    exactFields(row, [
+      "agentRunId",
+      "actorId",
+      "actorInstanceId",
+      "contextId",
+      "provider",
+      "modelFamily",
+      "modelSnapshot",
+      "deploymentId",
+      "apiVersion",
+      "agentConfigVersion",
+      "systemPromptHash",
+      "retrievalCorpusVersion",
+      "toolPolicyVersion",
+      "temperature",
+      "topP",
+      "seed",
+      "requestId",
+      "startedAt",
+      "endedAt"
+    ], rowPath);
+    registerId(row, "agentRunId", rowPath, runIds);
+    requiredString(row, "actorId", rowPath);
+    canonicalField(row, "actorId", rowPath);
+    for (const field of provenanceTextFields) {
+      if (!isNonemptyString(row[field])) add(`${rowPath}.${field}`, "nonempty-string");
+    }
+    for (const field of optionalProvenanceTextFields) {
+      optionalString(row, field, rowPath);
+    }
+    for (const field of samplingFields) {
+      const value = row[field];
+      if (value === undefined) {
+        add(`${rowPath}.${field}`, "supported-value");
+        continue;
+      }
+      if (provenanceUnavailable(value)) continue;
+      if (!isFiniteNumber(value)) add(`${rowPath}.${field}`, "finite");
     }
   });
 

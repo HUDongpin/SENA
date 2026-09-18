@@ -14,7 +14,8 @@ when declared so untyped rosters stay byte-identical); `target_actor_ids` /
 bytes 36→47); and an `ai_agent` roster row raises the cleaning-manifest
 disclosure that typing is roster semantics only — per the brief's §8 guardrail,
 no Human–AI claim follows from an AI row. No matrix behavior reads `actorType`.
-`ai_agent_runs` provenance and the event ledger (C-P1/P2) remain future ADRs.
+`ai_agent_runs` provenance is ADR-0013 (Track C-P0, additive sidecar). The event
+ledger (C-P1/P2) remains a future ADR.
 
 ## Context
 
@@ -67,7 +68,8 @@ Adopt `actorType = human | ai_agent` on the roster as an **additive** field with
 the five-table contract are unchanged. `targetPersonIds` gains `targetActorIds`
 as an alias (already an importer alias) but the stored field name stays stable
 until a versioned migration. No AI-specific matrix behavior is introduced by this
-ADR; `ai_agent_runs` provenance and the event ledger (C-P1/P2) are separate ADRs.
+ADR; `ai_agent_runs` provenance is ADR-0013, and the event ledger (C-P1/P2) remains
+a separate ADR.
 
 ## Consequences
 

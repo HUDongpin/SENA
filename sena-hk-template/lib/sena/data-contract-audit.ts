@@ -82,7 +82,8 @@ export function buildSenaDatasetContentHash(dataset: SenaDataset) {
     interactions: dataset.interactions,
     utterances: dataset.utterances,
     coded_segments: dataset.coded_segments,
-    codebook: dataset.codebook
+    codebook: dataset.codebook,
+    ...(dataset.ai_agent_runs ? { ai_agent_runs: dataset.ai_agent_runs } : {})
   };
   return buildSenaStableContentHash(payload);
 }

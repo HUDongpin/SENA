@@ -161,7 +161,7 @@ describe("SENA research pilot smoke", () => {
     expect(bundle.demoVerification.summary.requiredArtifacts).toContain("sena-visual-grammar.json");
     expect(bundle.demoVerification.summary.requiredArtifacts).toContain("sena-coding-reliability-gate.json");
     expect(bundle.demoVerification.summary.requiredArtifacts).toContain("sena-claim-readiness-gate.json");
-    expect(bundle.demoVerification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=13");
+    expect(bundle.demoVerification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("assetIntegrity=14");
     expect(bundle.demoVerification.checks.find((check) => check.id === "sample-import")?.observedEvidence).toContain("handoff=pilot-asset-integrity");
     expect(bundle.demoVerification.checks.find((check) => check.id === "temporal-runtime")?.observedEvidence).toContain(`matrixFingerprintWindows=${trace.windows.length}/${trace.windows.length}`);
     expect(bundle.demoVerification.checks.find((check) => check.id === "temporal-runtime")?.observedEvidence).toContain(`A_fusionChecksums=${trace.windows.length}`);

@@ -19,6 +19,8 @@ export {
   senaDatasetMetadataFromJson,
   senaImportFields,
   senaImportTables,
+  senaAdditiveImportTables,
+  senaRecognizedImportTables,
   type SenaImportTable,
   type SenaMappedTable
 } from "@/lib/sena/import";

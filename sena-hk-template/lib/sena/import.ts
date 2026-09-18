@@ -1,7 +1,21 @@
-import type { SenaActorType, SenaCode, SenaCodedSegment, SenaDataset, SenaDatasetMetadata, SenaInteraction, SenaPerson, SenaUtterance } from "./types";
+import type {
+  SenaActorType,
+  SenaAiAgentRun,
+  SenaCode,
+  SenaCodedSegment,
+  SenaDataset,
+  SenaDatasetMetadata,
+  SenaInteraction,
+  SenaPerson,
+  SenaProvenanceNumber,
+  SenaProvenanceUnavailable,
+  SenaUtterance
+} from "./types";
 import { validateSenaAnalyticalInputs } from "./analytical-input-validation";
 
-export type SenaImportTable = "people" | "interactions" | "utterances" | "coded_segments" | "codebook";
+export type SenaCoreImportTable = "people" | "interactions" | "utterances" | "coded_segments" | "codebook";
+export type SenaAdditiveImportTable = "ai_agent_runs";
+export type SenaImportTable = SenaCoreImportTable | SenaAdditiveImportTable;
 
 export type SenaImportRow = Record<string, unknown>;
 
@@ -28,12 +42,22 @@ type FieldDefinition = {
   aliases: string[];
 };
 
-export const senaImportTables: Array<{ value: SenaImportTable; label: string }> = [
+export const senaImportTables: Array<{ value: SenaCoreImportTable; label: string }> = [
   { value: "people", label: "people" },
   { value: "interactions", label: "interactions" },
   { value: "utterances", label: "utterances" },
   { value: "coded_segments", label: "coded_segments" },
   { value: "codebook", label: "codebook" }
+];
+
+/** Optional sidecar tables. Absence must not warn or break five-table v1 import (ADR-0013). */
+export const senaAdditiveImportTables: Array<{ value: SenaAdditiveImportTable; label: string }> = [
+  { value: "ai_agent_runs", label: "ai_agent_runs" }
+];
+
+export const senaRecognizedImportTables: Array<{ value: SenaImportTable; label: string }> = [
+  ...senaImportTables,
+  ...senaAdditiveImportTables
 ];
 
 export const senaImportFields: Record<SenaImportTable, FieldDefinition[]> = {
@@ -83,6 +107,27 @@ export const senaImportFields: Record<SenaImportTable, FieldDefinition[]> = {
     { field: "family", label: "Family", aliases: ["family", "category", "dimension", "group"] },
     { field: "description", label: "Description", aliases: ["description", "definition", "notes"] },
     { field: "color", label: "Color", aliases: ["color", "colour", "hex", "hex_color"] }
+  ],
+  ai_agent_runs: [
+    { field: "agentRunId", label: "Agent run ID", required: true, aliases: ["agent_run_id", "run_id", "ai_agent_run_id"] },
+    { field: "actorId", label: "Actor ID", required: true, aliases: ["actor_id", "agent_actor_id"] },
+    { field: "actorInstanceId", label: "Actor instance ID", aliases: ["actor_instance_id", "agent_instance_id", "instance_id"] },
+    { field: "contextId", label: "Context ID", aliases: ["context_id"] },
+    { field: "provider", label: "Provider", aliases: ["provider", "model_provider"] },
+    { field: "modelFamily", label: "Model family", aliases: ["model_family", "model"] },
+    { field: "modelSnapshot", label: "Model snapshot", aliases: ["model_snapshot", "model_version", "model_id"] },
+    { field: "deploymentId", label: "Deployment ID", aliases: ["deployment_id", "deployment"] },
+    { field: "apiVersion", label: "API version", aliases: ["api_version"] },
+    { field: "agentConfigVersion", label: "Agent config version", aliases: ["agent_config_version", "config_version"] },
+    { field: "systemPromptHash", label: "System prompt hash", aliases: ["system_prompt_hash", "prompt_hash"] },
+    { field: "retrievalCorpusVersion", label: "Retrieval corpus version", aliases: ["retrieval_corpus_version"] },
+    { field: "toolPolicyVersion", label: "Tool policy version", aliases: ["tool_policy_version"] },
+    { field: "temperature", label: "Temperature", aliases: ["temperature"] },
+    { field: "topP", label: "Top-p", aliases: ["top_p", "topP"] },
+    { field: "seed", label: "Seed", aliases: ["seed"] },
+    { field: "requestId", label: "Request ID", aliases: ["request_id"] },
+    { field: "startedAt", label: "Started at", aliases: ["started_at", "start_time"] },
+    { field: "endedAt", label: "Ended at", aliases: ["ended_at", "end_time"] }
   ]
 };
 
@@ -157,6 +202,7 @@ function columnsFromRows(rows: SenaImportRow[]) {
 
 export function inferSenaTableFromName(name: string): SenaImportTable {
   const normalized = normalizeKey(name);
+  if (normalized.includes("aiagentrun") || normalized.includes("agentrun")) return "ai_agent_runs";
   if (normalized.includes("codedsegment") || normalized.includes("coding") || normalized.includes("segments")) return "coded_segments";
   if (normalized.includes("codebook") || normalized.includes("codes")) return "codebook";
   if (normalized.includes("interaction") || normalized.includes("ties") || normalized.includes("edges")) return "interactions";
@@ -329,14 +375,6 @@ function normalizePeople(rows: SenaImportRow[], mapping: SenaColumnMapping, warn
       ...(actorType ? { actorType } : {})
     }];
   });
-  // Guardrail (Human-AI brief §8): typing a roster row ai_agent does not make
-  // the dataset research-grade Human-AI SENA — no run provenance exists yet.
-  const aiActorIds = people.filter((person) => person.actorType === "ai_agent").map((person) => person.id);
-  if (aiActorIds.length > 0) {
-    warnings.push(
-      `people declares ${aiActorIds.length === 1 ? "an AI actor" : `${aiActorIds.length} AI actors`} (${aiActorIds.join(", ")}). Actor typing is roster semantics only (ADR-0006 D2): model/version/run provenance is not captured yet, so Human-AI findings remain exploratory.`
-    );
-  }
   return people;
 }
 
@@ -486,6 +524,127 @@ function uniqueBy<T>(items: T[], label: string, warnings: string[], idFor: (item
 
 function uniqueById<T extends { id: string }>(items: T[], label: string, warnings: string[]) {
   return uniqueBy(items, label, warnings, (item) => item.id);
+}
+
+const PROVENANCE_UNAVAILABLE: readonly SenaProvenanceUnavailable[] = ["unknown", "not_exposed"];
+
+export function isSenaProvenanceUnavailable(value: unknown): value is SenaProvenanceUnavailable {
+  return typeof value === "string" && (PROVENANCE_UNAVAILABLE as readonly string[]).includes(value);
+}
+
+function parseProvenanceUnavailable(value: string): SenaProvenanceUnavailable | undefined {
+  const normalized = normalizeKey(value);
+  if (normalized === "unknown") return "unknown";
+  if (normalized === "notexposed") return "not_exposed";
+  return undefined;
+}
+
+function parseProvenanceText(value: string): string {
+  const unavailable = parseProvenanceUnavailable(value);
+  if (unavailable) return unavailable;
+  return value.length > 0 ? value : "unknown";
+}
+
+function parseOptionalJoinKey(value: string): string | SenaProvenanceUnavailable | undefined {
+  if (!value) return undefined;
+  return parseProvenanceUnavailable(value) ?? value;
+}
+
+function parseProvenanceNumber(
+  value: string,
+  warnings: string[],
+  context: string
+): SenaProvenanceNumber {
+  if (!value) return "unknown";
+  const unavailable = parseProvenanceUnavailable(value);
+  if (unavailable) return unavailable;
+  const parsed = Number(value);
+  if (Number.isFinite(parsed)) return parsed;
+  warnings.push(`${context} has non-numeric value "${value}"; stored as unknown (ADR-0013).`);
+  return "unknown";
+}
+
+function optionalProvenanceText(value: string): string | undefined {
+  if (!value) return undefined;
+  return parseProvenanceText(value);
+}
+
+function normalizeAiAgentRuns(rows: SenaImportRow[], mapping: SenaColumnMapping, warnings: string[]) {
+  return rows.flatMap<SenaAiAgentRun>((row, index) => {
+    const agentRunId = readField(row, mapping, "agentRunId");
+    const actorId = readField(row, mapping, "actorId");
+    if (!agentRunId || !actorId) {
+      warnings.push(`ai_agent_runs row ${index + 1} is missing agent_run_id or actor_id and was skipped.`);
+      return [];
+    }
+    const actorInstanceId = parseOptionalJoinKey(readField(row, mapping, "actorInstanceId"));
+    const contextId = parseOptionalJoinKey(readField(row, mapping, "contextId"));
+    const retrievalCorpusVersion = optionalProvenanceText(readField(row, mapping, "retrievalCorpusVersion"));
+    const toolPolicyVersion = optionalProvenanceText(readField(row, mapping, "toolPolicyVersion"));
+    const requestId = optionalProvenanceText(readField(row, mapping, "requestId"));
+    return [{
+      agentRunId,
+      actorId,
+      ...(actorInstanceId ? { actorInstanceId } : {}),
+      ...(contextId ? { contextId } : {}),
+      provider: parseProvenanceText(readField(row, mapping, "provider")),
+      modelFamily: parseProvenanceText(readField(row, mapping, "modelFamily")),
+      modelSnapshot: parseProvenanceText(readField(row, mapping, "modelSnapshot")),
+      deploymentId: parseProvenanceText(readField(row, mapping, "deploymentId")),
+      apiVersion: parseProvenanceText(readField(row, mapping, "apiVersion")),
+      agentConfigVersion: parseProvenanceText(readField(row, mapping, "agentConfigVersion")),
+      systemPromptHash: parseProvenanceText(readField(row, mapping, "systemPromptHash")),
+      ...(retrievalCorpusVersion ? { retrievalCorpusVersion } : {}),
+      ...(toolPolicyVersion ? { toolPolicyVersion } : {}),
+      temperature: parseProvenanceNumber(readField(row, mapping, "temperature"), warnings, `ai_agent_runs row ${index + 1} temperature`),
+      topP: parseProvenanceNumber(readField(row, mapping, "topP"), warnings, `ai_agent_runs row ${index + 1} top_p`),
+      seed: parseProvenanceNumber(readField(row, mapping, "seed"), warnings, `ai_agent_runs row ${index + 1} seed`),
+      ...(requestId ? { requestId } : {}),
+      startedAt: parseProvenanceText(readField(row, mapping, "startedAt")),
+      endedAt: parseProvenanceText(readField(row, mapping, "endedAt"))
+    }];
+  });
+}
+
+function discloseAiActorProvenance(people: SenaPerson[], runs: SenaAiAgentRun[], warnings: string[]) {
+  const aiActorIds = people.filter((person) => person.actorType === "ai_agent").map((person) => person.id);
+  if (aiActorIds.length === 0) return;
+  const covered = new Set(runs.map((run) => run.actorId));
+  const missing = aiActorIds.filter((id) => !covered.has(id));
+  const actorLabel = aiActorIds.length === 1
+    ? `an AI actor (${aiActorIds.join(", ")})`
+    : `${aiActorIds.length} AI actors (${aiActorIds.join(", ")})`;
+  const rosterGuard = `people declares ${actorLabel}. Actor typing is roster semantics only (ADR-0006 D2); putting an AI row in people does not make a Human-AI SENA claim.`;
+  if (missing.length > 0) {
+    warnings.push(
+      `${rosterGuard} ADR-0013 run provenance does not cover ${
+        missing.length === 1 ? `AI actor (${missing[0]})` : `${missing.length} AI actors (${missing.join(", ")})`
+      }; missing model/config/version provenance is not optional when AI actors are present in research claims, so Human-AI findings remain exploratory.`
+    );
+    return;
+  }
+  warnings.push(
+    `${rosterGuard} ADR-0013 recorded ${runs.length === 1 ? "1 ai_agent_runs row" : `${runs.length} ai_agent_runs rows`}; Human-AI findings remain exploratory until the remaining research-grade gates pass.`
+  );
+}
+
+function warnUnresolvedAiAgentRunActors(people: SenaPerson[], runs: SenaAiAgentRun[], warnings: string[]) {
+  if (runs.length === 0) return;
+  const peopleById = new Map(people.map((person) => [person.id, person]));
+  for (const run of runs) {
+    const person = peopleById.get(run.actorId);
+    if (!person) {
+      warnings.push(
+        `ai_agent_runs row "${run.agentRunId}" actor_id "${run.actorId}" is not on the people roster; the run is kept as provenance and no roster member was derived from it (ADR-0010/0013).`
+      );
+      continue;
+    }
+    if (person.actorType !== "ai_agent") {
+      warnings.push(
+        `ai_agent_runs row "${run.agentRunId}" actor_id "${run.actorId}" is not typed ai_agent on the roster; the run is kept as provenance.`
+      );
+    }
+  }
 }
 
 /**
@@ -776,9 +935,25 @@ export function buildSenaDatasetFromTables(tables: SenaMappedTable[]): SenaImpor
     warnings,
     (segment) => segment.segmentId
   );
+  const ai_agent_runs = uniqueBy(
+    (byTable.get("ai_agent_runs") ?? []).flatMap((table) => normalizeAiAgentRuns(table.rows, table.mapping, warnings)),
+    "ai_agent_run",
+    warnings,
+    (run) => run.agentRunId
+  );
 
-  const dataset = { people, interactions, utterances, coded_segments, codebook, warnings };
+  const dataset: SenaDataset = {
+    people,
+    interactions,
+    utterances,
+    coded_segments,
+    codebook,
+    ...(ai_agent_runs.length > 0 ? { ai_agent_runs } : {}),
+    warnings
+  };
   addDerivedContractRows(dataset, warnings);
+  warnUnresolvedAiAgentRunActors(dataset.people, dataset.ai_agent_runs ?? [], warnings);
+  discloseAiActorProvenance(dataset.people, dataset.ai_agent_runs ?? [], warnings);
   const flaggedLegacyValues = warnLegacyMultiValueCells(dataset, legacyCells, warnings);
   warnDelimiterBearingIds(dataset, warnings, flaggedLegacyValues);
   validateSenaAnalyticalInputs({ dataset });
@@ -858,7 +1033,8 @@ export function importSenaJsonContract(source: string | unknown): SenaImportResu
     tableFromJson("interactions", root.interactions),
     tableFromJson("utterances", root.utterances),
     tableFromJson("coded_segments", root.coded_segments ?? root.codedSegments),
-    tableFromJson("codebook", root.codebook ?? root.codes)
+    tableFromJson("codebook", root.codebook ?? root.codes),
+    tableFromJson("ai_agent_runs", root.ai_agent_runs ?? root.aiAgentRuns)
   ].filter((table): table is SenaMappedTable => Boolean(table));
 
   if (tables.length === 0) {
