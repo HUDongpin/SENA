@@ -178,11 +178,11 @@ describe("ADR-0013 ai_agent_runs provenance", () => {
     expect(withRuns.dataset.ai_agent_runs?.[0]?.modelFamily).toBe("not_exposed");
     const baseline = buildSenaModel(withoutRuns.dataset);
     const treated = buildSenaModel(withRuns.dataset);
-    expect(treated.matrices.S.values).toEqual(baseline.matrices.S.values);
-    expect(treated.matrices.W.values).toEqual(baseline.matrices.W.values);
-    expect(treated.matrices.B.values).toEqual(baseline.matrices.B.values);
-    expect(treated.matrices.Bcp.values).toEqual(baseline.matrices.Bcp.values);
-    expect(treated.matrices.G.values).toEqual(baseline.matrices.G.values);
+    expect(treated.matrices.S.raw).toEqual(baseline.matrices.S.raw);
+    expect(treated.matrices.W.raw).toEqual(baseline.matrices.W.raw);
+    expect(treated.matrices.B.raw).toEqual(baseline.matrices.B.raw);
+    expect(treated.matrices.B_CP.raw).toEqual(baseline.matrices.B_CP.raw);
+    expect(treated.matrices.G.raw).toEqual(baseline.matrices.G.raw);
     expect(treated.matrices.fusion.values).toEqual(baseline.matrices.fusion.values);
     expect(buildSenaDatasetContentHash(withoutRuns.dataset)).not.toBe(buildSenaDatasetContentHash(withRuns.dataset));
     expect(buildSenaDatasetContentHash(exampleSenaContract)).toBe(
