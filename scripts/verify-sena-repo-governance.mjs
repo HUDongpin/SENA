@@ -76,7 +76,12 @@ const MAX_ACTIVE_FEATURE_LANES = 2;
 const MAX_ACTIVE_GOVERNANCE_BOOTSTRAP_LANES = 1;
 const ACTIVE_WRITE_DISPOSITIONS = new Set(["active", "ready-for-pr"]);
 const REF_DELETION_AUTHORIZATION_STATUSES = new Set(["pending-provider-readback", "active", "consumed"]);
-const LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES = new Set(["pending-release", "active", "consumed"]);
+const LOCAL_REF_RETIREMENT_AUTHORIZATION_STATUSES = new Set([
+  "pending-release",
+  "active",
+  "expired",
+  "consumed"
+]);
 const LOCAL_REF_RETIREMENT_AUTHORIZATION_ID_PATTERN = /^[A-Z0-9][A-Z0-9._-]{0,127}$/;
 const QUARANTINED_LEDGER_BRANCH_REF = "refs/heads/docs/ledger-reconciliation-2026-08-19";
 const QUARANTINED_LEDGER_TIP = "18d542f707e56aa9d043dd497e0efe48b540db20";
@@ -1651,6 +1656,24 @@ function runPushPolicy(flags) {
   const updates = parsePrePushUpdates(input);
   if (
     currentBranch.status === 0 &&
+    String(currentBranch.stdout ?? "").trim() === LATEST_MAIN_Q_BRANCH
+  ) {
+    let outgoingRegistry = null;
+    try {
+      outgoingRegistry = loadRegistryFromCommit(updates[0]?.localSha).parsed;
+    } catch {
+      // The latest-main lane may only create its exact registered branch from
+      // the one committed successor; malformed or replayed updates fail closed.
+    }
+    if (
+      !outgoingRegistry ||
+      !latestMainQCreatePushAuthorized(outgoingRegistry, updates)
+    ) {
+      throw new Error("rule=latest-main-q-create-push-denied");
+    }
+  }
+  if (
+    currentBranch.status === 0 &&
     String(currentBranch.stdout ?? "").trim() === I_H_BRANCH
   ) {
     let outgoingRegistry = null;
@@ -1723,7 +1746,12 @@ function runPushPolicy(flags) {
   if (validation.errors.length > 0) {
     throw new Error("push-policy outgoing-commit registry snapshot is invalid");
   }
-  if (mobilePilotItem(registry)) validateMobilePilotSourceEvidence(registry);
+  if (
+    mobilePilotItem(registry) &&
+    !registry.qLatestMainConvergenceRemediation
+  ) {
+    validateMobilePilotSourceEvidence(registry);
+  }
   if (registry.pr86DeliveryCloseout && updates[0].localRef === `refs/heads/${PR86_DELIVERY_BRANCH}` &&
       !validatePr86DeliveryWriterCurrentness(registry)) {
     addFinding(findings, { path: updates[0].localRef, rule: "pr86-delivery-writer-current-main-not-source", source: "fresh-main-readback" });
@@ -1875,6 +1903,9 @@ function runWritePolicy(flags) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-source-write-denied");
   const committedPr86Closeout = pr86DeliveryCurrentCheckoutMerged();
   const { parsed: registry } = loadRegistryForFlags(flags);
+  const isLatestMainQConvergenceRemediation = Boolean(
+    registry.qLatestMainConvergenceRemediation
+  );
   const isPOPr89PrePushCustodyRemediation = Boolean(
     registry.pOPr89PrePushCustodyRemediation
   );
@@ -1896,7 +1927,9 @@ function runWritePolicy(flags) {
   const isIHDedicatedLanding = Boolean(
     registry.iHDedicatedLandingCandidate
   );
-  let exactGovernanceIndex = isPOPr89PrePushCustodyRemediation
+  let exactGovernanceIndex = isLatestMainQConvergenceRemediation
+    ? latestMainQConvergenceCurrentIndexAllowed(registry)
+    : isPOPr89PrePushCustodyRemediation
     ? typeof pOPr89RemediationCurrentIndexAllowed === "function" &&
       pOPr89RemediationCurrentIndexAllowed(registry)
     : isONPr88PostMainCurrentnessRepair
@@ -1929,7 +1962,13 @@ function runWritePolicy(flags) {
       exactGovernanceIndex &&
       initialGovernanceIndexSnapshot &&
       typeof hGovernanceCurrentIndexSnapshot === "function" &&
-      (isIHDedicatedLanding
+      (isLatestMainQConvergenceRemediation
+        ? latestMainQConvergenceCurrentIndexAllowed(registry) &&
+          hGovernanceIntakeIndexSnapshotsMatch(
+            initialGovernanceIndexSnapshot,
+            hGovernanceCurrentIndexSnapshot()
+          )
+        : isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? (isLKDraftPrCiRemediation
                 ? (isPOPr89PrePushCustodyRemediation
@@ -1993,7 +2032,12 @@ function runWritePolicy(flags) {
   const validation = validateRegistry(registry);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   if (validation.errors.length > 0) throw new Error("index registry snapshot is invalid");
-  if (mobilePilotItem(registry)) validateMobilePilotSourceEvidence(registry);
+  if (
+    mobilePilotItem(registry) &&
+    !isLatestMainQConvergenceRemediation
+  ) {
+    validateMobilePilotSourceEvidence(registry);
+  }
   if (registry.hGovernanceIntake) {
     exactGovernanceIndex = governanceFinalBarrierAllowed();
   }
@@ -2032,7 +2076,9 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !exactGovernanceIndex) {
     addFinding(findings, {
       path: "index",
-      rule: isPOPr89PrePushCustodyRemediation
+      rule: isLatestMainQConvergenceRemediation
+        ? "latest-main-q-convergence-index-identity-invalid"
+        : isPOPr89PrePushCustodyRemediation
         ? "p-o-pr89-pre-push-custody-remediation-index-identity-invalid"
         : isONPr88PostMainCurrentnessRepair
         ? "o-n-pr88-post-main-currentness-repair-index-identity-invalid"
@@ -2077,7 +2123,9 @@ function runWritePolicy(flags) {
   if (registry.hGovernanceIntake && !governanceFinalBarrierAllowed()) {
     addFinding(findings, {
       path: "index",
-      rule: isPOPr89PrePushCustodyRemediation
+      rule: isLatestMainQConvergenceRemediation
+        ? "latest-main-q-convergence-barrier-invalid"
+        : isPOPr89PrePushCustodyRemediation
         ? "p-o-pr89-pre-push-custody-remediation-barrier-invalid"
         : isONPr88PostMainCurrentnessRepair
         ? "o-n-pr88-post-main-currentness-repair-barrier-invalid"
@@ -2168,6 +2216,19 @@ function physicalWorkItemCustodyError(registryRepoResolution, item) {
 }
 
 function appendHostPhysicalCustodyErrors(registry, errors) {
+  const exactLatestMainQCandidate = Boolean(
+    registry?.qLatestMainConvergenceRemediation &&
+      latestMainQConvergenceRemediationStructurallyAllowed(
+        latestMainQConvergenceRemediationSource(),
+        registry
+      )
+  );
+  if (exactLatestMainQCandidate) {
+    if (!latestMainQPreservedUnlandedQPhysicalAllowed(registry)) {
+      errors.push("rule=latest-main-q-preserved-source-custody-invalid");
+    }
+    return;
+  }
   appendPr86DeliveryRetainedCustodyErrors(registry, errors);
   if (
     registry?.oNPr88PostMainCurrentnessRepair &&
@@ -10765,7 +10826,7 @@ export function validatePostPr83PushDraftReadiness(
       qualitySecurityReview: receiptContext?.qualitySecurityReview,
       rootCustodyAttestation: receiptContext?.rootCustodyAttestation
     };
-    const now = options.now ?? new Date().toISOString();
+    const now = options.now ?? new Date(Date.now()).toISOString();
     if (
       lifecycle.status !== POST_PR83_CURRENTNESS_STDIN_HANG_TEST_STATUS ||
       !sameJson(
@@ -11550,7 +11611,27 @@ export function validatePr85FinalHeadLiveGitHubEvidence(descriptor, options = {}
   return validateProtectedFinalHeadLiveGitHubEvidence(descriptor, 85, PR85_GITHUB_BINDING, options);
 }
 
-function validateProtectedWorkflowChecks(headSha, branchName, requiredWorkflows, githubTransport) {
+const LATEST_MAIN_Q_CURRENT_CI_POLICY = Symbol("latest-main-q-current-ci");
+const LATEST_MAIN_Q_POST_MERGE_CI_POLICY = Symbol("latest-main-q-post-merge-ci");
+
+export function latestMainQCurrentCiAnnotationsAllowed(annotations) {
+  if (!Array.isArray(annotations) || !pr85PlainJsonData(annotations)) return false;
+  if (annotations.length === 0) return true;
+  if (annotations.length !== 1) return false;
+  const notice = annotations[0];
+  return Boolean(notice && notice.annotation_level === "notice" && notice.path === ".github" &&
+    notice.start_line === 1 && notice.end_line === 1 && notice.start_column === null && notice.end_column === null &&
+    notice.title === "" && notice.raw_details === "" &&
+    notice.message === '\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"');
+}
+
+export function validateLatestMainQCurrentWorkflowChecks(githubTransport) {
+  return validateProtectedWorkflowChecks(LATEST_MAIN_Q_SOURCE_COMMIT, "main", [
+    ["build-gate", "push", "build"], ["repo-security-gate", "push", "repository-security"]
+  ], githubTransport, LATEST_MAIN_Q_CURRENT_CI_POLICY);
+}
+
+function validateProtectedWorkflowChecks(headSha, branchName, requiredWorkflows, githubTransport, annotationPolicy = null) {
   const runs = [];
   for (let page = 1; page <= 100; page += 1) {
     const runsResponse = postPr83GithubApiJson(
@@ -11628,7 +11709,11 @@ function validateProtectedWorkflowChecks(headSha, branchName, requiredWorkflows,
       `repos/HUDongpin/SENA/check-runs/${matchingJobs[0].id}/annotations`,
       githubTransport
     );
-    if (!Array.isArray(annotations) || annotations.length !== 0) {
+    const exactQCurrentPolicy = annotationPolicy === LATEST_MAIN_Q_CURRENT_CI_POLICY &&
+      headSha === LATEST_MAIN_Q_SOURCE_COMMIT && branchName === "main" &&
+      sameJson(requiredWorkflows, [["build-gate", "push", "build"], ["repo-security-gate", "push", "repository-security"]]);
+    if (!Array.isArray(annotations) || (annotations.length !== 0 &&
+        !((exactQCurrentPolicy || annotationPolicy === LATEST_MAIN_Q_POST_MERGE_CI_POLICY) && latestMainQCurrentCiAnnotationsAllowed(annotations)))) {
       throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
     }
   }
@@ -14437,15 +14522,39 @@ export function jHEvidenceCustodyReconstructionAllowed(
 }
 
 export function iHDedicatedLandingHistoricalProjection(registry) {
+  const latestMainQProjection = Boolean(
+    registry?.qLatestMainConvergenceRemediation &&
+      latestMainQConvergenceRemediationStructurallyAllowed(
+        latestMainQConvergenceRemediationSource(),
+        registry
+      )
+  );
   const operationalRegistry =
     iHDedicatedLandingOperationalRegistry(registry);
   const source = iHDedicatedLandingSource();
-  validateIHDedicatedLandingCandidateTransition(source, operationalRegistry);
+  if (latestMainQProjection) {
+    if (
+      !iHDedicatedLandingTransitionStructurallyAllowed(
+        source,
+        operationalRegistry
+      )
+    ) {
+      throw new Error("rule=i-h-dedicated-landing-transition-invalid");
+    }
+  } else {
+    validateIHDedicatedLandingCandidateTransition(source, operationalRegistry);
+  }
   return source;
 }
 
 function iHDedicatedLandingOperationalRegistry(registry) {
   let operationalRegistry = registry;
+  if (operationalRegistry?.qLatestMainConvergenceRemediation) {
+    operationalRegistry =
+      latestMainQConvergenceRemediationHistoricalProjection(
+        operationalRegistry
+      );
+  }
   if (operationalRegistry?.pOPr89PrePushCustodyRemediation) {
     operationalRegistry =
       pOPr89PrePushCustodyRemediationHistoricalProjection(
@@ -16784,6 +16893,7 @@ export function oNEvidenceFlowMonotonicBehindShapeAllowed(
         Number.isInteger(observed.behind) &&
         observed.behind >= item.aheadBehind.behind &&
         sameJson(actualObserved, {
+          baseRef: observed.baseRef,
           ahead: observed.ahead,
           behind: observed.behind
         })
@@ -17255,10 +17365,14 @@ function pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
       pr85PlainJsonData(sourceRegistry) &&
         pr85PlainJsonData(candidateRegistry) &&
         isDeepStrictEqual(sourceRegistry, source) &&
-        isDeepStrictEqual(
+        (isDeepStrictEqual(
           candidateRegistry,
           pOPr89PrePushCustodyRemediationExpectedCandidate(source)
-        )
+        ) ||
+          isDeepStrictEqual(
+            candidateRegistry,
+            latestMainQPredecessorPRegistry()
+          ))
     );
   } catch {
     return false;
@@ -17294,10 +17408,1234 @@ export function pOPr89PrePushCustodyRemediationHistoricalProjection(
   return source;
 }
 
+const LATEST_MAIN_Q_SOURCE_COMMIT =
+  "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+const LATEST_MAIN_Q_SOURCE_TREE =
+  "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b";
+const LATEST_MAIN_Q_SOURCE_PARENT =
+  "24d403a42af7b137907b1c9bdb3c4ed1afbc603d";
+const LATEST_MAIN_Q_PREDECESSOR_P_COMMIT =
+  "23f53106fbc8868a4fa8d32f67bd4b7c63295f42";
+const LATEST_MAIN_Q_PREDECESSOR_P_TREE =
+  "1e2bbbf2a6e01c5e4467ac27ea1a8a29555d4374";
+const LATEST_MAIN_Q_PREDECESSOR_O_COMMIT =
+  "62417d31d399af892c28d9112bcc829850062013";
+const LATEST_MAIN_Q_PREDECESSOR_P_BLOBS = Object.freeze([
+  "b9b968b99293e789c4bce333eb83ae41b173e0ad",
+  "30372b74f7fbb60c636158148cff532004bc0c22",
+  "55e4e4fadaa16dbfa15558709b2850a370675209"
+]);
+const LATEST_MAIN_Q_BRANCH =
+  "codex/sena-q-currentness-port-20260919";
+const LATEST_MAIN_Q_TASK =
+  "SENA-Q-LATEST-MAIN-CONVERGENCE-20260919";
+const LATEST_MAIN_Q_WORKTREE =
+  "/Volumes/Starship/SENA/.worktrees/sena-q-currentness-port-20260919";
+const LATEST_MAIN_Q_RECORDED_AT = "2026-09-19T08:32:27Z";
+const LATEST_MAIN_Q_NEXT_REVIEW_AT = "2026-09-21T08:32:27Z";
+const LATEST_MAIN_Q_PRESERVATION_REVIEW_AT = "2026-09-26T08:32:27Z";
+const LATEST_MAIN_Q_SOURCE_BLOBS = Object.freeze([
+  "5d2b366f34362b575f24606f89c8406d7cc01816",
+  "a7203da8511bf43ea39f751ff1ff9bfc99132d51",
+  "154a7e02d43b8af483b4de005c78c19de21b0f9f"
+]);
+const LATEST_MAIN_Q_SOURCE_SHA256 = Object.freeze([
+  "280a4e2ec708d6ee2c2919ec02b9c0564664d59bb373c4a0174084fb179260b1",
+  "af6df8ee8736520164809463101cf35dd2162860655249734f8ee6fc1640c450",
+  "b37fc1b13fa673a492213e4b28c4a3125fb5059a0074a4b7b77961fe4f502c33"
+]);
+const LATEST_MAIN_Q_AUTHORIZATION_BOUNDARY = Object.freeze({
+  candidateCommitAuthorizedAfterGates: true,
+  oneNonForceBranchPushAuthorizedAfterGates: true,
+  draftPullRequestCreationAuthorizedAfterPush: true,
+  readyMayBeAuthorizedOnlyAfterExactFinalHeadChecks: true,
+  protectedMergeMayBeAuthorizedOnlyAfterExactFinalHeadChecks: true,
+  providerAssignedPullRequestNumber: null,
+  readyAuthorizedNow: false,
+  mergeAuthorizedNow: false,
+  gProductWriteAuthorizedNow: false,
+  localRefDeletionAuthorizedNow: false,
+  deploymentAuthorizedNow: false,
+  cleanupAuthorizedNow: false,
+  directMainPushAuthorized: false,
+  forceAuthorized: false,
+  historyRewriteAuthorized: false,
+  bypassHooksAuthorized: false
+});
+
+const LATEST_MAIN_Q_REPAIR_PARENT = "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e";
+const LATEST_MAIN_Q_REPAIR_PARENT_TREE = "078600631ecb746f8461b6d488479802c739399c";
+
+export function latestMainQPostMergeRepairRegistry(candidate) {
+  const result = protectedActivationNativeStructuredClone(candidate);
+  result.qLatestMainConvergenceRemediation.postMergeRepair = {
+    pullRequestNumber: 100,
+    parentCommitSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    parentTreeSha: LATEST_MAIN_Q_REPAIR_PARENT_TREE,
+    additionalCommitCount: 1,
+    allowedPaths: [...PR86_DELIVERY_PATHS],
+    nonForceUpdateFromSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    postMergeObservationOnly: true,
+    forceAuthorized: false,
+    readyAuthorized: false,
+    mergeAuthorized: false
+  };
+  const q = result.qLatestMainConvergenceRemediation;
+  q.providerAssignedPullRequestNumber = 100;
+  Object.assign(q.authorizationBoundary, {
+    providerAssignedPullRequestNumber: 100,
+    oneNonForceBranchPushAuthorizedAfterGates: false,
+    draftPullRequestCreationAuthorizedAfterPush: false,
+    oneNonForceRepairUpdateAuthorizedAfterGates: true
+  });
+  q.requiredExecution = q.requiredExecution.map((step) => ({
+    "commit-only-the-three-governance-paths-on-the-dedicated-branch": "commit-one-additional-three-path-repair-on-preserved-pr100-parent",
+    "push-one-non-force-create-only-branch-ref-after-live-main-and-remote-absence-readback": "push-one-non-force-update-from-exact-pr100-parent-after-live-main-and-ref-readback",
+    "create-one-draft-pr-and-read-back-the-provider-assigned-number": "retain-existing-pr100-as-draft-and-read-back-its-exact-final-head"
+  })[step] ?? step);
+  const item = result.workItems.find((entry) => entry.taskId === LATEST_MAIN_Q_TASK);
+  const branch = result.branches.find((entry) => entry.name === LATEST_MAIN_Q_BRANCH);
+  Object.assign(item, {
+    prNumber: 100, noPrReason: null, prIsDraft: true, prReadyForReview: false,
+    dirtyState: "staged-pr100-single-bounded-post-merge-repair",
+    evidenceState: { ...item.evidenceState,
+      local: "One additional three-path repair is authorized on the preserved b8355c0 parent; old Q is unchanged.",
+      ci: "PR100 initial b8355c0 checks passed; the additional repair requires fresh exact-head checks."
+    }
+  });
+  Object.assign(branch, {
+    upstream: `origin/${LATEST_MAIN_Q_BRANCH}`, upstreamState: "live", upstreamCacheState: "present",
+    remotePresent: true, remoteHeadSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    remoteObservedAt: "2026-09-20T06:10:13.996142Z",
+    pr: 100, noPrReason: null, prHeadSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    prState: "OPEN", prIsDraft: true, prReadyForReview: false,
+    closeout: "PR100 remains Draft; one non-force repair update from b8355c0 is authorized after gates. Ready and merge remain separately gated."
+  });
+  return result;
+}
+
+function latestMainQRepairSourceAllowed() {
+  return protectedMainAdvanceObjectSha(`${LATEST_MAIN_Q_REPAIR_PARENT}^{tree}`) === LATEST_MAIN_Q_REPAIR_PARENT_TREE &&
+    sameJson(protectedMainAdvanceCommitParents(LATEST_MAIN_Q_REPAIR_PARENT), [LATEST_MAIN_Q_SOURCE_COMMIT]) &&
+    sameJson(protectedMainAdvanceChangedPaths(LATEST_MAIN_Q_SOURCE_COMMIT, LATEST_MAIN_Q_REPAIR_PARENT), PR86_DELIVERY_PATHS);
+}
+
+let latestMainQSourceCache = null;
+function latestMainQConvergenceRemediationSource() {
+  if (!latestMainQSourceCache) {
+    if (
+      protectedMainAdvanceObjectSha(`${LATEST_MAIN_Q_SOURCE_COMMIT}^{tree}`) !==
+        LATEST_MAIN_Q_SOURCE_TREE ||
+      !sameJson(
+        protectedMainAdvanceCommitParents(LATEST_MAIN_Q_SOURCE_COMMIT),
+        [LATEST_MAIN_Q_SOURCE_PARENT]
+      )
+    ) {
+      throw new Error("rule=latest-main-q-convergence-source-invalid");
+    }
+    for (const [index, relativePath] of PR86_DELIVERY_PATHS.entries()) {
+      const blob = protectedMainAdvanceObjectSha(
+        `${LATEST_MAIN_Q_SOURCE_COMMIT}:${relativePath}`
+      );
+      if (
+        blob !== LATEST_MAIN_Q_SOURCE_BLOBS[index] ||
+        sha256Buffer(git(["cat-file", "blob", blob]).stdout) !==
+          LATEST_MAIN_Q_SOURCE_SHA256[index]
+      ) {
+        throw new Error("rule=latest-main-q-convergence-source-invalid");
+      }
+    }
+    latestMainQSourceCache = loadRegistryFromCommit(
+      LATEST_MAIN_Q_SOURCE_COMMIT
+    ).parsed;
+  }
+  return protectedActivationNativeStructuredClone(latestMainQSourceCache);
+}
+
+function latestMainQPredecessorPRegistry() {
+  const predecessor = loadRegistryFromCommit(
+    LATEST_MAIN_Q_PREDECESSOR_P_COMMIT
+  ).parsed;
+  if (
+    protectedMainAdvanceObjectSha(
+      `${LATEST_MAIN_Q_PREDECESSOR_P_COMMIT}^{tree}`
+    ) !== LATEST_MAIN_Q_PREDECESSOR_P_TREE ||
+    !sameJson(
+      protectedMainAdvanceCommitParents(
+        LATEST_MAIN_Q_PREDECESSOR_P_COMMIT
+      ),
+      [LATEST_MAIN_Q_PREDECESSOR_O_COMMIT]
+    ) ||
+    !sameJson(
+      protectedMainAdvanceChangedPaths(
+        LATEST_MAIN_Q_PREDECESSOR_O_COMMIT,
+        LATEST_MAIN_Q_PREDECESSOR_P_COMMIT
+      ),
+      PR86_DELIVERY_PATHS
+    ) ||
+    !sameJson(
+      PR86_DELIVERY_PATHS.map((relativePath) =>
+        protectedMainAdvanceObjectSha(
+          `${LATEST_MAIN_Q_PREDECESSOR_P_COMMIT}:${relativePath}`
+        )
+      ),
+      LATEST_MAIN_Q_PREDECESSOR_P_BLOBS
+    ) ||
+    predecessor?.pOPr89PrePushCustodyRemediation?.source?.commitSha !==
+      LATEST_MAIN_Q_PREDECESSOR_O_COMMIT
+  ) {
+    throw new Error("rule=latest-main-q-predecessor-p-invalid");
+  }
+  return predecessor;
+}
+
+// Exact historical observations, not an authorization or a generic squash-merge
+// acceptance rule. Actual Git objects and fresh provider records must both match.
+const LATEST_MAIN_Q_HISTORICAL_PULL_REQUESTS = Object.freeze(
+[
+{
+  "number": 38,
+  "branch": "codex/sena-evidenceflow-v1-20260828",
+  "headSha": "a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
+  "landingSha": "4998e217d14b8854e702f6fdff1562b9dcdadadf",
+  "parentSha": "9fd76f602661f38720d167be4df9c8fd6edf09ad",
+  "treeSha": "174170a2580112f40a4e87e4c2acc8177ba47669",
+  "mergedAt": "2026-09-15T18:36:23Z"
+},
+  {
+    "number": 90,
+    "branch": "cursor/sena-registry-heartbeat-currentness-d2fa",
+    "headSha": "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+    "landingSha": "9fd76f602661f38720d167be4df9c8fd6edf09ad",
+    "parentSha": "84867c93ff23acb4be98c29c08feb10102138568",
+    "treeSha": "933d4d76e136d550df460f965b7456f276771329",
+    "mergedAt": "2026-09-15T18:16:13Z"
+  },
+  {
+    "number": 91,
+    "branch": "cursor/fix-canonical-snapshot-drift-85b6",
+    "headSha": "93e8fa37d698897d2e5d6a0b7dff3756ad07fdda",
+    "landingSha": "8f4625772137336d53afc1e0e8289dcf703fe177",
+    "parentSha": "4998e217d14b8854e702f6fdff1562b9dcdadadf",
+    "treeSha": "379c4140f3f912be5aa1549081668a6d949dc77f",
+    "mergedAt": "2026-09-16T01:06:59Z"
+  },
+  {
+    "number": 92,
+    "branch": "cursor/human-ai-local-ref-retirement-f16c",
+    "headSha": "d08843664bd07bd42b72786d2341ce56e01a8e76",
+    "landingSha": "a7d7c50373186a7e9f66dde992a4738561eff253",
+    "parentSha": "8f4625772137336d53afc1e0e8289dcf703fe177",
+    "treeSha": "e290fd7182c229d1f19c106b2bdf843fb21d7886",
+    "mergedAt": "2026-09-16T01:44:57Z"
+  },
+  {
+    "number": 93,
+    "branch": "cursor/human-ai-deletion-execution-prep-b7ec",
+    "headSha": "01ab0cf95128caf9065752d4a0930d5d55b10f78",
+    "landingSha": "d055d9d23e369bd16b1c74b18ecf293d6ad0f0e2",
+    "parentSha": "dec29b1d3db404909094024c6e25b4e404b28213",
+    "treeSha": "7ce30d254a4b284279a844acf37c85cb0bf390ff",
+    "mergedAt": "2026-09-16T02:39:06Z"
+  },
+  {
+    "number": 94,
+    "branch": "cursor/h-gov-seven-day-currentness-ecfd",
+    "headSha": "d189581f3dcce27af3617dd93252797acb5f0ce3",
+    "landingSha": "dec29b1d3db404909094024c6e25b4e404b28213",
+    "parentSha": "a7d7c50373186a7e9f66dde992a4738561eff253",
+    "treeSha": "d7b9abf9ce6e8b3446f4c40d4ccce82b331a9481",
+    "mergedAt": "2026-09-16T02:34:49Z"
+  },
+  {
+    "number": 95,
+    "branch": "cursor/test-processenv-typing-21a3",
+    "headSha": "74f112675293710ed37ab2c1f84f6c3b30fe2572",
+    "landingSha": "c8a523c4701c25efc6069b40c93277e5c12013b5",
+    "parentSha": "d055d9d23e369bd16b1c74b18ecf293d6ad0f0e2",
+    "treeSha": "8c7ca3a7c3e86c97fab4ac4fe3f406b200b59a84",
+    "mergedAt": "2026-09-17T08:19:28Z"
+  },
+  {
+    "number": 96,
+    "branch": "cursor/researcher-walkthrough-handoff-949c",
+    "headSha": "4b8d50f463aee73c94a847cb6c79372abdf4170c",
+    "landingSha": "dcc6160d4e6011c7d642234cef14276c3d8d379f",
+    "parentSha": "c8a523c4701c25efc6069b40c93277e5c12013b5",
+    "treeSha": "86726a335ec5c9a255aa2720fa6b6c92351cc1f5",
+    "mergedAt": "2026-09-17T08:36:37Z"
+  },
+  {
+    "number": 97,
+    "branch": "cursor/a4-usability-empty-import-inspector-9f0f",
+    "headSha": "81633f22f95666026dec59257271f31ea37b9884",
+    "landingSha": "24d403a42af7b137907b1c9bdb3c4ed1afbc603d",
+    "parentSha": "099a495477acbdea2d903462bcd6385847f29b29",
+    "treeSha": "8e9550fcd1ef649ab23ab2873620241081fc318a",
+    "mergedAt": "2026-09-18T02:26:39Z"
+  },
+  {
+    "number": 98,
+    "branch": "cursor/sena-currentness-heartbeat-383e",
+    "headSha": "7448f4443b2482771bbadfe0a0550256f9a89304",
+    "landingSha": "099a495477acbdea2d903462bcd6385847f29b29",
+    "parentSha": "dcc6160d4e6011c7d642234cef14276c3d8d379f",
+    "treeSha": "a6db19ae1a021628b10a588cf9f365f2f48367c2",
+    "mergedAt": "2026-09-18T02:23:40Z"
+  },
+  {
+    "number": 99,
+    "branch": "cursor/ai-agent-runs-provenance-adr-d9a4",
+    "headSha": "89ae63d18b52bbd60d7fc0e8b0a5187826e368fc",
+    "landingSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+    "parentSha": "24d403a42af7b137907b1c9bdb3c4ed1afbc603d",
+    "treeSha": "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b",
+    "mergedAt": "2026-09-18T08:26:28Z"
+  }
+].map((record) => Object.freeze(record)));
+
+export function latestMainQHistoricalPullRequestObservationAllowed(number, options = {}) {
+  try {
+    const expected = LATEST_MAIN_Q_HISTORICAL_PULL_REQUESTS.find((record) => record.number === number);
+    if (!expected) return false;
+    if (
+      !sameJson(protectedMainAdvanceCommitParents(expected.landingSha), [expected.parentSha]) ||
+      protectedMainAdvanceObjectSha(`${expected.landingSha}^{tree}`) !== expected.treeSha ||
+      protectedMainAdvanceObjectSha(`${expected.headSha}^{tree}`) !== expected.treeSha ||
+      git(["merge-base", "--is-ancestor", expected.landingSha, LATEST_MAIN_Q_SOURCE_COMMIT],
+        { allowFailure: true }).status !== 0
+    ) return false;
+    const observed = postPr83GithubApiJson(`repos/HUDongpin/SENA/pulls/${number}`, options.githubTransport);
+    return Boolean(
+      pr85PlainJsonData(observed) &&
+      observed.number === expected.number &&
+      observed.state === "closed" && observed.merged === true && observed.draft === false &&
+      observed.merged_at === expected.mergedAt &&
+      observed.merge_commit_sha === expected.landingSha &&
+      observed.head?.ref === expected.branch && observed.head?.sha === expected.headSha &&
+      observed.head?.repo?.full_name === "HUDongpin/SENA" &&
+      observed.base?.ref === "main" && observed.base?.repo?.full_name === "HUDongpin/SENA"
+    );
+  } catch { return false; }
+}
+
+// This verifies only the frozen historical landing segment. Callers must still
+// validate the protected PR89 anchor, final checks and physical host custody.
+export function latestMainQHistoricalLandingSegmentAllowed(fromSha, toSha, options = {}) {
+  try {
+    if (fromSha !== "84867c93ff23acb4be98c29c08feb10102138568" ||
+        toSha !== LATEST_MAIN_Q_SOURCE_COMMIT) return false;
+    const order = [90, 38, 91, 92, 94, 93, 95, 96, 98, 97, 99];
+    const records = order.map((number) => LATEST_MAIN_Q_HISTORICAL_PULL_REQUESTS.find((record) => record.number === number));
+    const readSegment = () => protectedMainAdvanceGitText([
+      "rev-list", "--reverse", "--first-parent", `${fromSha}..${toSha}`
+    ]).split("\n").filter(Boolean);
+    const expected = records.map((record) => record.landingSha);
+    if (!sameJson(readSegment(), expected) ||
+        records.some((record, index) => record.parentSha !== (index === 0 ? fromSha : expected[index - 1]))) return false;
+    const liveMainMatches = () => {
+      const live = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+      const expectedLive = options.qPostLanding &&
+        latestMainQPostLandingBindingMatches(options.qCurrentnessRegistry, options.qPostLanding)
+        ? options.qPostLanding.mergeCommitSha : toSha;
+      return pr85PlainJsonData(live) && live.ref === "refs/heads/main" && live.object?.sha === expectedLive;
+    };
+    if (!liveMainMatches()) return false;
+    for (const number of order) {
+      if (!latestMainQHistoricalPullRequestObservationAllowed(number, options)) return false;
+    }
+    return Boolean(liveMainMatches() && sameJson(readSegment(), expected));
+  } catch { return false; }
+}
+
+export function latestMainQHostCurrentnessObservationAllowed(registry, observedMainSha, proof) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(latestMainQConvergenceRemediationSource(), registry);
+    return Boolean((observedMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
+      registry.qLatestMainConvergenceRemediation.currentnessObservation.mainSha === observedMainSha ||
+      proof?.qPostLanding && latestMainQPostLandingBindingMatches(registry, proof.qPostLanding) &&
+        observedMainSha === proof.qPostLanding.mergeCommitSha) &&
+      pr86DeliveryAuditObservationProofAllowed(registry, observedMainSha, { active: true, proof }));
+  } catch { return false; }
+}
+
+export function latestMainQRemoteOnlyPreservationAllowed(registry, ref, proof) {
+  try {
+    if (!latestMainQHostCurrentnessObservationAllowed(registry, proof?.mergeCommitSha ?? LATEST_MAIN_Q_SOURCE_COMMIT, proof)) return false;
+    const records = registry.qLatestMainConvergenceRemediation.currentnessObservation.remoteOnlyBranches;
+    return records.some((record) => ref?.name === `refs/heads/${record.name}` &&
+      ref.headSha === record.headSha && record.disposition === "preservation-review" &&
+      record.writesAuthorized === false && record.deletionAuthorized === false);
+  } catch { return false; }
+}
+
+export function latestMainQCurrentnessObservation(candidate) {
+  const expected = protectedActivationNativeStructuredClone(candidate);
+  const observedAt = "2026-09-20T02:28:15.580Z";
+  const local = [
+  {
+    "taskId": "SENA-A01-ROOT-CONTROL-PLANE-20260828",
+    "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+    "ahead": 0,
+    "behind": 0
+  },
+  {
+    "taskId": "SENA-EVIDENCEFLOW-V1-20260828",
+    "headSha": "434a1aac542e60e793afef77fb35104cdb470d53",
+    "ahead": 16,
+    "behind": 147
+  },
+  {
+    "taskId": "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+    "headSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+    "ahead": 0,
+    "behind": 52
+  },
+  {
+    "taskId": "SENA-CONVERGENCE-INTEGRATION-20260906",
+    "headSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+    "ahead": 0,
+    "behind": 27
+  },
+  {
+    "taskId": "SENA-CONVERGENCE-CURRENTNESS-20260907",
+    "headSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+    "ahead": 0,
+    "behind": 23
+  },
+  {
+    "taskId": "SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+    "headSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
+    "ahead": 0,
+    "behind": 20
+  }
+];
+  for (const observed of local) {
+    const item = expected.workItems.find((entry) => entry.taskId === observed.taskId);
+    item.headSha = observed.headSha;
+    item.aheadBehind = { baseRef: "origin/main", ahead: observed.ahead, behind: observed.behind };
+    item.lastObservedAt = observedAt;
+    if (item.evidenceState) {
+      item.evidenceState.local = `Read-only observation: local HEAD ${observed.headSha}, ahead ${observed.ahead}/behind ${observed.behind} against main ${LATEST_MAIN_Q_SOURCE_COMMIT}; existing source bytes and custody remain preserved.`;
+      item.evidenceState.live = `Currentness is observed at ${observedAt}; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged.`;
+      if (item.branch === "main") item.evidenceState.merged = "Historical protected-main evidence is preserved in the source registry; current local main is 6d65770 and remains read-only.";
+      if (item.branch === "codex/sena-evidenceflow-v1-20260828") item.evidenceState.merged = "PR38 landed as 4998e217; the distinct local EvidenceFlow source and dirty work remain preserved read-only. No local-source integration or cleanup is claimed.";
+    }
+    if (item.branch === "main") item.dirtyState = "clean-read-only-root-at-6d65770";
+    delete item.aheadBehindObservationMode;
+    delete item.protectedMainBaselineSha;
+  }
+  const main = expected.branches.find((entry) => entry.name === "main");
+  Object.assign(main, { headSha: LATEST_MAIN_Q_SOURCE_COMMIT, remoteHeadSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    remoteObservedAt: observedAt, lastObservedAt: observedAt,
+    closeout: "Current local, cached and live main are observed at 6d65770; root remains read-only. Historical source and incident observations remain preserved." });
+  for (const [number, remoteHeadSha, state] of [
+    [38, "a6d76c3f77fa550e503b8fa3a3faf6ed9c878898", "MERGED"],
+    [46, "ba85b0f66f80669197a2181e9dfab0e0044c9246", "CLOSED"],
+    [86, "2d4226cd81e05c2175732513972fdaf2d3f1efb2", "MERGED"],
+    [87, "7fd9e29c34ee7c1573dc81f4824124faadbae279", "MERGED"]
+  ]) {
+    const branch = expected.branches.find((entry) => entry.pr === number);
+    Object.assign(branch, { remoteHeadSha, prHeadSha: remoteHeadSha, prState: state,
+      remoteObservedAt: observedAt, lastObservedAt: observedAt,
+      closeout: `PR${number} is observed ${state}; local source bytes and existing disposition remain preserved. No source write, deletion, deployment or cleanup is authorized.` });
+    if (state === "MERGED") { branch.prIsDraft = false; branch.prReadyForReview = false; }
+    if (number === 87) branch.headSha = H_GOVERNANCE_SOURCE;
+  }
+  const q = expected.qLatestMainConvergenceRemediation;
+  q.currentnessObservation = {
+    observedAt, mainSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    priorCandidateTreeSha: "765932e62f1ee799245daafbba0172668fd5274b",
+    protectedAnchorSha: "84867c93ff23acb4be98c29c08feb10102138568",
+    local, remoteOnlyBranches: LATEST_MAIN_Q_HISTORICAL_PULL_REQUESTS.filter((entry) => entry.number >= 90).map((entry) => ({
+      name: entry.branch, headSha: entry.headSha, pullRequestNumber: entry.number,
+      landingSha: entry.landingSha, disposition: "preservation-review", writesAuthorized: false, deletionAuthorized: false
+    })),
+    requiresFreshHostProof: true, requiresStrictLiveAudit: true,
+    priorPreCommitDeferredLiveAudit: q.preCommitDeferredLiveAudit
+  };
+  delete q.preCommitDeferredLiveAudit;
+  q.requiredExecution = ["pass-strict-currentness-live-audit-before-the-single-final-commit", ...q.requiredExecution];
+  return expected;
+}
+
+function latestMainQConvergenceRemediationExpectedCandidate(source) {
+  const expected = protectedActivationNativeStructuredClone(source);
+  const item = (taskId) =>
+    expected.workItems.find((entry) => entry.taskId === taskId);
+  const branch = (name) =>
+    expected.branches.find((entry) => entry.name === name);
+  const retirementAuthorization =
+    expected.policy?.localRefRetirementAuthorizations?.find(
+      (entry) => entry.id === HUMAN_AI_RETIREMENT_ID
+    );
+  const retirementItem = item(POST_PR83_FORWARD_RETIREMENT_TASK_ID);
+  const mobileItem = item(MOBILE_PILOT_TASK);
+  const mobileBranch = branch(MOBILE_PILOT_BRANCH);
+  const gItem = item(H_GOVERNANCE_G_TASK);
+  const gBranch = branch(H_GOVERNANCE_G_BRANCH);
+  const ihItem = item(I_H_TASK);
+  const ihBranch = branch(I_H_BRANCH);
+  if (
+    !retirementAuthorization ||
+    !retirementItem ||
+    !mobileItem ||
+    !mobileBranch ||
+    !gItem ||
+    !gBranch ||
+    !ihItem ||
+    !ihBranch
+  ) {
+    throw new Error("rule=latest-main-q-convergence-source-invalid");
+  }
+
+  expected.updatedAt = LATEST_MAIN_Q_RECORDED_AT;
+  retirementAuthorization.status = "expired";
+  retirementItem.aheadBehind = {
+    baseRef: "origin/main",
+    ahead: 8,
+    behind: 73
+  };
+
+  Object.assign(mobileItem, {
+    headSha: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 23 },
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_PRESERVATION_REVIEW_AT,
+    expectedCloseAt: "owner-gated:preserved-mobile-release-custody-review",
+    dirtyState: "clean-preserved-mobile-release-checkout",
+    disposition: "preservation-review",
+    evidenceState: {
+      ...mobileItem.evidenceState,
+      local:
+        "The retained mobile worktree is clean at b9c25385; PR86 and later closeout history are preserved, and this transition grants no source write.",
+      merged:
+        "PR86 is historical and merged; the retained source checkout is preservation-only.",
+      live:
+        "Local b9c25385 and remote 2d4226cd are recorded separately; no provider, deployment, or cleanup action is authorized."
+    }
+  });
+  Object.assign(mobileBranch, {
+    headSha: "b9c25385453ee4da26e261c945dd125b0cd856ab",
+    remoteHeadSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+    remoteObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    prHeadSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+    prState: "CLOSED",
+    prIsDraft: false,
+    prReadyForReview: true,
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_PRESERVATION_REVIEW_AT,
+    expectedCloseAt: "owner-gated:preserved-mobile-release-custody-review",
+    disposition: "preservation-review",
+    closeout:
+      "PR86 is merged; local and remote release refs remain preserved with no write, deployment, or cleanup authority."
+  });
+
+  Object.assign(gItem, {
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 20 },
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_PRESERVATION_REVIEW_AT,
+    expectedCloseAt: "owner-gated:fresh-post-governance-g-reactivation",
+    dirtyState:
+      "frozen-preservation-review-staged-g-exact-152-path-candidate-identity",
+    disposition: "preservation-review",
+    evidenceState: {
+      ...gItem.evidenceState,
+      local:
+        "The exact 152-path staged G identity remains preserved at e366df35 and is frozen pending a fresh post-governance semantic review.",
+      live:
+        "G source writes, push, merge, cleanup, and deployment remain unauthorized."
+    }
+  });
+  Object.assign(gBranch, {
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_PRESERVATION_REVIEW_AT,
+    expectedCloseAt: "owner-gated:fresh-post-governance-g-reactivation",
+    disposition: "preservation-review",
+    closeout:
+      "The exact staged G candidate is frozen in preservation review; reactivation requires a fresh explicit transition."
+  });
+
+  Object.assign(ihItem, {
+    headSha: LATEST_MAIN_Q_PREDECESSOR_P_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 13 },
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_PRESERVATION_REVIEW_AT,
+    expectedCloseAt: "owner-gated:preserved-unlanded-q-source-review",
+    noPrReason:
+      "PR89 is merged at exact head 23f53106; the later local Q bytes never received terminal full-suite evidence and remain preserved without write authority.",
+    dirtyState: "staged-preserved-unlanded-q-three-path-source",
+    disposition: "preservation-review",
+    evidenceState: {
+      ...ihItem.evidenceState,
+      local:
+        "Exact P head 23f53106 and the unlanded staged Q bytes remain preserved in the original I-H worktree.",
+      merged:
+        "PR89 merged P; the unlanded Q successor was never pushed or proposed and is superseded by this latest-main port.",
+      live:
+        "Local and remote I-H refs remain exact 23f53106; no additional source write is authorized."
+    }
+  });
+  Object.assign(ihBranch, {
+    headSha: LATEST_MAIN_Q_PREDECESSOR_P_COMMIT,
+    remoteHeadSha: LATEST_MAIN_Q_PREDECESSOR_P_COMMIT,
+    remoteObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    noPrReason:
+      "PR89 is merged at exact head 23f53106; the later local Q bytes remain preserved and superseded without push authority.",
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_PRESERVATION_REVIEW_AT,
+    expectedCloseAt: "owner-gated:preserved-unlanded-q-source-review",
+    disposition: "preservation-review",
+    closeout:
+      "PR89 landed P; the original unlanded Q worktree is preservation-only while its still-valid semantics are ported from current main."
+  });
+
+  expected.workItems.push({
+    taskId: LATEST_MAIN_Q_TASK,
+    threadId: "01a05865-c301-7223-b74d-96e228b8a435",
+    repo: "/Volumes/Starship/SENA",
+    cwd: LATEST_MAIN_Q_WORKTREE,
+    owner: "Codex SENA latest-main Q convergence writer",
+    ownerKey: "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
+    ownerLane: "SENA-A01 latest-main Q convergence remediation",
+    laneType: "feature",
+    branch: LATEST_MAIN_Q_BRANCH,
+    worktreePath: LATEST_MAIN_Q_WORKTREE,
+    baseSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    headSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    aheadBehind: { baseRef: "origin/main", ahead: 0, behind: 0 },
+    allowedPaths: [...PR86_DELIVERY_PATHS],
+    createdAt: LATEST_MAIN_Q_RECORDED_AT,
+    lastHeartbeatAt: LATEST_MAIN_Q_RECORDED_AT,
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    nextReviewAt: LATEST_MAIN_Q_NEXT_REVIEW_AT,
+    expectedCloseAt: "owner-gated:latest-main-q-protected-pr-lifecycle",
+    prNumber: null,
+    noPrReason:
+      "Three-path candidate is local-only until exact index, test, build, security, and native-hook gates pass; the provider will assign any future PR number.",
+    prIsDraft: false,
+    prReadyForReview: false,
+    mergeAuthorized: false,
+    dirtyState: "staged-latest-main-q-three-path-remediation",
+    sensitivePaths: [],
+    disposition: "active",
+    freezeException: null,
+    evidenceState: {
+      local:
+        "Clean source main 6d65770 is isolated on a dedicated branch; only the three governance paths may change.",
+      ci: "No candidate CI or provider-assigned PR exists yet.",
+      merged: "Not merged; protected merge remains gated on exact-head checks.",
+      deployed: "No deployment is authorized or claimed.",
+      live:
+        "Live main and cached origin/main were exact 6d65770 at source freeze; direct main push is forbidden."
+    }
+  });
+  expected.branches.push({
+    name: LATEST_MAIN_Q_BRANCH,
+    owner: "Codex SENA latest-main Q convergence writer",
+    ownerKey: "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
+    baseSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    headSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    upstream: null,
+    upstreamState: "not-applicable",
+    upstreamCacheState: "not-applicable",
+    remotePresent: false,
+    remoteHeadSha: null,
+    remoteObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    pr: null,
+    noPrReason:
+      "Local three-path candidate has not passed gates or been pushed; no provider PR number is predeclared.",
+    prHeadSha: null,
+    prState: null,
+    prBase: "main",
+    prIsDraft: false,
+    prReadyForReview: false,
+    prStateObservationMode: "monotonic",
+    lastOwnerHeartbeatAt: LATEST_MAIN_Q_RECORDED_AT,
+    lastObservedAt: LATEST_MAIN_Q_RECORDED_AT,
+    lastCommitAt: "2026-09-18T01:26:28-07:00",
+    nextReviewAt: LATEST_MAIN_Q_NEXT_REVIEW_AT,
+    expectedCloseAt: "owner-gated:latest-main-q-protected-pr-lifecycle",
+    disposition: "active",
+    closeout:
+      "Dedicated latest-main candidate; commit, push, Draft PR, Ready, and merge remain individually gated."
+  });
+
+  expected.qLatestMainConvergenceRemediation = {
+    schemaVersion: "sena-q-latest-main-convergence-remediation/v1",
+    status: "exact-latest-main-three-path-candidate-staged",
+    recordedAt: LATEST_MAIN_Q_RECORDED_AT,
+    source: {
+      commitSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+      treeSha: LATEST_MAIN_Q_SOURCE_TREE,
+      orderedParentShas: [LATEST_MAIN_Q_SOURCE_PARENT],
+      exactPaths: [...PR86_DELIVERY_PATHS],
+      blobShas: [...LATEST_MAIN_Q_SOURCE_BLOBS],
+      fileSha256: [...LATEST_MAIN_Q_SOURCE_SHA256]
+    },
+    supersededUnlandedQ: {
+      sourceCommitSha: LATEST_MAIN_Q_PREDECESSOR_P_COMMIT,
+      plannedPullRequestNumber: 90,
+      actualPullRequest90HeadSha:
+        "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+      stagedTreeSha: "d22d536e3f2e158a46acbcd2f5229b930bf618d9",
+      stagedBlobShas: [
+        "cb72c1296a2bd9f5c3dae50151cf55bcdb25dace",
+        "eb4285c013813d9bb75ed9b65ffc3c33a1332965",
+        "a6dbef7fb5d5af2ebf5db7a6d3b692f40fc111ac"
+      ],
+      canonicalDiffSha256:
+        "ae5a60b3d2d123e32960f1b49c7aa2af86e58a1e608466aae498725659e2911a",
+      fullIndexDiffSha256:
+        "8f4aa0b41fccb2cdb53eac01cad47d99fb85b26f7a15a9dfb232d5be8802a3cc",
+      indexEntriesSha256:
+        "cd7c128d9b1051f2d7c46d733efc20d2c115ab5b41f1a079a5cd3a0dc9befcd5",
+      statusSha256:
+        "c5ba3bdc8545aeafd197d6ecbd6116e2404424e0006998e137dae8b45b37b3d7",
+      terminalStatusFilePresent: false,
+      terminalSummaryPresent: false,
+      completionClaimAllowed: false,
+      bytesPreservedInOriginalWorktree: true
+    },
+    fixes: {
+      evidenceFlowAheadBehindShapeIncludesBaseRef: true,
+      effectiveWriterCountSubtractsVerifiedIntersectionOnly: true,
+      expiredLocalRefReleaseIsNonExecutableHistory: true,
+      protectedRetirementBehind: 73,
+      mobileGAndIHPreservedReadOnly: true
+    },
+    preCommitDeferredLiveAudit: {
+      sourceAuditObservedAt: "2026-09-19T08:37:48.965Z",
+      observedAt: "2026-09-19T13:57:10.417Z",
+      sourceAuditStatus: "fail",
+      sourceErrorCount: 51,
+      currentErrorCount: 11,
+      errors: [
+        "mobile pilot merged checkout lacks exact live release-verification custody",
+        "branch head differs from registry: main",
+        "branch head differs from registry: codex/sena-pr86-delivery-closeout-20260907",
+        "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+        "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+        "workItem ahead/behind differs from registry: SENA-EVIDENCEFLOW-V1-20260828",
+        "workItem ahead/behind differs from registry: SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+        "workItem ahead/behind differs from registry: SENA-CONVERGENCE-INTEGRATION-20260906",
+        "workItem ahead/behind differs from registry: SENA-CONVERGENCE-CURRENTNESS-20260907",
+        "workItem headSha is not a permitted forward-only allowed-path advance: SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+        "workItem ahead/behind differs from registry: SENA-PR86-DELIVERY-CLOSEOUT-20260907"
+      ],
+      preCommitOnly: true,
+      liveAuditPassClaimed: false,
+      postMainAuditPassClaimed: false,
+      requiresSeparateLandedMainCurrentnessTransition: true,
+      authorityExpanded: false
+    },
+    providerAssignedPullRequestNumber: null,
+    requiredExecution: [
+      "pass-exact-index-registry-write-policy-security-and-native-precommit-gates",
+      "pass-the-complete-current-governance-suite-with-no-timeout-or-assertion-failure",
+      "commit-only-the-three-governance-paths-on-the-dedicated-branch",
+      "push-one-non-force-create-only-branch-ref-after-live-main-and-remote-absence-readback",
+      "create-one-draft-pr-and-read-back-the-provider-assigned-number",
+      "verify-exact-final-head-build-and-security-checks-before-ready",
+      "use-one-protected-merge-with-exact-head-lease-and-no-admin-bypass",
+      "verify-post-main-checks-and-commit-bound-live-audit-before-any-g-reactivation",
+      "keep-local-ref-deletion-deployment-and-cleanup-gated"
+    ],
+    authorizationBoundary: { ...LATEST_MAIN_Q_AUTHORIZATION_BOUNDARY },
+    authorityExpanded: false
+  };
+  return latestMainQCurrentnessObservation(expected);
+}
+
+function latestMainQConvergenceRemediationStructurallyAllowed(
+  sourceRegistry,
+  candidateRegistry
+) {
+  try {
+    const source = latestMainQConvergenceRemediationSource();
+    return Boolean(
+      pr85PlainJsonData(sourceRegistry) &&
+        pr85PlainJsonData(candidateRegistry) &&
+        isDeepStrictEqual(sourceRegistry, source) &&
+        (isDeepStrictEqual(candidateRegistry, latestMainQConvergenceRemediationExpectedCandidate(source)) ||
+          (latestMainQRepairSourceAllowed() && isDeepStrictEqual(candidateRegistry,
+            latestMainQPostMergeRepairRegistry(latestMainQConvergenceRemediationExpectedCandidate(source)))))
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function validateLatestMainQConvergenceRemediationTransition(
+  sourceRegistry,
+  candidateRegistry
+) {
+  if (
+    !latestMainQConvergenceRemediationStructurallyAllowed(
+      sourceRegistry,
+      candidateRegistry
+    )
+  ) {
+    throw new Error("rule=latest-main-q-convergence-remediation-invalid");
+  }
+  return {
+    sourceCommitSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+    sourceTreeSha: LATEST_MAIN_Q_SOURCE_TREE,
+    predecessorPCommitSha: LATEST_MAIN_Q_PREDECESSOR_P_COMMIT,
+    candidateBranch: LATEST_MAIN_Q_BRANCH,
+    ...candidateRegistry.qLatestMainConvergenceRemediation.authorizationBoundary
+  };
+}
+
+export function latestMainQConvergenceRemediationHistoricalProjection(
+  registry
+) {
+  validateLatestMainQConvergenceRemediationTransition(
+    latestMainQConvergenceRemediationSource(),
+    registry
+  );
+  latestMainQPredecessorPRegistry();
+  return protectedActivationNativeStructuredClone(
+    pOPr89PrePushCustodyRemediationSource()
+  );
+}
+
+export function latestMainQPreCommitDeferredErrorsAllowed(
+  registry,
+  errors,
+  options = {}
+) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(
+      latestMainQConvergenceRemediationSource(),
+      registry
+    );
+    const deferred =
+      registry.qLatestMainConvergenceRemediation
+        .preCommitDeferredLiveAudit;
+    return Boolean(
+      options.preCommit === true &&
+        options.prePush !== true &&
+        options.live === false &&
+        deferred.preCommitOnly === true &&
+        deferred.liveAuditPassClaimed === false &&
+        deferred.postMainAuditPassClaimed === false &&
+        deferred.requiresSeparateLandedMainCurrentnessTransition === true &&
+        deferred.authorityExpanded === false &&
+        deferred.currentErrorCount === deferred.errors.length &&
+        sameJson(errors, deferred.errors)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function latestMainQConvergenceIndexFactsAllowed(registry, facts) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(
+      latestMainQConvergenceRemediationSource(),
+      registry
+    );
+    return pr85PlainJsonData(facts) && isDeepStrictEqual(facts, {
+      repo: "/Volumes/Starship/SENA",
+      worktreePath: LATEST_MAIN_Q_WORKTREE,
+      gitDirectory:
+        "/Volumes/Starship/SENA/.git/worktrees/sena-q-currentness-port-20260919",
+      gitCommonDirectory: "/Volumes/Starship/SENA/.git",
+      markerKind: "gitdir-file",
+      markerValid: true,
+      markerIsSymlink: false,
+      branch: LATEST_MAIN_Q_BRANCH,
+      headSha: registry.qLatestMainConvergenceRemediation.postMergeRepair
+        ? LATEST_MAIN_Q_REPAIR_PARENT : LATEST_MAIN_Q_SOURCE_COMMIT,
+      cachedOriginMainSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+      rootMainSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+      stagedPaths: [...PR86_DELIVERY_PATHS],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      unmerged: false
+    });
+  } catch {
+    return false;
+  }
+}
+
+function latestMainQPreservedUnlandedQPhysicalAllowed(registry) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(
+      latestMainQConvergenceRemediationSource(),
+      registry
+    );
+    const recorded =
+      registry.qLatestMainConvergenceRemediation.supersededUnlandedQ;
+    const marker = markerInfo(I_H_WORKTREE);
+    const registered = parseWorktreeList().find(
+      (entry) => entry.path === I_H_WORKTREE
+    );
+    const local = (args, binary = false) =>
+      git(args, { cwd: I_H_WORKTREE, binary,
+        unsetEnv: ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+          "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"] });
+    const localText = (args) => String(local(args).stdout ?? "").trim();
+    const localSha256 = (args) => sha256Buffer(local(args, true).stdout);
+    const stagedPaths = localText([
+      "diff",
+      "--cached",
+      "--name-only",
+      "--diff-filter=ACMRTD",
+      "--no-renames",
+      "-z"
+    ]).split("\0").filter(Boolean);
+    return Boolean(
+      marker.valid &&
+        marker.kind === "gitdir-file" &&
+        registered?.branch === I_H_BRANCH &&
+        registered?.headSha === LATEST_MAIN_Q_PREDECESSOR_P_COMMIT &&
+        localText(["symbolic-ref", "--quiet", "--short", "HEAD"]) ===
+          I_H_BRANCH &&
+        localText(["rev-parse", "HEAD"]) ===
+          LATEST_MAIN_Q_PREDECESSOR_P_COMMIT &&
+        sameJson(stagedPaths, PR86_DELIVERY_PATHS) &&
+        sameJson(
+          PR86_DELIVERY_PATHS.map((relativePath) =>
+            localText(["rev-parse", `:${relativePath}`])
+          ),
+          recorded.stagedBlobShas
+        ) &&
+        local([
+          "diff-index",
+          "--cached",
+          "--quiet",
+          "--no-ext-diff",
+          "--no-textconv",
+          recorded.stagedTreeSha,
+          "--"
+        ]).status === 0 &&
+        localSha256([
+          "diff",
+          "--cached",
+          "--binary",
+          "--no-ext-diff",
+          "--no-textconv",
+          "HEAD",
+          "--"
+        ]) === recorded.canonicalDiffSha256 &&
+        localSha256([
+          "diff",
+          "--cached",
+          "--binary",
+          "--full-index",
+          "--no-ext-diff",
+          "--no-textconv",
+          "HEAD",
+          "--"
+        ]) === recorded.fullIndexDiffSha256 &&
+        localSha256(["ls-files", "--stage", "-z"]) ===
+          recorded.indexEntriesSha256 &&
+        localSha256([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]) === recorded.statusSha256 &&
+        localText(["diff", "--name-only", "-z"]) === "" &&
+        localText(["ls-files", "--others", "--exclude-standard", "-z"]) ===
+          "" &&
+        localText(["ls-files", "--unmerged", "-z"]) === ""
+    );
+  } catch {
+    return false;
+  }
+}
+
+function latestMainQConvergenceCurrentIndexAllowed(registry) {
+  const facts = hGovernanceCurrentIndexFacts();
+  return Boolean(
+    facts &&
+      latestMainQConvergenceIndexFactsAllowed(registry, facts) &&
+      latestMainQPreservedUnlandedQPhysicalAllowed(registry)
+  );
+}
+
+export function latestMainQCommittedHeadFactsAllowed(registry, facts) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(
+      latestMainQConvergenceRemediationSource(),
+      registry
+    );
+    return Boolean(
+      pr85PlainJsonData(facts) &&
+        facts.branch === LATEST_MAIN_Q_BRANCH &&
+        isSha(facts.currentHeadSha) &&
+        facts.currentHeadSha !== LATEST_MAIN_Q_SOURCE_COMMIT &&
+        sameJson(facts.orderedParentShas, [registry.qLatestMainConvergenceRemediation.postMergeRepair
+          ? LATEST_MAIN_Q_REPAIR_PARENT : LATEST_MAIN_Q_SOURCE_COMMIT]) &&
+        sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
+        facts.cachedMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
+        facts.rootMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
+        facts.outgoingRegistryMatches === true &&
+        facts.clean === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function latestMainQCommittedPhysicalBarrierAllowed(registry) {
+  try {
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    const branchResult = git(
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { allowFailure: true }
+    );
+    return latestMainQCommittedHeadFactsAllowed(registry, {
+      branch:
+        branchResult.status === 0
+          ? String(branchResult.stdout ?? "").trim()
+          : null,
+      currentHeadSha: headSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(headSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        LATEST_MAIN_Q_SOURCE_COMMIT,
+        headSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(headSha).parsed,
+        registry
+      ),
+      clean:
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0
+    });
+  } catch {
+    return false;
+  }
+}
+
+export function latestMainQCreatePushFactsAllowed(registry, facts) {
+  try {
+    return Boolean(
+      !registry?.qLatestMainConvergenceRemediation?.postMergeRepair &&
+        latestMainQCommittedHeadFactsAllowed(registry, facts) &&
+        facts.localRef === `refs/heads/${LATEST_MAIN_Q_BRANCH}` &&
+        facts.localSha === facts.currentHeadSha &&
+        facts.remoteRef === `refs/heads/${LATEST_MAIN_Q_BRANCH}` &&
+        facts.remoteSha === ZERO_SHA &&
+        sameJson(facts.combinedChangedPaths, PR86_DELIVERY_PATHS) &&
+        sameJson(facts.outgoingCommitShas, [facts.localSha]) &&
+        facts.force === false
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function latestMainQPostLandingFactsAllowed(facts) {
+  try {
+    const pr = facts.pullRequest;
+    return Boolean(pr85PlainJsonData(facts) && isSha(facts.mergeCommitSha) && isSha(facts.secondParentSha) &&
+      facts.mergeCommitSha !== facts.secondParentSha && facts.secondParentSha !== LATEST_MAIN_Q_REPAIR_PARENT &&
+      sameJson(facts.orderedParentShas, [LATEST_MAIN_Q_SOURCE_COMMIT, facts.secondParentSha]) &&
+      sameJson(facts.headParentShas, [LATEST_MAIN_Q_REPAIR_PARENT]) &&
+      isSha(facts.mergeTreeSha) && facts.mergeTreeSha === facts.headTreeSha &&
+      sameJson(facts.mergeChangedPaths, PR86_DELIVERY_PATHS) && sameJson(facts.repairChangedPaths, PR86_DELIVERY_PATHS) &&
+      facts.registryMatches === true && facts.namedRemoteSha === facts.secondParentSha &&
+      facts.cachedMainSha === facts.mergeCommitSha && facts.liveMainSha === facts.mergeCommitSha &&
+      pr?.number === 100 && pr.state === "closed" && pr.merged === true && pr.draft === false &&
+      pr.merge_commit_sha === facts.mergeCommitSha && pr.head?.sha === facts.secondParentSha &&
+      pr.head?.ref === LATEST_MAIN_Q_BRANCH && pr.head?.repo?.full_name === "HUDongpin/SENA" &&
+      pr.base?.sha === LATEST_MAIN_Q_SOURCE_COMMIT && pr.base?.ref === "main" && pr.base?.repo?.full_name === "HUDongpin/SENA");
+  } catch { return false; }
+}
+
+// These proofs can only be minted after actual Git objects, provider records,
+// latest-attempt checks and the enforced protected-merge rule suite agree.
+const LATEST_MAIN_Q_POST_LANDING_BINDINGS = new WeakMap();
+function latestMainQPostLandingBindingMatches(registry, proof) {
+  const digest = proof && LATEST_MAIN_Q_POST_LANDING_BINDINGS.get(proof);
+  return Boolean(digest && digest === sha256Buffer(Buffer.from(JSON.stringify(registry))) &&
+    protectedMainAdvanceObjectSha("origin/main^{commit}") === proof.mergeCommitSha);
+}
+
+export function resolveLatestMainQPostLanding(registry, mergeCommitSha, options = {}) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(latestMainQConvergenceRemediationSource(), registry);
+    if (!registry.qLatestMainConvergenceRemediation.postMergeRepair || !latestMainQRepairSourceAllowed()) return null;
+    const readFacts = () => {
+      const pr = postPr83GithubApiJson("repos/HUDongpin/SENA/pulls/100", options.githubTransport);
+      const main = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+      const named = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${LATEST_MAIN_Q_BRANCH}`, options.githubTransport);
+      const head = pr?.head?.sha;
+      if (main?.ref !== "refs/heads/main" || named?.ref !== `refs/heads/${LATEST_MAIN_Q_BRANCH}` || !isSha(head)) return null;
+      return {
+        mergeCommitSha, orderedParentShas: protectedMainAdvanceCommitParents(mergeCommitSha), secondParentSha: head,
+        headParentShas: protectedMainAdvanceCommitParents(head),
+        mergeTreeSha: protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`),
+        headTreeSha: protectedMainAdvanceObjectSha(`${head}^{tree}`),
+        mergeChangedPaths: protectedMainAdvanceChangedPaths(LATEST_MAIN_Q_SOURCE_COMMIT, mergeCommitSha),
+        repairChangedPaths: protectedMainAdvanceChangedPaths(LATEST_MAIN_Q_REPAIR_PARENT, head),
+        registryMatches: isDeepStrictEqual(loadRegistryFromCommit(head).parsed, registry) &&
+          isDeepStrictEqual(loadRegistryFromCommit(mergeCommitSha).parsed, registry),
+        namedRemoteSha: named.object?.sha,
+        cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+        liveMainSha: main.object?.sha, pullRequest: pr
+      };
+    };
+    const facts = readFacts();
+    if (!latestMainQPostLandingFactsAllowed(facts)) return null;
+    const descriptor = { mergeCommitSha, orderedParentShas: facts.orderedParentShas, secondParentSha: facts.secondParentSha };
+    const binding = { beforeSha: LATEST_MAIN_Q_SOURCE_COMMIT, receiptSchema: "sena-pr100-post-merge-rule-suite/v1" };
+    const suiteId = discoverPostPr83RuleSuiteId(descriptor, options.githubTransport, binding);
+    const suite = postPr83GithubApiJson(`repos/HUDongpin/SENA/rulesets/rule-suites/${suiteId}`, options.githubTransport);
+    const receipt = postPr83RuleSuiteReceiptPayload(suite, descriptor, 100, new Date().toISOString(), binding);
+    validateProtectedWorkflowChecks(facts.secondParentSha, LATEST_MAIN_Q_BRANCH, [
+      ["build-gate", "pull_request", "build"], ["repo-security-gate", "pull_request", "repository-security"],
+      ["repo-security-gate", "push", "repository-security"]
+    ], options.githubTransport, LATEST_MAIN_Q_POST_MERGE_CI_POLICY);
+    validateProtectedWorkflowChecks(mergeCommitSha, "main", [
+      ["build-gate", "push", "build"], ["repo-security-gate", "push", "repository-security"]
+    ], options.githubTransport, LATEST_MAIN_Q_POST_MERGE_CI_POLICY);
+    const finalFacts = readFacts();
+    if (!latestMainQPostLandingFactsAllowed(finalFacts) || !isDeepStrictEqual(facts, finalFacts)) return null;
+    const proof = Object.freeze({ mergeCommitSha, finalHeadSha: facts.secondParentSha, treeSha: facts.mergeTreeSha,
+      pullRequestNumber: 100, sourceWritesAuthorized: false, pushAuthorized: false });
+    LATEST_MAIN_Q_POST_LANDING_BINDINGS.set(proof, sha256Buffer(Buffer.from(JSON.stringify(registry))));
+    if (Array.isArray(options.ruleSuiteReceiptCollector)) options.ruleSuiteReceiptCollector.push(receipt);
+    return proof;
+  } catch { return null; }
+}
+
+function latestMainQPostLandingHostAllowed(registry, proof) {
+  try {
+    if (!proof?.qPostLanding || !latestMainQPostLandingBindingMatches(registry, proof.qPostLanding) ||
+        !pr86DeliveryAuditObservationProofAllowed(registry, proof.qPostLanding.mergeCommitSha, { active: true, proof })) return false;
+    const head = proof.qPostLanding.finalHeadSha;
+    const marker = markerInfo(LATEST_MAIN_Q_WORKTREE);
+    const pointer = lstatSync(join(LATEST_MAIN_Q_WORKTREE, ".git"));
+    const common = realpathSync(join(registry.repo, ".git"));
+    const directory = realpathSync(join(common, "worktrees", basename(LATEST_MAIN_Q_WORKTREE)));
+    const registered = parseWorktreeList().find((entry) => entry.path === LATEST_MAIN_Q_WORKTREE);
+    if (!marker.valid || marker.kind !== "gitdir-file" || !pointer.isFile() || pointer.isSymbolicLink() ||
+        realpathSync(LATEST_MAIN_Q_WORKTREE) !== LATEST_MAIN_Q_WORKTREE || realpathSync(marker.target) !== directory ||
+        registered?.branch !== LATEST_MAIN_Q_BRANCH || registered.headSha !== head) return false;
+    const local = (args) => git(args, { cwd: LATEST_MAIN_Q_WORKTREE, allowFailure: true,
+      unsetEnv: ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"] });
+    const text = (args) => { const result = local(args); return result.status === 0 ? String(result.stdout ?? "").trim() : null; };
+    const identityMatches = () =>
+      text(["symbolic-ref", "--quiet", "--short", "HEAD"]) === LATEST_MAIN_Q_BRANCH &&
+      text(["rev-parse", "HEAD"]) === head &&
+      text(["rev-parse", "--absolute-git-dir"]) === directory &&
+      text(["rev-parse", "--path-format=absolute", "--git-common-dir"]) === common;
+    return Boolean(identityMatches() &&
+      local(["diff-index", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", head, "--"]).status === 0 &&
+      text(["status", "--porcelain=v1", "--untracked-files=all"]) === "" &&
+      protectedMainAdvanceObjectSha(`refs/heads/${LATEST_MAIN_Q_BRANCH}`) === head && identityMatches());
+  } catch { return false; }
+}
+
+export function latestMainQPostLandingAuditHeadAllowed(registry, branch, headSha, proof) {
+  if (!latestMainQPostLandingHostAllowed(registry, proof)) return false;
+  if (branch === "main") return headSha === proof.qPostLanding.mergeCommitSha;
+  if (branch === LATEST_MAIN_Q_BRANCH) return headSha === proof.qPostLanding.finalHeadSha;
+  return false;
+}
+
+function latestMainQPostLandingBehindAllowed(registry, item, headSha, observed, proof) {
+  if (!latestMainQPostLandingHostAllowed(registry, proof) || item.aheadBehind?.baseRef !== "origin/main") return false;
+  if (headSha !== item.headSha && !latestMainQPostLandingAuditHeadAllowed(registry, item.branch, headSha, proof)) return false;
+  const actual = actualAheadBehind(headSha, "origin/main");
+  return Boolean(actual && sameJson(actual, observed));
+}
+
+export function latestMainQRepairPushFactsAllowed(registry, facts) {
+  try {
+    return Boolean(registry?.qLatestMainConvergenceRemediation?.postMergeRepair &&
+      latestMainQCommittedHeadFactsAllowed(registry, facts) &&
+      facts.localRef === `refs/heads/${LATEST_MAIN_Q_BRANCH}` && facts.localSha === facts.currentHeadSha &&
+      facts.remoteRef === facts.localRef && facts.remoteSha === LATEST_MAIN_Q_REPAIR_PARENT &&
+      sameJson(facts.combinedChangedPaths, PR86_DELIVERY_PATHS) &&
+      sameJson(facts.outgoingCommitShas, [facts.localSha]) && facts.force === false);
+  } catch { return false; }
+}
+
+function latestMainQCreatePushAuthorized(registry, updates) {
+  try {
+    if (!Array.isArray(updates) || updates.length !== 1) return false;
+    const update = updates[0];
+    const repair = Boolean(registry?.qLatestMainConvergenceRemediation?.postMergeRepair);
+    const base = repair ? LATEST_MAIN_Q_REPAIR_PARENT : LATEST_MAIN_Q_SOURCE_COMMIT;
+    const headSha = gitText(["rev-parse", "HEAD"]).trim();
+    const branchResult = git(
+      ["symbolic-ref", "--quiet", "--short", "HEAD"],
+      { allowFailure: true }
+    );
+    const outgoingCommitText = protectedMainAdvanceGitText([
+      "rev-list",
+      "--reverse",
+      `${base}..${update.localSha}`
+    ]);
+    return (repair ? latestMainQRepairPushFactsAllowed : latestMainQCreatePushFactsAllowed)(registry, {
+      branch:
+        branchResult.status === 0
+          ? String(branchResult.stdout ?? "").trim()
+          : null,
+      currentHeadSha: headSha,
+      orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
+      changedPaths: protectedMainAdvanceChangedPaths(
+        base,
+        update.localSha
+      ),
+      cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+      rootMainSha: protectedMainAdvanceObjectSha("refs/heads/main"),
+      outgoingRegistryMatches: isDeepStrictEqual(
+        loadRegistryFromCommit(update.localSha).parsed,
+        registry
+      ),
+      clean:
+        gitText([
+          "status",
+          "--porcelain=v1",
+          "-z",
+          "--untracked-files=all"
+        ]).length === 0,
+      localRef: update.localRef,
+      localSha: update.localSha,
+      remoteRef: update.remoteRef,
+      remoteSha: update.remoteSha,
+      combinedChangedPaths: protectedMainAdvanceChangedPaths(
+        base,
+        update.localSha
+      ),
+      outgoingCommitShas: outgoingCommitText
+        ? outgoingCommitText.split("\n").filter(Boolean)
+        : [],
+      force: false
+    });
+  } catch {
+    return false;
+  }
+}
+
 function oNPr88OperationalRegistry(registry) {
-  return registry?.pOPr89PrePushCustodyRemediation
-    ? pOPr89PrePushCustodyRemediationHistoricalProjection(registry)
-    : registry;
+  let operationalRegistry = registry;
+  if (operationalRegistry?.qLatestMainConvergenceRemediation) {
+    operationalRegistry =
+      latestMainQConvergenceRemediationHistoricalProjection(
+        operationalRegistry
+      );
+  }
+  return operationalRegistry?.pOPr89PrePushCustodyRemediation
+    ? pOPr89PrePushCustodyRemediationHistoricalProjection(
+        operationalRegistry
+      )
+    : operationalRegistry;
 }
 
 export function pOPr89RemediationIndexFactsAllowed(registry, facts) {
@@ -17526,12 +18864,24 @@ export function validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
     oNPr88PostMainCurrentnessRepairSource(),
     operationalRegistry
   );
+  let exactQCurrentness = false;
+  if ((liveMainSha === LATEST_MAIN_Q_SOURCE_COMMIT ||
+        (options.qPostLanding && latestMainQPostLandingBindingMatches(options.qCurrentnessRegistry, options.qPostLanding) &&
+          liveMainSha === options.qPostLanding.mergeCommitSha)) &&
+      advancedBranchHeadSha === LATEST_MAIN_Q_PREDECESSOR_P_COMMIT &&
+      options.expectedPr89MergeCommitSha === "84867c93ff23acb4be98c29c08feb10102138568" &&
+      options.qCurrentnessRegistry) {
+    validateLatestMainQConvergenceRemediationTransition(
+      latestMainQConvergenceRemediationSource(), options.qCurrentnessRegistry);
+    exactQCurrentness = latestMainQHistoricalLandingSegmentAllowed(
+      options.expectedPr89MergeCommitSha, LATEST_MAIN_Q_SOURCE_COMMIT, options);
+  }
   if (
     !oNPr89FinalHeadShapeAllowed(registry, advancedBranchHeadSha) ||
     !isSha(liveMainSha) ||
-    ![O_N_PROTECTED_MAIN, options.expectedPr89MergeCommitSha]
+    (!exactQCurrentness && ![O_N_PROTECTED_MAIN, options.expectedPr89MergeCommitSha]
       .filter(isSha)
-      .includes(liveMainSha)
+      .includes(liveMainSha))
   ) {
     throw new Error("rule=o-n-pr88-advanced-historical-evidence-invalid");
   }
@@ -18755,11 +20105,22 @@ function postPr83ProtectedLaneContract(item, registry) {
   ) ?? null;
   if (
     contract?.taskId === POST_PR83_FORWARD_RETIREMENT_TASK_ID &&
-    (postPr83ForwardSnapshotExact(registry) || pr85IntegrationSnapshotAllowed(registry))
+    (postPr83ForwardSnapshotExact(registry) ||
+      pr85IntegrationSnapshotAllowed(registry) ||
+      (registry.qLatestMainConvergenceRemediation &&
+        latestMainQConvergenceRemediationStructurallyAllowed(
+          latestMainQConvergenceRemediationSource(),
+          registry
+        )))
   ) {
     return {
       ...contract,
-      behind: 40
+      behind: registry.qLatestMainConvergenceRemediation
+        ? registry.workItems.find(
+            (entry) =>
+              entry.taskId === POST_PR83_FORWARD_RETIREMENT_TASK_ID
+          )?.aheadBehind?.behind
+        : 40
     };
   }
   return contract;
@@ -19028,7 +20389,7 @@ function appendLocalRefRetirementAuthorizationErrors(registry, errors, validatio
       !targetBranchRecord ||
       targetBranchRecord.headSha !== authorization.expectedOldSha ||
       targetBranchRecord.retirementAuthorizationId !== authorization.id ||
-      (new Set(["pending-release", "active"]).has(authorization.status) &&
+      (new Set(["pending-release", "active", "expired"]).has(authorization.status) &&
         (targetBranchRecord.localRefState !== "present" ||
           targetBranchRecord.disposition !== authorization.targetDispositionBeforeRetirement)) ||
       (authorization.status === "consumed" &&
@@ -19072,7 +20433,7 @@ function appendLocalRefRetirementAuthorizationErrors(registry, errors, validatio
       authorization.completedReceiptPath !== null ||
       authorization.completedReceiptSha256 !== null;
     if (
-      new Set(["pending-release", "active"]).has(authorization.status) &&
+      new Set(["pending-release", "active", "expired"]).has(authorization.status) &&
       completionEvidencePresent
     ) {
       errors.push(
@@ -19110,6 +20471,90 @@ function appendLocalRefRetirementAuthorizationErrors(registry, errors, validatio
 
 export function validateRegistry(registry) {
   return validateRegistrySnapshot(registry);
+}
+
+function exactHistoricalConvergenceLifecycleSnapshotAllowed(registry) {
+  const checks = [
+    () =>
+      iHDedicatedLandingTransitionStructurallyAllowed(
+        iHDedicatedLandingSource(),
+        registry
+      ),
+    () =>
+      kILandingLifecycleTransitionStructurallyAllowed(
+        kILandingLifecycleSource(),
+        registry
+      ),
+    () =>
+      lKDraftPrCiRemediationTransitionStructurallyAllowed(
+        lKDraftPrCiRemediationSource(),
+        registry
+      ),
+    () =>
+      mLPortableJEvidenceCiTransitionStructurallyAllowed(
+        mLPortableJEvidenceCiRemediationSource(),
+        registry
+      ),
+    () =>
+      nMPr88FinalAuthorizationTransitionStructurallyAllowed(
+        nMPr88FinalAuthorizationSource(),
+        registry
+      ),
+    () =>
+      oNPr88PostMainCurrentnessRepairTransitionStructurallyAllowed(
+        oNPr88PostMainCurrentnessRepairSource(),
+        registry
+      ),
+    () =>
+      pOPr89PrePushCustodyRemediationTransitionStructurallyAllowed(
+        pOPr89PrePushCustodyRemediationSource(),
+        registry
+      )
+  ];
+  return checks.some((check) => {
+    try {
+      return check();
+    } catch {
+      return false;
+    }
+  });
+}
+
+const HISTORICAL_CONVERGENCE_NON_OPERATIONAL_ERROR_PATTERNS = Object.freeze([
+  /^pending local-ref retirement authorization lacks deletion release:/,
+  /^local-ref retirement authorization is expired:/,
+  /^active workItem .* has no heartbeat for more than 72 hours and must be frozen$/,
+  /^active workItem .* has an overdue nextReviewAt$/,
+  /^active branch .* has an overdue nextReviewAt$/,
+  /^branch .* is older than seven days without a PR and must enter manual preservation review$/,
+  /^workItem SENA-BRANCH-RETIREMENT-20260829 has invalid protected-main merge-chain observation contract$/
+]);
+
+// Historical lifecycle verification is deliberately non-authorizing. It lets
+// exact immutable I-through-P snapshots remain reproducible after their
+// heartbeat/review windows and one-shot local-ref release have expired. Hooks,
+// write policy, push policy, audit, and the normal registry command never use
+// this result.
+export function validateHistoricalConvergenceLifecycleRegistry(registry) {
+  const validation = validateRegistrySnapshot(registry);
+  if (!exactHistoricalConvergenceLifecycleSnapshotAllowed(registry)) {
+    return {
+      ...validation,
+      errors: [
+        ...validation.errors,
+        "rule=historical-convergence-lifecycle-snapshot-not-exact"
+      ]
+    };
+  }
+  return {
+    ...validation,
+    errors: validation.errors.filter(
+      (error) =>
+        !HISTORICAL_CONVERGENCE_NON_OPERATIONAL_ERROR_PATTERNS.some(
+          (pattern) => pattern.test(error)
+        )
+    )
+  };
 }
 
 function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
@@ -21778,8 +23223,50 @@ function validatePr86DeliverySourceEvidence(registry, options = {}) {
   return evidence;
 }
 
+// Q observes a later main while retaining the exact PR89 source checkout.
+// This mints only a commit proof. The caller still collects every physical
+// custody fact before it can bind a host proof or admit an audit observation.
+export function resolveLatestMainQRetainedCurrentnessCommit(registry, headSha, options = {}) {
+  try {
+    const qPostLanding = headSha !== LATEST_MAIN_Q_SOURCE_COMMIT
+      ? resolveLatestMainQPostLanding(registry, headSha, options) : null;
+    if (headSha !== LATEST_MAIN_Q_SOURCE_COMMIT && !qPostLanding) return null;
+    options = { ...options, qCurrentnessRegistry: registry, qPostLanding };
+    validateLatestMainQConvergenceRemediationTransition(latestMainQConvergenceRemediationSource(), registry);
+    if (protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha) return null;
+    validatePr86DeliverySourceEvidence(registry, options);
+    const closeout = pr86DeliveryMergeDescriptor(H_GOVERNANCE_SOURCE);
+    if (!validatePr86DeliveryProtectedMergeDescriptor(closeout, { mergeTimeOnly: true })) return null;
+    validateProtectedFinalHeadLiveGitHubEvidence(closeout,
+      pr86DeliveryItem(closeout.mergeTimeRegistry).prNumber, PR86_DELIVERY_GITHUB_BINDING, options);
+    const anchorSha = "84867c93ff23acb4be98c29c08feb10102138568";
+    const anchor = pr86DeliveryMergeDescriptor(anchorSha);
+    validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(anchor.mergeTimeRegistry,
+      anchor.secondParentSha, headSha, { ...options, expectedPr89MergeCommitSha: anchorSha, qCurrentnessRegistry: registry });
+    validatePr89EvidenceFlowCurrentnessFinalHeadLiveGitHubEvidence(anchor, options);
+    if (!latestMainQHistoricalLandingSegmentAllowed(anchorSha, LATEST_MAIN_Q_SOURCE_COMMIT, options)) return null;
+    validateLatestMainQCurrentWorkflowChecks(options.githubTransport);
+    const live = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+    if (live?.ref !== "refs/heads/main" || live.object?.sha !== headSha ||
+        protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha) return null;
+    return bindMobilePilotReleaseProof({
+      taskId: MOBILE_PILOT_TASK, effectiveRole: "read-only-pr86-delivery-currentness",
+      mergeCommitSha: headSha, sourceMergeCommitSha: PR86_DELIVERY_SOURCE,
+      reviewedHeadSha: PR86_DELIVERY_REVIEWED_MOBILE, treeSha: anchor.mergeTreeSha,
+      closeoutReviewedHeadSha: closeout.secondParentSha,
+      dedicatedLandingReviewedHeadSha: anchor.secondParentSha,
+      dedicatedLandingPullRequestNumber: 89, dedicatedLandingMergeCommitSha: anchorSha,
+      ...(qPostLanding ? { qPostLanding } : {}),
+      sourceWritesAuthorized: false, pushAuthorized: false
+    }, registry, "commit");
+  } catch { return null; }
+}
+
 export function resolvePr86DeliveryCurrentnessCommit(registry, headSha, options = {}) {
   try {
+    if (registry?.qLatestMainConvergenceRemediation) {
+      return resolveLatestMainQRetainedCurrentnessCommit(registry, headSha, options);
+    }
     validatePr86DeliveryOperationalSnapshot(registry);
     if (!isSha(headSha) || protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha) return null;
     validatePr86DeliverySourceEvidence(registry, options);
@@ -21970,6 +23457,9 @@ export function pr86DeliveryAuditObservationProofAllowed(registry, toSha, contex
 export function pr86DeliveryReadOnlyHeadObservationAllowed(registry, proof, branchName, observedHeadSha) {
   try {
     if (!pr86DeliveryCurrentProofMatches(registry, proof)) return false;
+    if (branchName === LATEST_MAIN_Q_BRANCH && proof.qPostLanding) {
+      return latestMainQPostLandingAuditHeadAllowed(registry, branchName, observedHeadSha, proof);
+    }
     const expected = branchName === MOBILE_PILOT_BRANCH ? proof.reviewedHeadSha
       : branchName === PR86_DELIVERY_BRANCH ? proof.closeoutReviewedHeadSha
       : branchName === I_H_BRANCH ? proof.dedicatedLandingReviewedHeadSha
@@ -22005,6 +23495,7 @@ export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostP
         refreshed.dedicatedLandingMergeCommitSha ?? refreshed.mergeCommitSha
       ]);
     }
+    if (refreshed.qPostLanding) lanes.push([LATEST_MAIN_Q_BRANCH, 100, refreshed.mergeCommitSha]);
     for (const [branch, prNumber, mergeSha] of lanes) {
       const remote = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${branch}`, options.githubTransport);
       const pr = postPr83GithubApiJson(`repos/HUDongpin/SENA/pulls/${prNumber}`, options.githubTransport);
@@ -22022,7 +23513,9 @@ export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostP
     // reusing mutable provider responses or retaining a context across commands.
     const context = { active: true, proof: refreshed };
     try {
-      return resolveMobilePilotReleaseVerification(registry, PR86_DELIVERY_SOURCE, { [PR86_DELIVERY_AUDIT_CONTEXT]: context });
+      const finalProof = resolveMobilePilotReleaseVerification(registry, PR86_DELIVERY_SOURCE, { [PR86_DELIVERY_AUDIT_CONTEXT]: context });
+      if (finalProof?.qPostLanding && !latestMainQPostLandingHostAllowed(registry, finalProof)) return null;
+      return finalProof;
     } finally { context.active = false; }
   } catch { return null; }
 }
@@ -22147,6 +23640,20 @@ export function pr88DedicatedLandingRetainedHostObservationAllowed(
   }
 }
 
+export function latestMainQPreservedLandingCustodyAllowed(registry, proof) {
+  try {
+    return Boolean(registry?.qLatestMainConvergenceRemediation &&
+      pr86DeliveryCurrentProofMatches(registry, proof) &&
+      (proof.mergeCommitSha === LATEST_MAIN_Q_SOURCE_COMMIT ||
+        (proof.qPostLanding && latestMainQPostLandingBindingMatches(registry, proof.qPostLanding) &&
+          proof.mergeCommitSha === proof.qPostLanding.mergeCommitSha)) &&
+      proof.dedicatedLandingMergeCommitSha === "84867c93ff23acb4be98c29c08feb10102138568" &&
+      proof.dedicatedLandingReviewedHeadSha === LATEST_MAIN_Q_PREDECESSOR_P_COMMIT &&
+      proof.dedicatedLandingPullRequestNumber === 89 && proof.treeSha === LATEST_MAIN_Q_PREDECESSOR_P_TREE &&
+      latestMainQPreservedUnlandedQPhysicalAllowed(registry));
+  } catch { return false; }
+}
+
 function resolvePr88DedicatedLandingRetainedCustody(registry, proof) {
   try {
     if (!isSha(proof.dedicatedLandingReviewedHeadSha)) return null;
@@ -22161,6 +23668,18 @@ function resolvePr88DedicatedLandingRetainedCustody(registry, proof) {
       lstatSync(join(I_H_WORKTREE, ".git")).isSymbolicLink()
     ) {
       return null;
+    }
+    if (registry.qLatestMainConvergenceRemediation) {
+      if (!latestMainQPreservedLandingCustodyAllowed(registry, proof)) return null;
+      return Object.freeze({
+        schemaVersion: "sena-q-preserved-unlanded-index-custody/v1",
+        repo: realpathSync(CONTROL_ROOT), worktreePath: realpathSync(I_H_WORKTREE),
+        gitDirectory: realpathSync(marker.target), branch: registered.branch,
+        headSha: registered.headSha,
+        stagedTreeSha: registry.qLatestMainConvergenceRemediation.supersededUnlandedQ.stagedTreeSha,
+        indexEntriesSha256: registry.qLatestMainConvergenceRemediation.supersededUnlandedQ.indexEntriesSha256,
+        sourceClean: false, exactPreservedStagedCustody: true
+      });
     }
     const unsetEnv = [
       "GIT_DIR",
@@ -23005,6 +24524,24 @@ function runRegistry(flags) {
   );
 }
 
+function runHistoricalRegistry(flags) {
+  const { parsed } = loadRegistryForFlags(flags);
+  const validation = validateHistoricalConvergenceLifecycleRegistry(parsed);
+  for (const warning of validation.warnings) {
+    process.stderr.write(`SENA_REPO_HISTORICAL_REGISTRY warning=${warning}\n`);
+  }
+  if (validation.errors.length > 0) {
+    for (const error of validation.errors) {
+      process.stderr.write(`SENA_REPO_HISTORICAL_REGISTRY error=${error}\n`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(
+    `SENA_REPO_HISTORICAL_REGISTRY pass workItems=${parsed.workItems.length} branches=${parsed.branches.length} nonAuthorizing=true\n`
+  );
+}
+
 export function resolveHookCustodyDirectory(controlRoot, repoRoot, expectedPath, configuredPath) {
   if (
     typeof expectedPath !== "string" ||
@@ -23216,6 +24753,9 @@ function runAudit(flags) {
     runPortableAudit(registry, validateRegistry(registry));
     return;
   }
+  const isLatestMainQConvergenceRemediation = Boolean(
+    registry.qLatestMainConvergenceRemediation
+  );
   const isPOPr89PrePushCustodyRemediation = Boolean(
     registry.pOPr89PrePushCustodyRemediation
   );
@@ -23238,9 +24778,14 @@ function runAudit(flags) {
     registry.iHDedicatedLandingCandidate
   );
   const committedLifecyclePrePush = Boolean(
-    isKILandingLifecycle && flags.has("pre-push")
+    (isKILandingLifecycle || isLatestMainQConvergenceRemediation) &&
+      flags.has("pre-push")
   );
-  const exactGovernanceIndex = isPOPr89PrePushCustodyRemediation
+  const exactGovernanceIndex = isLatestMainQConvergenceRemediation
+    ? committedLifecyclePrePush
+      ? latestMainQCommittedPhysicalBarrierAllowed(registry)
+      : latestMainQConvergenceCurrentIndexAllowed(registry)
+    : isPOPr89PrePushCustodyRemediation
     ? committedLifecyclePrePush
       ? pOPr89CommittedRemediationBarrierAllowed(registry)
       : pOPr89RemediationCurrentIndexAllowed(registry)
@@ -23274,7 +24819,15 @@ function runAudit(flags) {
     registry.hGovernanceIntake &&
       exactGovernanceIndex &&
       (committedLifecyclePrePush || initialGovernanceIndexSnapshot) &&
-      (isIHDedicatedLanding
+      (isLatestMainQConvergenceRemediation
+        ? committedLifecyclePrePush
+          ? latestMainQCommittedPhysicalBarrierAllowed(registry)
+          : latestMainQConvergenceCurrentIndexAllowed(registry) &&
+            hGovernanceIntakeIndexSnapshotsMatch(
+              initialGovernanceIndexSnapshot,
+              hGovernanceCurrentIndexSnapshot()
+            )
+        : isIHDedicatedLanding
         ? (isKILandingLifecycle
             ? committedLifecyclePrePush
               ? isPOPr89PrePushCustodyRemediation
@@ -23350,7 +24903,8 @@ function runAudit(flags) {
   const observationOptions = auditContext ? { [PR86_DELIVERY_AUDIT_CONTEXT]: auditContext } : {};
   const readOnlyReleaseTasks = new Set([...(mobileRelease ? [mobileRelease.taskId] : []),
     ...(mobileRelease?.closeoutCustody ? [PR86_DELIVERY_TASK] : []),
-    ...(mobileRelease?.dedicatedLandingCustody ? [I_H_TASK] : [])]);
+    ...(mobileRelease?.dedicatedLandingCustody ? [I_H_TASK] : []),
+    ...(latestMainQPostLandingHostAllowed(registry, mobileRelease) ? [LATEST_MAIN_Q_TASK] : [])]);
   const validation = validateMobilePilotHostAuditRegistry(registry, mobileRelease);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   const registered = parseWorktreeList();
@@ -23372,6 +24926,31 @@ function runAudit(flags) {
   );
   const actualBranches = new Map(branches.map((entry) => [entry.name, entry]));
   const registryBranches = new Map((registry.branches ?? []).map((entry) => [entry.name, entry]));
+  const readOnlyActiveWriterTasks = new Set(
+    (registry.workItems ?? [])
+      .filter(
+        (item) =>
+          ACTIVE_WRITE_DISPOSITIONS.has(item.disposition) &&
+          readOnlyReleaseTasks.has(item.taskId)
+      )
+      .map((item) => item.taskId)
+  );
+  const stagedGItem = (registry.workItems ?? []).find(
+    (item) => item.taskId === H_GOVERNANCE_G_TASK
+  );
+  const stagedGActual = actualBranches.get(stagedGItem?.branch);
+  if (
+    stagedGItem &&
+    stagedGActual &&
+    ACTIVE_WRITE_DISPOSITIONS.has(stagedGItem.disposition) &&
+    hGovernanceGUnpushedReadOnlyCustodyAllowed(
+      registry,
+      stagedGItem,
+      stagedGActual
+    )
+  ) {
+    readOnlyActiveWriterTasks.add(stagedGItem.taskId);
+  }
   if (mobileMerge && !mobileRelease) errors.push("mobile pilot merged checkout lacks exact live release-verification custody");
   if (mobilePilotItem(registry) && (flags.has("live") || flags.has("pre-commit") || flags.has("pre-push"))) {
     try { validateMobilePilotSourceEvidence(registry); } catch (error) { errors.push(error.message); }
@@ -23431,6 +25010,7 @@ function runAudit(flags) {
     const activeItem =
       branchItem && ACTIVE_WRITE_DISPOSITIONS.has(branchItem.disposition) && !readOnlyReleaseTasks.has(branchItem.taskId) ? branchItem : null;
     const integratedRootRegistryAdvance =
+      latestMainQPostLandingAuditHeadAllowed(registry, branchRecord.name, actual.headSha, mobileRelease) ||
       branchItem?.headSha === branchRecord.headSha &&
       integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
         branchItem,
@@ -23517,7 +25097,7 @@ function runAudit(flags) {
       }
     }
 
-    const integratedRootRegistryAdvance = integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
+    const integratedRootRegistryAdvance = latestMainQPostLandingAuditHeadAllowed(registry, item.branch, actual.headSha, mobileRelease) || integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
       item,
       actual.headSha,
       registry,
@@ -23554,6 +25134,8 @@ function runAudit(flags) {
     } else if (observed.ahead !== item.aheadBehind.ahead || observed.behind !== item.aheadBehind.behind) {
       if (isReadOnlyRelease) {
         // Exact release/root custody was independently derived above.
+      } else if (latestMainQPostLandingBehindAllowed(registry, item, actual.headSha, observed, mobileRelease)) {
+        warnings.push(`preserved lane observed only the exact PR100 landing: ${item.taskId}`);
       } else if (pr86DeliveryRetainedMainAdvanceAllowed(registry, item.taskId, actual.headSha, observed, mobileRelease)) {
         warnings.push(`retained owner observation advanced only behind the verified PR86 closeout main: ${item.taskId}`);
       } else if (
@@ -23620,7 +25202,9 @@ function runAudit(flags) {
     }
     if (registry.hGovernanceIntake && !exactGovernanceAtWriteBarrier) {
       errors.push(
-        isPOPr89PrePushCustodyRemediation
+        isLatestMainQConvergenceRemediation
+          ? "rule=latest-main-q-convergence-index-identity-invalid"
+          : isPOPr89PrePushCustodyRemediation
           ? "rule=p-o-pr89-pre-push-custody-remediation-index-identity-invalid"
           : isONPr88PostMainCurrentnessRepair
           ? "rule=o-n-pr88-post-main-currentness-repair-index-identity-invalid"
@@ -23707,7 +25291,8 @@ function runAudit(flags) {
               )).allowed
           : git(["merge-base", "--is-ancestor", recordedIncidentMainSha, liveMainSha], { allowFailure: true }).status === 0)
       );
-      if (isPermittedForwardMainObservation) {
+      if (isPermittedForwardMainObservation ||
+          latestMainQHostCurrentnessObservationAllowed(registry, liveMainSha, mobileRelease)) {
         warnings.push("live main advanced beyond the incident observation lower bound");
       } else {
         errors.push("live main does not match or descend from the registry live-main observation");
@@ -23730,7 +25315,10 @@ function runAudit(flags) {
       if (contaminated) ownerBlockers.push(`live remote ref contains prohibited credential history: ${ref.name}`);
       if (ref.name.startsWith("refs/heads/")) {
         const name = ref.name.slice("refs/heads/".length);
-        if (!registryBranches.has(name)) errors.push(`live remote branch lacks governance disposition: ${name}`);
+        if (!registryBranches.has(name) &&
+            !latestMainQRemoteOnlyPreservationAllowed(registry, ref, mobileRelease)) {
+          errors.push(`live remote branch lacks governance disposition: ${name}`);
+        }
       }
     }
     for (const branchRecord of registry.branches ?? []) {
@@ -23764,7 +25352,9 @@ function runAudit(flags) {
                 ).allowed
               : git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0)
           );
-          if (isPermittedForwardAdvance) {
+          if (latestMainQPostLandingAuditHeadAllowed(registry, branchRecord.name, liveHeadSha, mobileRelease)) {
+            warnings.push(`remote branch observed the exact PR100 landing: ${branchRecord.name}`);
+          } else if (isPermittedForwardAdvance) {
             warnings.push(`active remote branch advanced beyond its last observed SHA: ${branchRecord.name}`);
           } else if (isPermittedLowerBoundObservation) {
             warnings.push(`remote branch advanced beyond its observation lower bound: ${branchRecord.name}`);
@@ -23863,7 +25453,9 @@ function runAudit(flags) {
     (flags.has("pre-commit") || flags.has("pre-push")) &&
     !governanceAuditFinalBarrierAllowed() &&
     !errors.includes(
-      isPOPr89PrePushCustodyRemediation
+      isLatestMainQConvergenceRemediation
+        ? "rule=latest-main-q-convergence-barrier-invalid"
+        : isPOPr89PrePushCustodyRemediation
         ? "rule=p-o-pr89-pre-push-custody-remediation-barrier-invalid"
         : isONPr88PostMainCurrentnessRepair
         ? "rule=o-n-pr88-post-main-currentness-repair-barrier-invalid"
@@ -23881,7 +25473,9 @@ function runAudit(flags) {
     )
   ) {
     errors.push(
-      isPOPr89PrePushCustodyRemediation
+      isLatestMainQConvergenceRemediation
+        ? "rule=latest-main-q-convergence-barrier-invalid"
+        : isPOPr89PrePushCustodyRemediation
         ? "rule=p-o-pr89-pre-push-custody-remediation-barrier-invalid"
         : isONPr88PostMainCurrentnessRepair
         ? "rule=o-n-pr88-post-main-currentness-repair-barrier-invalid"
@@ -23899,6 +25493,21 @@ function runAudit(flags) {
     );
   }
 
+  if (
+    latestMainQPreCommitDeferredErrorsAllowed(registry, errors, {
+      preCommit: flags.has("pre-commit"),
+      prePush: flags.has("pre-push"),
+      live: flags.has("live")
+    })
+  ) {
+    for (const error of errors) {
+      warnings.push(
+        `latest-main Q pre-commit deferred live-audit error: ${error}`
+      );
+    }
+    errors.length = 0;
+  }
+
   const report = {
     schemaVersion: "sena-repo-governance-audit/v1",
     generatedAt: new Date().toISOString(),
@@ -23912,7 +25521,8 @@ function runAudit(flags) {
     rescueRefCount: rescueRefs.length,
     unreachableCommitCount: unreachableCommits.length,
     activeWriterCount: validation.activeWriterCount,
-    effectiveActiveWriterCount: validation.activeWriterCount - readOnlyReleaseTasks.size,
+    effectiveActiveWriterCount:
+      validation.activeWriterCount - readOnlyActiveWriterTasks.size,
     mobilePilotReleaseVerification: mobileRelease,
     postPr83RuleSuiteReceiptCustody: {
       mode: "external-task-output-not-repo-persistence",
@@ -24204,6 +25814,7 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs push-policy --remote-name origin < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs deletion-boundary --authorization-registry-commit SHA < updates\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs registry [--registry PATH]\n`);
+  process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs historical-registry [--registry PATH] # non-authorizing exact I-through-P replay only\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs audit [--live] [--registry-from-index|--registry-from-commit SHA] [--output PATH]\n`);
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs inventory --output PATH\n`);
 }
@@ -24219,6 +25830,7 @@ function main() {
     if (command === "push-policy") return runPushPolicy(flags);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);
     if (command === "registry") return runRegistry(flags);
+    if (command === "historical-registry") return runHistoricalRegistry(flags);
     if (command === "audit") return runAudit(flags);
     if (command === "inventory") return runInventory(flags);
     if (command === "help" || flags.has("help")) return printUsage();

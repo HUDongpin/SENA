@@ -1,6 +1,6 @@
 {
   "schemaVersion": "sena-repo-governance/v1",
-  "updatedAt": "2026-09-16T01:32:00Z",
+  "updatedAt": "2026-09-19T08:32:27Z",
   "repo": "/Volumes/Starship/SENA",
   "policy": {
     "rootCheckoutRole": "read-only coordination, synchronization, integration, and release verification",
@@ -266,7 +266,7 @@
     "localRefRetirementAuthorizations": [
       {
         "id": "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829",
-        "status": "pending-release",
+        "status": "expired",
         "purpose": "archive-ref-retirement",
         "predecessorAuthorizationId": null,
         "ref": "refs/heads/codex/sena-human-ai-research-docs",
@@ -1051,32 +1051,30 @@
       "branch": "main",
       "worktreePath": "/Volumes/Starship/SENA",
       "baseSha": "91f832d183efcf8c5cc8307c922c5677b63dab44",
-      "headSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+      "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 23
+        "behind": 0
       },
-      "aheadBehindObservationMode": "protected-main-merge-chain",
-      "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
       "allowedPaths": [
         "<read-only coordination, synchronization, integration, and release verification only>"
       ],
       "createdAt": "2026-08-27T18:29:01Z",
       "lastHeartbeatAt": "2026-09-01T03:18:16Z",
-      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "prNumber": null,
       "noPrReason": "Root is the read-only control plane on protected main; feature work uses registered branches and worktrees.",
-      "dirtyState": "clean-read-only-root-at-a8da142-observing-pr83-protected-main-c1a7eb3",
+      "dirtyState": "clean-read-only-root-at-6d65770",
       "sensitivePaths": [],
       "evidenceState": {
-        "local": "root control checkout remains clean at exact local main a8da14209a9e14a3a53e29e13c86ae8eecbd5928 with no staged, unstaged, or untracked paths",
+        "local": "Read-only observation: local HEAD 6d65770dbae5db94d9c99decdddbebe3d978b8ae, ahead 0/behind 0 against main 6d65770dbae5db94d9c99decdddbebe3d978b8ae; existing source bytes and custody remain preserved.",
         "ci": "PR83 final build/security and protected-main post-merge build/security checks succeeded with zero annotations; these workflows did not run the full governance suite",
-        "merged": "PR83 final head 1cc64c17 merged at 2026-09-03T02:15:42Z as protected main c1a7eb3e with ordered parents 0f74b592 and 1cc64c17; root intentionally remains read-only at a8da142",
+        "merged": "Historical protected-main evidence is preserved in the source registry; current local main is 6d65770 and remains read-only.",
         "deployed": "not authorized and not claimed",
-        "live": "live and fetched main are exact c1a7eb3e; root local main remains exact a8da142, ahead 0/behind 23, and read-only. Only accepted protected-main merge-chain advances may increase behind; PR46 and forward-fix mutations remain frozen"
+        "live": "Currentness is observed at 2026-09-20T02:28:15.580Z; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged."
       },
       "disposition": "integrated"
     },
@@ -2740,10 +2738,8 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 16,
-        "behind": 133
+        "behind": 147
       },
-      "aheadBehindObservationMode": "pr88-preserved-monotonic-behind",
-      "protectedMainBaselineSha": "876fa148e253f200c790105f377adc7af9e078aa",
       "allowedPaths": [
         "sena-hk-template/app/api/sena/workflows/**",
         "sena-hk-template/app/api/sena/analyze/route.ts",
@@ -2768,7 +2764,7 @@
       ],
       "createdAt": "2026-08-27T18:54:04Z",
       "lastHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-09-08T21:33:46Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "nextReviewAt": "2026-09-10T21:33:46Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "prNumber": 38,
@@ -2780,11 +2776,11 @@
       "sensitivePaths": [],
       "activationCondition": "The ten confirmed review findings remain the authorized remediation scope. At exact local HEAD 434a1aac, EF-R2-09 now has focused RED/GREEN evidence: deterministic analysis/import/reliability request idempotency, source/reviewer upload custody, same-key replay, changed-payload conflict, and 4 focused files / 24 tests PASS. Candidate commit/push, PR38 Ready/merge, deployment, provider mutation, branch-retirement PR46 intake/Ready/merge, CAS, receipt minting, target-ref mutation, and history rewrite remain prohibited pending final remediation reviews, full verifier, and a later protected release.",
       "evidenceState": {
-        "local": "EvidenceFlow remains byte-preserved at exact local head/tree 434a1aac/66d9867 with 0 staged, 76 unstaged tracked and 10 untracked paths; against landed PR88 main 876fa148 it is ahead 16/behind 133.",
+        "local": "Read-only observation: local HEAD 434a1aac542e60e793afef77fb35104cdb470d53, ahead 16/behind 147 against main 6d65770dbae5db94d9c99decdddbebe3d978b8ae; existing source bytes and custody remain preserved.",
         "ci": "PR 38 exact head 40438885 passed build 33190293487 and repository-security 33190289095/33190293484; check jobs 98913757103/98913741715/98913757130 each have zero annotations",
-        "merged": "EvidenceFlow remains unmerged and read-only; PR38 remote/head remain exact 40438885 while local head 434a1aac is preserved. No candidate commit/push/Ready/merge is authorized.",
+        "merged": "PR38 landed as 4998e217; the distinct local EvidenceFlow source and dirty work remain preserved read-only. No local-source integration or cleanup is claimed.",
         "deployed": "not authorized and not performed",
-        "live": "The 2026-09-08T21:33:46Z observer binds landed main 876fa148 and exact EvidenceFlow head/tree/status. Future acceptance is limited to ahead 16 with monotonically increasing behind while product bytes, index and owner heartbeat remain untouched."
+        "live": "Currentness is observed at 2026-09-20T02:28:15.580Z; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged."
       },
       "currentR2Heartbeat": {
         "recordedAt": "2026-08-31T05:47:35Z",
@@ -4417,7 +4413,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 8,
-        "behind": 40
+        "behind": 73
       },
       "aheadBehindObservationMode": "protected-main-merge-chain",
       "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
@@ -6288,17 +6284,15 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 7
+        "behind": 52
       },
-      "aheadBehindObservationMode": "protected-main-merge-chain",
-      "protectedMainBaselineSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
         "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
       ],
       "createdAt": "2026-09-02T15:18:52Z",
       "lastHeartbeatAt": "2026-09-02T15:51:17Z",
-      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:protected-heartbeat-then-forward-fix-pr",
       "prNumber": null,
@@ -6310,11 +6304,11 @@
         "sena-hk-template/All API Keys.docx"
       ],
       "evidenceState": {
-        "local": "the worktree preserves two staged allowed paths at exact staged tree 79d9f63c; independent review rejected commit or push with P0=2 P1=2 P2=2 P3=0",
+        "local": "Read-only observation: local HEAD 0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6, ahead 0/behind 52 against main 6d65770dbae5db94d9c99decdddbebe3d978b8ae; existing source bytes and custody remain preserved.",
         "ci": "no forward-fix CI exists; PR82 final and post-main build/security checks do not prove the clean-final full governance suite",
         "merged": "not merged and not authorized; exact local frozen head is 0f74b592 and protected main is c1a7eb3e",
         "deployed": "not in scope and not authorized",
-        "live": "no named remote and no PR exist for the forward-fix branch; exact head 0f74b592 is ahead 0/behind 7 from c1a7eb3e, and only accepted protected-main merge-chain advances may increase behind; commit, push, PR creation, Ready, merge, cleanup, deletion, deployment, and PR46 mutation are frozen"
+        "live": "Currentness is observed at 2026-09-20T02:28:15.580Z; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged."
       },
       "disposition": "frozen-recovery",
       "freezeException": null
@@ -6567,11 +6561,11 @@
       "branch": "codex/sena-mobile-research-pilot-20260905",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-mobile-research-pilot-20260905",
       "baseSha": "c782aa03940028a2c19db18dfddec55370c797b1",
-      "headSha": "ab0c561cf31b23a22a3b958270aa6117156978eb",
+      "headSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 2,
-        "behind": 0
+        "ahead": 0,
+        "behind": 23
       },
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
@@ -6627,25 +6621,25 @@
       ],
       "createdAt": "2026-09-05T12:11:22Z",
       "lastHeartbeatAt": "2026-09-18T02:18:00Z",
-      "lastObservedAt": "2026-09-18T02:18:00Z",
-      "nextReviewAt": "2026-09-20T02:18:00Z",
-      "expectedCloseAt": "owner-gated:mobile-research-pilot-exact-merge-release-verification",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
+      "nextReviewAt": "2026-09-26T08:32:27Z",
+      "expectedCloseAt": "owner-gated:preserved-mobile-release-custody-review",
       "prNumber": 86,
       "noPrReason": null,
       "prState": "OPEN",
       "prIsDraft": true,
       "prReadyForReview": false,
       "prHeadSha": "ab0c561cf31b23a22a3b958270aa6117156978eb",
-      "dirtyState": "active-mobile-pilot-registry-final-heartbeat",
+      "dirtyState": "clean-preserved-mobile-release-checkout",
       "sensitivePaths": [],
-      "disposition": "active",
+      "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
-        "local": "Product candidate ab0c561cf31b23a22a3b958270aa6117156978eb tree1d805d1ebc8a90c0244cde626dfedec39565c8c4 committed and pushed through native hooks. Full precommit frozen-source pilot:3268 passed,2 existing opt-in real-Postgres skips,governance144/144,456 mobile checks and all original browser smokes; later observation-only text delta documented. Actual clean ab0c561 build and strict performance passed:835928/848000 bytes,12072 reserve versus12000 required. Exact artifacts in /Volumes/Starship/SENA-backups/protected-integration-release-20260905.PliCF1: PR86-DRAFT-CANDIDATE-CLOSEOUT-ab0c561-20260907.json SHA2567a5171ca55e86b189a679c9d263542ebb1ed02aadf233ae120af8598765de380; final-strict-performance-ab0c561-20260907.json SHA256aa71f02124ff0a142f46420e36b373f1e1db8ff51789d3a660714830ede615c7. This is registry-only final observation, not a claim its new commit or future merge was tested. Owner now authorizes registry-only closeout,new-head gates,Ready,protected merge commit,ordinary FF and exact-main verification. No provider writes,deployment,cleanup,force,reset,rebase,stash,history rewrite or hook/admin bypass. Stop on unexplained drift. Research inputs remain separate.",
+        "local": "The retained mobile worktree is clean at b9c25385; PR86 and later closeout history are preserved, and this transition grants no source write.",
         "ci": "Exact ab0c561: PR build34085663174/job101629100865,PR security34085663131/job101629100793,push security34085660920/job101629094578; all latest attempt1 success and annotations0. Receipt PR86-EXACT-HEAD-CI-ab0c561-20260907.json SHA25655b438b705a83b9c4c781ee49b65065d9c37b0185505ed08ee3021f54f37b1b2. This final heartbeat commit and subsequent main require their own exact-head CI.",
-        "merged": "PR86 remains OPEN/Draft on mainc782aa03 at this observation; Ready and protected merge newly authorized but not performed.",
+        "merged": "PR86 is historical and merged; the retained source checkout is preservation-only.",
         "deployed": "No deployment authorized.",
-        "live": "Local/upstream/live branch/PR86 equal ab0c561; live mainc782aa03. GitHub currentness only; no deployment or live application proof."
+        "live": "Local b9c25385 and remote 2d4226cd are recorded separately; no provider, deployment, or cleanup action is authorized."
       },
       "mobilePilotLifecycle": {
         "schemaVersion": "sena-mobile-pilot-lane/v1",
@@ -6681,7 +6675,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 4
+        "behind": 27
       },
       "allowedPaths": [
         "20260802_SENA_Functional Coverage Ledger.md",
@@ -6838,7 +6832,7 @@
       ],
       "createdAt": "2026-09-07T14:25:43Z",
       "lastHeartbeatAt": null,
-      "lastObservedAt": "2026-09-07T14:25:43Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "nextReviewAt": "2026-09-09T14:30:00Z",
       "expectedCloseAt": "owner-gated:retained-convergence-owner-disposition",
       "prNumber": null,
@@ -6848,11 +6842,11 @@
       "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
-        "local": "Exact retained HEAD and staged tree observed; source and index remain owner-controlled.",
+        "local": "Read-only observation: local HEAD c782aa03940028a2c19db18dfddec55370c797b1, ahead 0/behind 27 against main 6d65770dbae5db94d9c99decdddbebe3d978b8ae; existing source bytes and custody remain preserved.",
         "ci": "No candidate CI claim.",
         "merged": "Not merged.",
         "deployed": "No deployment authorized.",
-        "live": "Observer record only; owner heartbeat is not asserted."
+        "live": "Currentness is observed at 2026-09-20T02:28:15.580Z; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged."
       },
       "preservationObservation": {
         "schemaVersion": "sena-pr86-retained-owner-observation/v1",
@@ -6883,7 +6877,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 23
       },
       "allowedPaths": [
         "20260802_SENA_Functional Coverage Ledger.md",
@@ -7041,7 +7035,7 @@
       ],
       "createdAt": "2026-09-07T14:25:43Z",
       "lastHeartbeatAt": null,
-      "lastObservedAt": "2026-09-07T17:02:06Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "nextReviewAt": "2026-09-09T14:30:00Z",
       "expectedCloseAt": "owner-gated:retained-convergence-owner-disposition",
       "prNumber": null,
@@ -7051,11 +7045,11 @@
       "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
-        "local": "Owner-confirmed stable retained 152-path candidate; product review remains pending. Exact stage-0 entries and dirty status observed; no source write, push, merge or cleanup authority granted.",
+        "local": "Read-only observation: local HEAD b9c25385453ee4da26e261c945dd125b0cd856ab, ahead 0/behind 23 against main 6d65770dbae5db94d9c99decdddbebe3d978b8ae; existing source bytes and custody remain preserved.",
         "ci": "No candidate CI claim.",
         "merged": "Not merged.",
         "deployed": "No deployment authorized.",
-        "live": "Observer record only; owner heartbeat is not asserted."
+        "live": "Currentness is observed at 2026-09-20T02:28:15.580Z; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged."
       },
       "preservationObservation": {
         "schemaVersion": "sena-pr86-retained-owner-observation/v1",
@@ -7086,7 +7080,7 @@
       "aheadBehind": {
         "baseRef": "origin/main",
         "ahead": 0,
-        "behind": 0
+        "behind": 20
       },
       "allowedPaths": [
         "20260802_SENA_Functional Coverage Ledger.md",
@@ -7244,21 +7238,21 @@
       ],
       "createdAt": "2026-09-08T06:35:00Z",
       "lastHeartbeatAt": "2026-09-18T02:18:00Z",
-      "lastObservedAt": "2026-09-18T02:18:00Z",
-      "nextReviewAt": "2026-09-20T02:18:00Z",
-      "expectedCloseAt": "owner-gated:g-candidate-exact-review-and-separate-authorization",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
+      "nextReviewAt": "2026-09-26T08:32:27Z",
+      "expectedCloseAt": "owner-gated:fresh-post-governance-g-reactivation",
       "prNumber": null,
       "noPrReason": "Exact frozen G candidate is registered for local custody and review only; no commit, push, PR, CI, merge or deployment is authorized.",
-      "dirtyState": "staged-g-exact-152-path-candidate-identity",
+      "dirtyState": "frozen-preservation-review-staged-g-exact-152-path-candidate-identity",
       "sensitivePaths": [],
-      "disposition": "active",
+      "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
-        "local": "Registered G host at protected Q contains the exact frozen 152-path staged candidate bound by explicit SHA-256 identities.",
+        "local": "The exact 152-path staged G identity remains preserved at e366df35 and is frozen pending a fresh post-governance semantic review.",
         "ci": "No G candidate CI is authorized or claimed.",
         "merged": "G candidate is not committed, pushed, proposed or merged.",
         "deployed": "No deployment is authorized or performed.",
-        "live": "Local custody observation only; remote and provider mutation remain prohibited."
+        "live": "G source writes, push, merge, cleanup, and deployment remain unauthorized."
       },
       "candidateIdentity": {
         "stagedTreeSha": "f1468029f6a309b46894a2c557b03fe8514e5e85",
@@ -7288,11 +7282,11 @@
       "branch": "codex/sena-h-governance-intake-20260908",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-h-governance-intake-20260908",
       "baseSha": "876fa148e253f200c790105f377adc7af9e078aa",
-      "headSha": "62417d31d399af892c28d9112bcc829850062013",
+      "headSha": "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
-        "behind": 1
+        "ahead": 0,
+        "behind": 13
       },
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
@@ -7301,24 +7295,24 @@
       ],
       "createdAt": "2026-09-08T09:22:20Z",
       "lastHeartbeatAt": "2026-09-18T02:18:00Z",
-      "lastObservedAt": "2026-09-18T02:18:00Z",
-      "nextReviewAt": "2026-09-20T02:18:00Z",
-      "expectedCloseAt": "owner-gated:pr89-pre-push-custody-remediation",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
+      "nextReviewAt": "2026-09-26T08:32:27Z",
+      "expectedCloseAt": "owner-gated:preserved-unlanded-q-source-review",
       "prNumber": null,
-      "noPrReason": "The committed O repair was retained after its native pre-push audit failed closed; P stages one exact custody remediation before the same one-ref update and Draft PR #89.",
+      "noPrReason": "PR89 is merged at exact head 23f53106; the later local Q bytes never received terminal full-suite evidence and remain preserved without write authority.",
       "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "dirtyState": "staged-p-o-pr89-pre-push-custody-remediation",
+      "dirtyState": "staged-preserved-unlanded-q-three-path-source",
       "sensitivePaths": [],
-      "disposition": "active",
+      "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
-        "local": "O commit 62417d31 is clean and retained after a native pre-push dry-run failed closed; P stages only the three governance paths.",
+        "local": "Exact P head 23f53106 and the unlanded staged Q bytes remain preserved in the original I-H worktree.",
         "ci": "PR #88 final and post-main build/security checks passed at attempt 1 with zero annotations; P has not been pushed and has no CI yet.",
-        "merged": "PR #88 remains merged as 876fa148; PR #89 does not yet exist and P must repair only committed-transition custody before the branch update.",
+        "merged": "PR89 merged P; the unlanded Q successor was never pushed or proposed and is superseded by this latest-main port.",
         "deployed": "Deployment remains gated on landed-main and target verification.",
-        "live": "Main is exact 876fa148, the remote governance branch remains a8ee572f, and local 62417d31 is the preserved unpushed O commit."
+        "live": "Local and remote I-H refs remain exact 23f53106; no additional source write is authorized."
       }
     },
     {
@@ -7333,11 +7327,11 @@
       "branch": "codex/sena-pr86-delivery-closeout-20260907",
       "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
       "baseSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
-      "headSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
+      "headSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
       "aheadBehind": {
         "baseRef": "origin/main",
-        "ahead": 1,
-        "behind": 0
+        "ahead": 0,
+        "behind": 20
       },
       "allowedPaths": [
         "coordination/repo-governance/active-work.json",
@@ -7346,7 +7340,7 @@
       ],
       "createdAt": "2026-09-07T14:25:43Z",
       "lastHeartbeatAt": "2026-09-07T18:04:20Z",
-      "lastObservedAt": "2026-09-07T18:04:20Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "nextReviewAt": "2026-09-09T14:30:00Z",
       "expectedCloseAt": "owner-gated:historical-pr86-h-candidate-preservation",
       "prNumber": 87,
@@ -7356,11 +7350,11 @@
       "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
-        "local": "Historical PR86 checkout is read-only and preserves the exact independently reviewed H three-path staged tree.",
+        "local": "Read-only observation: local HEAD e366df35d8304ddc0c2b5d963301b8a9324e2975, ahead 0/behind 20 against main 6d65770dbae5db94d9c99decdddbebe3d978b8ae; existing source bytes and custody remain preserved.",
         "ci": "No new PR86 or H remote CI is authorized or claimed by I.",
         "merged": "Historical PR86/PR87 lifecycle remains immutable; H is uncommitted and is not landed.",
         "deployed": "No deployment is authorized or performed.",
-        "live": "Local preservation custody only; source writes, push, merge, cleanup and provider mutation remain prohibited."
+        "live": "Currentness is observed at 2026-09-20T02:28:15.580Z; exact live host proof is required. Owner heartbeat, disposition and write permissions are unchanged."
       },
       "prState": "OPEN",
       "prIsDraft": true,
@@ -7388,6 +7382,51 @@
         "pushAuthorized": false,
         "mergeAuthorized": false,
         "cleanupAuthorized": false
+      }
+    },
+    {
+      "taskId": "SENA-Q-LATEST-MAIN-CONVERGENCE-20260919",
+      "threadId": "01a05865-c301-7223-b74d-96e228b8a435",
+      "repo": "/Volumes/Starship/SENA",
+      "cwd": "/Volumes/Starship/SENA/.worktrees/sena-q-currentness-port-20260919",
+      "owner": "Codex SENA latest-main Q convergence writer",
+      "ownerKey": "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
+      "ownerLane": "SENA-A01 latest-main Q convergence remediation",
+      "laneType": "feature",
+      "branch": "codex/sena-q-currentness-port-20260919",
+      "worktreePath": "/Volumes/Starship/SENA/.worktrees/sena-q-currentness-port-20260919",
+      "baseSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      "aheadBehind": {
+        "baseRef": "origin/main",
+        "ahead": 0,
+        "behind": 0
+      },
+      "allowedPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "createdAt": "2026-09-19T08:32:27Z",
+      "lastHeartbeatAt": "2026-09-19T08:32:27Z",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
+      "nextReviewAt": "2026-09-21T08:32:27Z",
+      "expectedCloseAt": "owner-gated:latest-main-q-protected-pr-lifecycle",
+      "prNumber": 100,
+      "noPrReason": null,
+      "prIsDraft": true,
+      "prReadyForReview": false,
+      "mergeAuthorized": false,
+      "dirtyState": "staged-pr100-single-bounded-post-merge-repair",
+      "sensitivePaths": [],
+      "disposition": "active",
+      "freezeException": null,
+      "evidenceState": {
+        "local": "One additional three-path repair is authorized on the preserved b8355c0 parent; old Q is unchanged.",
+        "ci": "PR100 initial b8355c0 checks passed; the additional repair requires fresh exact-head checks.",
+        "merged": "Not merged; protected merge remains gated on exact-head checks.",
+        "deployed": "No deployment is authorized or claimed.",
+        "live": "Live main and cached origin/main were exact 6d65770 at source freeze; direct main push is forbidden."
       }
     }
   ],
@@ -7504,24 +7543,24 @@
       "owner": "SENA-A01",
       "ownerKey": "SENA-A01",
       "baseSha": "b19ba83b7e82e5811a3f1eb7dc2ebdcfe90f0d30",
-      "headSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
+      "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
       "targetSha": "a8da14209a9e14a3a53e29e13c86ae8eecbd5928",
       "upstream": "origin/main",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "c1a7eb3e5a7ee359d49c03d2ce93a879fcce1fd3",
+      "remoteHeadSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
       "remoteObservationMode": "lower-bound",
-      "remoteObservedAt": "2026-09-03T06:15:00Z",
+      "remoteObservedAt": "2026-09-20T02:28:15.580Z",
       "pr": null,
       "noPrReason": "Control-plane main branch; no feature PR is created from local main.",
       "lastOwnerHeartbeatAt": "2026-09-01T03:18:16Z",
-      "lastObservedAt": "2026-09-03T06:15:00Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "lastCommitAt": "2026-09-01T12:44:53+08:00",
       "nextReviewAt": "2026-09-04T06:15:00Z",
       "expectedCloseAt": "owner-gated:root-control-plane-remains-read-only",
       "disposition": "integrated",
-      "closeout": "root local main remains clean read-only a8da142 while fetched and live protected main are exact c1a7eb3e after PR83. The 23-commit behind baseline is recorded; only the exact protected-main merge-chain mode may accept later growth, and this record authorizes no root mutation"
+      "closeout": "Current local, cached and live main are observed at 6d65770; root remains read-only. Historical source and incident observations remain preserved."
     },
     {
       "name": "codex/sena-a01-repo-governance-20260827",
@@ -8256,24 +8295,24 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
-      "remoteObservedAt": "2026-09-02T15:51:17Z",
+      "remoteHeadSha": "a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
+      "remoteObservedAt": "2026-09-20T02:28:15.580Z",
       "pr": 38,
-      "prState": "OPEN",
-      "prIsDraft": true,
+      "prState": "MERGED",
+      "prIsDraft": false,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "40438885c422fd559ce9edcf2ac01a867e56bdd3",
+      "prHeadSha": "a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
       "prBase": "main",
       "noPrReason": null,
       "prStateObservationMode": "monotonic",
       "lastOwnerHeartbeatAt": "2026-08-31T05:47:35Z",
-      "lastObservedAt": "2026-09-02T15:51:17Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "lastCommitAt": "2026-08-29T14:23:57+08:00",
       "nextReviewAt": "2026-09-03T15:51:17Z",
       "expectedCloseAt": "2026-09-11T18:54:04Z",
       "disposition": "preservation-review",
-      "closeout": "Draft PR38 cached/live remote and PR head remain exact 40438885; local owner head/tree remain exact 434a1aac/66d9867 against protected main 0f74b592, ahead 16/behind 95, plus 76 unstaged tracked and 10 untracked bounded paths. PR38 remains OPEN/Draft/MERGEABLE/BEHIND and candidate commit/push/Ready/merge remain false; this observer currentness does not refresh the owner heartbeat"
+      "closeout": "PR38 is observed MERGED; local source bytes and existing disposition remain preserved. No source write, deletion, deployment or cleanup is authorized."
     },
     {
       "name": "codex/sena-branch-retirement-20260829",
@@ -8285,23 +8324,23 @@
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "e24c635d1f53fccb2264c6be002aec2775de127c",
-      "remoteObservedAt": "2026-09-04T14:33:23Z",
+      "remoteHeadSha": "ba85b0f66f80669197a2181e9dfab0e0044c9246",
+      "remoteObservedAt": "2026-09-20T02:28:15.580Z",
       "pr": 46,
-      "prState": "OPEN",
+      "prState": "CLOSED",
       "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "prHeadSha": "e24c635d1f53fccb2264c6be002aec2775de127c",
+      "prHeadSha": "ba85b0f66f80669197a2181e9dfab0e0044c9246",
       "prBase": "main",
       "noPrReason": null,
       "lastOwnerHeartbeatAt": "2026-09-01T02:50:50Z",
-      "lastObservedAt": "2026-09-04T14:33:23Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "lastCommitAt": "2026-09-01T09:23:34+08:00",
       "nextReviewAt": "2026-09-05T14:33:23Z",
       "expectedCloseAt": "owner-gated:exact-ref-retirement-and-quarantine-closeout",
       "disposition": "frozen-recovery",
-      "closeout": "local, cached named remote, live named remote, and live Draft PR46 head remain exact clean e24c635; against live protected main b2d07177 it is ahead 8/behind 40 and CONFLICTING/DIRTY. Observer timestamps do not change owner heartbeats or authorize PR46, CAS, cleanup, ref, tag, quarantine, receipt minting, worktree, orphan, deployment, provider, or history mutation",
+      "closeout": "PR46 is observed CLOSED; local source bytes and existing disposition remain preserved. No source write, deletion, deployment or cleanup is authorized.",
       "mergeable": "CONFLICTING",
       "mergeStateStatus": "DIRTY",
       "prStateObservationMode": "monotonic"
@@ -8515,28 +8554,28 @@
       "owner": "Codex SENA mobile research pilot writer",
       "ownerKey": "Codex-sena-mobile-research-pilot-20260905",
       "baseSha": "c782aa03940028a2c19db18dfddec55370c797b1",
-      "headSha": "ab0c561cf31b23a22a3b958270aa6117156978eb",
+      "headSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
       "upstream": "origin/codex/sena-mobile-research-pilot-20260905",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "ab0c561cf31b23a22a3b958270aa6117156978eb",
-      "remoteObservedAt": "2026-09-18T02:18:00Z",
+      "remoteHeadSha": "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+      "remoteObservedAt": "2026-09-20T02:28:15.580Z",
       "pr": 86,
       "noPrReason": null,
-      "prHeadSha": "ab0c561cf31b23a22a3b958270aa6117156978eb",
-      "prState": "OPEN",
+      "prHeadSha": "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+      "prState": "MERGED",
       "prBase": "main",
-      "prIsDraft": true,
+      "prIsDraft": false,
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
       "lastOwnerHeartbeatAt": "2026-09-18T02:18:00Z",
-      "lastObservedAt": "2026-09-18T02:18:00Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
       "lastCommitAt": "2026-09-18T10:20:00+08:00",
-      "nextReviewAt": "2026-09-20T02:18:00Z",
-      "expectedCloseAt": "owner-gated:mobile-research-pilot-exact-merge-release-verification",
-      "disposition": "active",
-      "closeout": "Registry-only final heartbeat binds reviewed product ab0c561 and its exact-head CI/clean strict performance. Owner authorized Ready and protected merge after new-head verification, followed by ordinary FF and exact-main receipt. Keep all branches/worktrees/source/evidence. No deployment,provider writes,cleanup or bypass. No future SHA or completion invented."
+      "nextReviewAt": "2026-09-26T08:32:27Z",
+      "expectedCloseAt": "owner-gated:preserved-mobile-release-custody-review",
+      "disposition": "preservation-review",
+      "closeout": "PR86 is observed MERGED; local source bytes and existing disposition remain preserved. No source write, deletion, deployment or cleanup is authorized."
     },
     {
       "name": "codex/sena-convergence-integration-20260906",
@@ -8615,27 +8654,27 @@
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
       "lastOwnerHeartbeatAt": "2026-09-18T02:18:00Z",
-      "lastObservedAt": "2026-09-18T02:18:00Z",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
       "lastCommitAt": "2026-09-18T10:18:00+08:00",
-      "nextReviewAt": "2026-09-20T02:18:00Z",
-      "expectedCloseAt": "owner-gated:g-candidate-exact-review-and-separate-authorization",
-      "disposition": "active",
-      "closeout": "H registers exact local G custody and a frozen 152-path identity only; all external activation remains separately gated."
+      "nextReviewAt": "2026-09-26T08:32:27Z",
+      "expectedCloseAt": "owner-gated:fresh-post-governance-g-reactivation",
+      "disposition": "preservation-review",
+      "closeout": "The exact staged G candidate is frozen in preservation review; reactivation requires a fresh explicit transition."
     },
     {
       "name": "codex/sena-h-governance-intake-20260908",
       "owner": "Codex SENA I-H dedicated landing candidate writer",
       "ownerKey": "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
       "baseSha": "876fa148e253f200c790105f377adc7af9e078aa",
-      "headSha": "62417d31d399af892c28d9112bcc829850062013",
+      "headSha": "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
       "upstream": "origin/codex/sena-h-governance-intake-20260908",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "a8ee572f2ca322384a9673e6d151890e5ce6b81f",
-      "remoteObservedAt": "2026-09-18T02:18:00Z",
+      "remoteHeadSha": "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+      "remoteObservedAt": "2026-09-19T08:32:27Z",
       "pr": null,
-      "noPrReason": "The committed O repair was retained after its native pre-push audit failed closed; P stages one exact custody remediation before the same one-ref update and Draft PR #89.",
+      "noPrReason": "PR89 is merged at exact head 23f53106; the later local Q bytes remain preserved and superseded without push authority.",
       "prHeadSha": null,
       "prState": null,
       "prBase": "main",
@@ -8643,40 +8682,68 @@
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
       "lastOwnerHeartbeatAt": "2026-09-18T02:18:00Z",
-      "lastObservedAt": "2026-09-18T02:18:00Z",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
       "lastCommitAt": "2026-09-18T10:19:00+08:00",
-      "nextReviewAt": "2026-09-20T02:18:00Z",
-      "expectedCloseAt": "owner-gated:pr89-pre-push-custody-remediation",
-      "disposition": "active",
-      "closeout": "PR #88 is merged; committed O is retained locally and P repairs only the failed pre-push retained-custody transition before Draft PR #89."
+      "nextReviewAt": "2026-09-26T08:32:27Z",
+      "expectedCloseAt": "owner-gated:preserved-unlanded-q-source-review",
+      "disposition": "preservation-review",
+      "closeout": "PR89 landed P; the original unlanded Q worktree is preservation-only while its still-valid semantics are ported from current main."
     },
     {
       "name": "codex/sena-pr86-delivery-closeout-20260907",
       "owner": "Codex SENA PR86 delivery closeout writer",
       "ownerKey": "Codex-sena-pr86-delivery-closeout-20260907",
       "baseSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
-      "headSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
+      "headSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
       "upstream": "origin/codex/sena-pr86-delivery-closeout-20260907",
       "upstreamState": "live",
       "upstreamCacheState": "present",
       "remotePresent": true,
-      "remoteHeadSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
-      "remoteObservedAt": "2026-09-07T18:04:20Z",
+      "remoteHeadSha": "7fd9e29c34ee7c1573dc81f4824124faadbae279",
+      "remoteObservedAt": "2026-09-20T02:28:15.580Z",
       "pr": 87,
       "noPrReason": null,
-      "prHeadSha": "1b19c1c0d5cfb8d89c90ada641d250890080d19d",
+      "prHeadSha": "7fd9e29c34ee7c1573dc81f4824124faadbae279",
+      "prState": "MERGED",
+      "prBase": "main",
+      "prIsDraft": false,
+      "prReadyForReview": false,
+      "prStateObservationMode": "monotonic",
+      "lastOwnerHeartbeatAt": "2026-09-07T18:04:20Z",
+      "lastObservedAt": "2026-09-20T02:28:15.580Z",
+      "lastCommitAt": "2026-09-08T01:54:14+08:00",
+      "nextReviewAt": "2026-09-09T14:30:00Z",
+      "expectedCloseAt": "owner-gated:pr86-delivery-protected-closeout",
+      "disposition": "preservation-review",
+      "closeout": "PR87 is observed MERGED; local source bytes and existing disposition remain preserved. No source write, deletion, deployment or cleanup is authorized."
+    },
+    {
+      "name": "codex/sena-q-currentness-port-20260919",
+      "owner": "Codex SENA latest-main Q convergence writer",
+      "ownerKey": "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
+      "baseSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      "upstream": "origin/codex/sena-q-currentness-port-20260919",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": true,
+      "remoteHeadSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "remoteObservedAt": "2026-09-20T06:10:13.996142Z",
+      "pr": 100,
+      "noPrReason": null,
+      "prHeadSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
       "prState": "OPEN",
       "prBase": "main",
       "prIsDraft": true,
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
-      "lastOwnerHeartbeatAt": "2026-09-07T18:04:20Z",
-      "lastObservedAt": "2026-09-07T18:04:20Z",
-      "lastCommitAt": "2026-09-08T01:54:14+08:00",
-      "nextReviewAt": "2026-09-09T14:30:00Z",
-      "expectedCloseAt": "owner-gated:pr86-delivery-protected-closeout",
-      "disposition": "preservation-review",
-      "closeout": "Historical PR86 checkout preserves the exact reviewed H staged tree read-only; I moves future governance work to a dedicated local candidate lane without landing H."
+      "lastOwnerHeartbeatAt": "2026-09-19T08:32:27Z",
+      "lastObservedAt": "2026-09-19T08:32:27Z",
+      "lastCommitAt": "2026-09-18T01:26:28-07:00",
+      "nextReviewAt": "2026-09-21T08:32:27Z",
+      "expectedCloseAt": "owner-gated:latest-main-q-protected-pr-lifecycle",
+      "disposition": "active",
+      "closeout": "PR100 remains Draft; one non-force repair update from b8355c0 is authorized after gates. Ready and merge remain separately gated."
     }
   ],
   "orphanWorktrees": [
@@ -13728,6 +13795,271 @@
       "forceAuthorized": false,
       "historyRewriteAuthorized": false,
       "bypassHooksAuthorized": false
+    }
+  },
+  "qLatestMainConvergenceRemediation": {
+    "schemaVersion": "sena-q-latest-main-convergence-remediation/v1",
+    "status": "exact-latest-main-three-path-candidate-staged",
+    "recordedAt": "2026-09-19T08:32:27Z",
+    "source": {
+      "commitSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      "treeSha": "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b",
+      "orderedParentShas": [
+        "24d403a42af7b137907b1c9bdb3c4ed1afbc603d"
+      ],
+      "exactPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "blobShas": [
+        "5d2b366f34362b575f24606f89c8406d7cc01816",
+        "a7203da8511bf43ea39f751ff1ff9bfc99132d51",
+        "154a7e02d43b8af483b4de005c78c19de21b0f9f"
+      ],
+      "fileSha256": [
+        "280a4e2ec708d6ee2c2919ec02b9c0564664d59bb373c4a0174084fb179260b1",
+        "af6df8ee8736520164809463101cf35dd2162860655249734f8ee6fc1640c450",
+        "b37fc1b13fa673a492213e4b28c4a3125fb5059a0074a4b7b77961fe4f502c33"
+      ]
+    },
+    "supersededUnlandedQ": {
+      "sourceCommitSha": "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+      "plannedPullRequestNumber": 90,
+      "actualPullRequest90HeadSha": "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+      "stagedTreeSha": "d22d536e3f2e158a46acbcd2f5229b930bf618d9",
+      "stagedBlobShas": [
+        "cb72c1296a2bd9f5c3dae50151cf55bcdb25dace",
+        "eb4285c013813d9bb75ed9b65ffc3c33a1332965",
+        "a6dbef7fb5d5af2ebf5db7a6d3b692f40fc111ac"
+      ],
+      "canonicalDiffSha256": "ae5a60b3d2d123e32960f1b49c7aa2af86e58a1e608466aae498725659e2911a",
+      "fullIndexDiffSha256": "8f4aa0b41fccb2cdb53eac01cad47d99fb85b26f7a15a9dfb232d5be8802a3cc",
+      "indexEntriesSha256": "cd7c128d9b1051f2d7c46d733efc20d2c115ab5b41f1a079a5cd3a0dc9befcd5",
+      "statusSha256": "c5ba3bdc8545aeafd197d6ecbd6116e2404424e0006998e137dae8b45b37b3d7",
+      "terminalStatusFilePresent": false,
+      "terminalSummaryPresent": false,
+      "completionClaimAllowed": false,
+      "bytesPreservedInOriginalWorktree": true
+    },
+    "fixes": {
+      "evidenceFlowAheadBehindShapeIncludesBaseRef": true,
+      "effectiveWriterCountSubtractsVerifiedIntersectionOnly": true,
+      "expiredLocalRefReleaseIsNonExecutableHistory": true,
+      "protectedRetirementBehind": 73,
+      "mobileGAndIHPreservedReadOnly": true
+    },
+    "providerAssignedPullRequestNumber": 100,
+    "requiredExecution": [
+      "pass-strict-currentness-live-audit-before-the-single-final-commit",
+      "pass-exact-index-registry-write-policy-security-and-native-precommit-gates",
+      "pass-the-complete-current-governance-suite-with-no-timeout-or-assertion-failure",
+      "commit-one-additional-three-path-repair-on-preserved-pr100-parent",
+      "push-one-non-force-update-from-exact-pr100-parent-after-live-main-and-ref-readback",
+      "retain-existing-pr100-as-draft-and-read-back-its-exact-final-head",
+      "verify-exact-final-head-build-and-security-checks-before-ready",
+      "use-one-protected-merge-with-exact-head-lease-and-no-admin-bypass",
+      "verify-post-main-checks-and-commit-bound-live-audit-before-any-g-reactivation",
+      "keep-local-ref-deletion-deployment-and-cleanup-gated"
+    ],
+    "authorizationBoundary": {
+      "candidateCommitAuthorizedAfterGates": true,
+      "oneNonForceBranchPushAuthorizedAfterGates": false,
+      "draftPullRequestCreationAuthorizedAfterPush": false,
+      "oneNonForceRepairUpdateAuthorizedAfterGates": true,
+      "readyMayBeAuthorizedOnlyAfterExactFinalHeadChecks": true,
+      "protectedMergeMayBeAuthorizedOnlyAfterExactFinalHeadChecks": true,
+      "providerAssignedPullRequestNumber": 100,
+      "readyAuthorizedNow": false,
+      "mergeAuthorizedNow": false,
+      "gProductWriteAuthorizedNow": false,
+      "localRefDeletionAuthorizedNow": false,
+      "deploymentAuthorizedNow": false,
+      "cleanupAuthorizedNow": false,
+      "directMainPushAuthorized": false,
+      "forceAuthorized": false,
+      "historyRewriteAuthorized": false,
+      "bypassHooksAuthorized": false
+    },
+    "authorityExpanded": false,
+    "currentnessObservation": {
+      "observedAt": "2026-09-20T02:28:15.580Z",
+      "mainSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      "priorCandidateTreeSha": "765932e62f1ee799245daafbba0172668fd5274b",
+      "protectedAnchorSha": "84867c93ff23acb4be98c29c08feb10102138568",
+      "local": [
+        {
+          "taskId": "SENA-A01-ROOT-CONTROL-PLANE-20260828",
+          "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+          "ahead": 0,
+          "behind": 0
+        },
+        {
+          "taskId": "SENA-EVIDENCEFLOW-V1-20260828",
+          "headSha": "434a1aac542e60e793afef77fb35104cdb470d53",
+          "ahead": 16,
+          "behind": 147
+        },
+        {
+          "taskId": "SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+          "headSha": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+          "ahead": 0,
+          "behind": 52
+        },
+        {
+          "taskId": "SENA-CONVERGENCE-INTEGRATION-20260906",
+          "headSha": "c782aa03940028a2c19db18dfddec55370c797b1",
+          "ahead": 0,
+          "behind": 27
+        },
+        {
+          "taskId": "SENA-CONVERGENCE-CURRENTNESS-20260907",
+          "headSha": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+          "ahead": 0,
+          "behind": 23
+        },
+        {
+          "taskId": "SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+          "headSha": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
+          "ahead": 0,
+          "behind": 20
+        }
+      ],
+      "remoteOnlyBranches": [
+        {
+          "name": "cursor/sena-registry-heartbeat-currentness-d2fa",
+          "headSha": "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+          "pullRequestNumber": 90,
+          "landingSha": "9fd76f602661f38720d167be4df9c8fd6edf09ad",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/fix-canonical-snapshot-drift-85b6",
+          "headSha": "93e8fa37d698897d2e5d6a0b7dff3756ad07fdda",
+          "pullRequestNumber": 91,
+          "landingSha": "8f4625772137336d53afc1e0e8289dcf703fe177",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/human-ai-local-ref-retirement-f16c",
+          "headSha": "d08843664bd07bd42b72786d2341ce56e01a8e76",
+          "pullRequestNumber": 92,
+          "landingSha": "a7d7c50373186a7e9f66dde992a4738561eff253",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/human-ai-deletion-execution-prep-b7ec",
+          "headSha": "01ab0cf95128caf9065752d4a0930d5d55b10f78",
+          "pullRequestNumber": 93,
+          "landingSha": "d055d9d23e369bd16b1c74b18ecf293d6ad0f0e2",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/h-gov-seven-day-currentness-ecfd",
+          "headSha": "d189581f3dcce27af3617dd93252797acb5f0ce3",
+          "pullRequestNumber": 94,
+          "landingSha": "dec29b1d3db404909094024c6e25b4e404b28213",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/test-processenv-typing-21a3",
+          "headSha": "74f112675293710ed37ab2c1f84f6c3b30fe2572",
+          "pullRequestNumber": 95,
+          "landingSha": "c8a523c4701c25efc6069b40c93277e5c12013b5",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/researcher-walkthrough-handoff-949c",
+          "headSha": "4b8d50f463aee73c94a847cb6c79372abdf4170c",
+          "pullRequestNumber": 96,
+          "landingSha": "dcc6160d4e6011c7d642234cef14276c3d8d379f",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/a4-usability-empty-import-inspector-9f0f",
+          "headSha": "81633f22f95666026dec59257271f31ea37b9884",
+          "pullRequestNumber": 97,
+          "landingSha": "24d403a42af7b137907b1c9bdb3c4ed1afbc603d",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/sena-currentness-heartbeat-383e",
+          "headSha": "7448f4443b2482771bbadfe0a0550256f9a89304",
+          "pullRequestNumber": 98,
+          "landingSha": "099a495477acbdea2d903462bcd6385847f29b29",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        },
+        {
+          "name": "cursor/ai-agent-runs-provenance-adr-d9a4",
+          "headSha": "89ae63d18b52bbd60d7fc0e8b0a5187826e368fc",
+          "pullRequestNumber": 99,
+          "landingSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+          "disposition": "preservation-review",
+          "writesAuthorized": false,
+          "deletionAuthorized": false
+        }
+      ],
+      "requiresFreshHostProof": true,
+      "requiresStrictLiveAudit": true,
+      "priorPreCommitDeferredLiveAudit": {
+        "sourceAuditObservedAt": "2026-09-19T08:37:48.965Z",
+        "observedAt": "2026-09-19T13:57:10.417Z",
+        "sourceAuditStatus": "fail",
+        "sourceErrorCount": 51,
+        "currentErrorCount": 11,
+        "errors": [
+          "mobile pilot merged checkout lacks exact live release-verification custody",
+          "branch head differs from registry: main",
+          "branch head differs from registry: codex/sena-pr86-delivery-closeout-20260907",
+          "workItem headSha is not a permitted forward-only allowed-path advance: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+          "workItem ahead/behind differs from registry: SENA-A01-ROOT-CONTROL-PLANE-20260828",
+          "workItem ahead/behind differs from registry: SENA-EVIDENCEFLOW-V1-20260828",
+          "workItem ahead/behind differs from registry: SENA-PR82-CLEAN-FINAL-FORWARD-FIX-20260902",
+          "workItem ahead/behind differs from registry: SENA-CONVERGENCE-INTEGRATION-20260906",
+          "workItem ahead/behind differs from registry: SENA-CONVERGENCE-CURRENTNESS-20260907",
+          "workItem headSha is not a permitted forward-only allowed-path advance: SENA-PR86-DELIVERY-CLOSEOUT-20260907",
+          "workItem ahead/behind differs from registry: SENA-PR86-DELIVERY-CLOSEOUT-20260907"
+        ],
+        "preCommitOnly": true,
+        "liveAuditPassClaimed": false,
+        "postMainAuditPassClaimed": false,
+        "requiresSeparateLandedMainCurrentnessTransition": true,
+        "authorityExpanded": false
+      }
+    },
+    "postMergeRepair": {
+      "pullRequestNumber": 100,
+      "parentCommitSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "parentTreeSha": "078600631ecb746f8461b6d488479802c739399c",
+      "additionalCommitCount": 1,
+      "allowedPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "nonForceUpdateFromSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "postMergeObservationOnly": true,
+      "forceAuthorized": false,
+      "readyAuthorized": false,
+      "mergeAuthorized": false
     }
   }
 }
