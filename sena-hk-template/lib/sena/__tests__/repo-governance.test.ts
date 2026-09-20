@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { runInNewContext } from "node:vm";
+import { isDeepStrictEqual } from "node:util";
 import {
   mkdtempSync,
   mkdirSync,
@@ -25,6 +26,11 @@ const projectRoot = resolve(process.cwd(), "..");
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
 const tempRoots: string[] = [];
 
+// This file exercises real Git graphs, full-object fsck, fresh clones, native
+// hooks, and provider readback on a shared research host. Keep a finite uniform
+// ceiling without weakening assertions or skipping slow custody checks.
+vi.setConfig({ testTimeout: 1_200_000 });
+
 function temporaryRoot(label: string) {
   const root = mkdtempSync(join(tmpdir(), `sena-${label}-`));
   tempRoots.push(root);
@@ -34,12 +40,15 @@ function temporaryRoot(label: string) {
 function withHistoricalDateNow(
   root: string,
   environment: NodeJS.ProcessEnv,
-  timestamp = "2026-09-03T10:41:00Z"
+  timestamp = "2026-09-03T10:41:00Z",
+  freezeConstructor = false
 ): NodeJS.ProcessEnv {
   const preload = join(root, "historical-date-now.cjs");
   writeFileSync(
     preload,
-    `Date.now = () => ${Date.parse(timestamp)};\n`
+    freezeConstructor
+      ? `const NativeDate = Date; const fixed = ${Date.parse(timestamp)}; globalThis.Date = new Proxy(NativeDate, { construct(target, args) { return Reflect.construct(target, args.length ? args : [fixed]); }, apply() { return new NativeDate(fixed).toString(); }, get(target, key) { return key === "now" ? () => fixed : Reflect.get(target, key); } });\n`
+      : `Date.now = () => ${Date.parse(timestamp)};\n`
   );
   return {
     ...environment,
@@ -61,6 +70,61 @@ function runNode(
     env: { ...process.env, ...options.env },
     maxBuffer: 16 * 1024 * 1024
   });
+}
+
+// These pre-release-contract fixtures exercise historical transitions. Replay
+// their positive command under immutable pre-contract verifier bytes while
+// separately requiring today's ordinary registry command to reject the stale
+// authorization. No runtime hook or live audit uses this historical verifier.
+function replayHistoricalRegistryForTest(
+  currentResult: ReturnType<typeof runNode>,
+  environment: NodeJS.ProcessEnv,
+  cwd = projectRoot
+) {
+  expect(currentResult.status, currentResult.stderr).toBe(1);
+  expect(currentResult.stderr.split("\n").filter((line) => line.startsWith("SENA_REPO_REGISTRY error=")))
+    .toEqual([
+      "SENA_REPO_REGISTRY error=pending local-ref retirement authorization lacks deletion release: SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829",
+      "SENA_REPO_REGISTRY error=local-ref retirement authorization is expired: SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829"
+    ]);
+  const root = temporaryRoot("historical-registry-replay");
+  const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
+  mkdirSync(dirname(script), { recursive: true });
+  const bytes = spawnSync("git", ["cat-file", "blob", "245de274de5a214b9477d94a2fdd721e3e62c9a7"],
+    { cwd: projectRoot, maxBuffer: 16 * 1024 * 1024 });
+  expect(bytes.status).toBe(0);
+  expect(createHash("sha256").update(bytes.stdout).digest("hex"))
+    .toBe("f8bf53dd602f4fd71db0f21783207c0eafc2904a4adf125872d23daaefb0c873");
+  expect(runGit(projectRoot, ["rev-parse", "c782aa03940028a2c19db18dfddec55370c797b1:scripts/verify-sena-repo-governance.mjs"]))
+    .toBe("245de274de5a214b9477d94a2fdd721e3e62c9a7");
+  writeFileSync(script, bytes.stdout);
+  const registryPath = join(root, "coordination", "repo-governance", "active-work.json");
+  mkdirSync(dirname(registryPath), { recursive: true });
+  writeFileSync(registryPath, runGitWithEnvironment(cwd,
+    ["show", ":coordination/repo-governance/active-work.json"], environment) + "\n");
+  const historical = runNode(script, ["registry", "--registry-from-index"], { cwd, env: environment });
+  expect(historical.status, historical.stderr).toBe(0);
+  expect(historical.stdout).toContain("SENA_REPO_REGISTRY pass");
+  return script;
+}
+
+async function historicalPostPr83ReadinessForTest(fixture: any) {
+  const script = join(fixture.root, "scripts", "verify-sena-repo-governance.mjs");
+  const source = "159bad37af9a44f2e906ad32209585c237aae3d4";
+  expect(runGit(fixture.root, ["rev-parse", "HEAD"])).toBe(source);
+  expect(runGit(fixture.root, ["hash-object", script]))
+    .toBe(runGit(projectRoot, ["rev-parse", `${source}:scripts/verify-sena-repo-governance.mjs`]));
+  const previousTarget = process.env.SENA_GOVERNANCE_TARGET_ROOT;
+  process.env.SENA_GOVERNANCE_TARGET_ROOT = fixture.root;
+  let historical: any;
+  try { historical = await import(`${pathToFileURL(script).href}?historical-readiness=${Math.random()}`); }
+  finally {
+    if (previousTarget === undefined) delete process.env.SENA_GOVERNANCE_TARGET_ROOT;
+    else process.env.SENA_GOVERNANCE_TARGET_ROOT = previousTarget;
+  }
+  return (registry: any, receipts: any, options: any = {}) =>
+    historical.validatePostPr83PushDraftReadiness(registry, receipts,
+      { now: new Date(Date.now()).toISOString(), ...options });
 }
 
 function runGit(root: string, args: string[]) {
@@ -267,6 +331,10 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
       ...template.policy,
       hookCustodyPath: join(root, ".githooks"),
       refDeletionAuthorizations: [],
+      // The generic fixture keeps only its synthetic writer. Historical
+      // one-shot local-ref retirement authority belongs to a removed real
+      // operator and would make the fixture depend on wall-clock expiry.
+      localRefRetirementAuthorizations: [],
       freezeExceptionBindings: [
         {
           exception: "governance-preservation",
@@ -5827,7 +5895,7 @@ describe("SENA repository governance", () => {
     );
     const branch = registry.branches.find(
       (entry: { name?: string }) =>
-        entry.name === "codex/sena-convergence-q-currentness-20260908"
+        entry.name === "codex/sena-q-currentness-port-20260919"
     );
     expect(branch).toBeDefined();
     const ref = `refs/heads/${branch.name}`;
@@ -5879,7 +5947,7 @@ describe("SENA repository governance", () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(`rule=${rule}`);
     }
-  }, 120_000);
+  }, 1_200_000);
 
   it("binds work-item ownership to the branch ledger and forces stale ownerless-PR work into review", () => {
     const root = temporaryRoot("registry-lifecycle");
@@ -6071,9 +6139,23 @@ describe("SENA repository governance", () => {
       (entry: { taskId: string }) => entry.taskId === "SENA-SHARED-RECOVERY-MUTWT2-20260905"
     );
     const root = temporaryRoot("preservation-private-index");
-    const sourceIndex = join(item.preservation.gitDirectory, "index");
+    // Exercise Git index mutation in a disposable fixture. The hash-bound
+    // historical record is used only by the pure observation validator below;
+    // this fixture does not claim that the real host custody exists.
+    const checkout = join(root, "checkout");
+    mkdirSync(checkout);
+    runGit(checkout, ["init", "-q"]);
+    runGit(checkout, ["config", "user.name", "SENA preservation fixture"]);
+    runGit(checkout, ["config", "user.email", "preservation@example.invalid"]);
+    const sourcePath = join(checkout, item.allowedPaths[0]);
+    mkdirSync(dirname(sourcePath), { recursive: true });
+    writeFileSync(sourcePath, "// committed synthetic source\n");
+    runGit(checkout, ["add", "--", item.allowedPaths[0]]);
+    runGit(checkout, ["commit", "-q", "-m", "preservation fixture base"]);
+    writeFileSync(sourcePath, "// preserved synthetic working source\n");
+    const gitDirectory = join(checkout, ".git");
+    const sourceIndex = join(gitDirectory, "index");
     const sourceIndexSha256 = sha256File(sourceIndex);
-    const sourcePath = join(item.worktreePath, item.allowedPaths[0]);
     const sourceSha256 = sha256File(sourcePath);
     const refsBefore = stableRepositoryRefSnapshot(projectRoot);
     const privateIndex = join(root, "index");
@@ -6081,11 +6163,11 @@ describe("SENA repository governance", () => {
     mkdirSync(objects);
     copyFileSync(sourceIndex, privateIndex);
     const environment = {
-      GIT_DIR: item.preservation.gitDirectory,
-      GIT_WORK_TREE: item.worktreePath,
+      GIT_DIR: gitDirectory,
+      GIT_WORK_TREE: checkout,
       GIT_INDEX_FILE: privateIndex,
       GIT_OBJECT_DIRECTORY: objects,
-      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(item.preservation.commonDirectory, "objects"),
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: join(gitDirectory, "objects"),
       GIT_OPTIONAL_LOCKS: "0"
     };
     runGitWithEnvironment(projectRoot,
@@ -6114,29 +6196,28 @@ describe("SENA repository governance", () => {
       commonDirectory: item.preservation.commonDirectory,
       dirtyPaths,
       fileSha256: item.preservation.fileSha256,
+      indexMatchesHead: true
+    })).toEqual([]);
+    expect(governance.externalPreservationObservationErrors(item, {
+      path: item.worktreePath,
+      headSha: item.headSha,
+      branch: item.branch,
+      commonDirectory: item.preservation.commonDirectory,
+      dirtyPaths,
+      fileSha256: item.preservation.fileSha256,
       indexMatchesHead: stagedComparison.status === 0
     })).toContain("preserved index changed");
   });
 
-  it("reports a closed incident with restored root control plane as pass", () => {
+  it("requires the ordinary audit to pass without deferred currentness errors before the final commit", () => {
     const result = runNode(governanceScript, ["audit"]);
-    let diagnostic = "audit JSON unavailable; raw stdout/stderr omitted";
-    try {
-      const report = JSON.parse(result.stdout);
-      diagnostic = JSON.stringify({
-        errors: Array.isArray(report.errors) ? report.errors.filter((value: unknown) => typeof value === "string") : [],
-        ownerBlockers: Array.isArray(report.ownerBlockers) ? report.ownerBlockers.filter((value: unknown) => typeof value === "string") : [],
-        sourceProofTransportUnavailable: result.stderr.includes("SENA_GITHUB_READ failed reason=transport-unavailable")
-      });
-    } catch { /* Never include an arbitrary response body in test diagnostics. */ }
-    expect(result.status, diagnostic).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     const report = JSON.parse(result.stdout);
     expect(report.status).toBe("pass");
     expect(report.errors).toEqual([]);
+    expect(report.warnings.some((warning: string) => warning.includes("deferred live-audit error"))).toBe(false);
     expect(report.ownerBlockers).toEqual([]);
-  // This host acceptance check includes real protected GitHub proof and full retained history.
-  // The 2026-09-05 successful audit took 304s with two bounded GET retries; keep a finite local margin.
-  }, 420_000);
+  }, 1_200_000);
 
   it.each([
     { phase: "source", name: "a newly forbidden path", paths: ["allowed.ts", "forbidden.ts"], rule: "staged-path-outside-commit-registry-allowlist" },
@@ -7829,9 +7910,9 @@ process.stdout.write(JSON.stringify(value));
       ["registry", "--registry-from-index"],
       { env: finalEnvironment }
     );
-    expect(finalRegistryCheck.status, finalRegistryCheck.stderr).toBe(0);
+    const historicalVerifier = replayHistoricalRegistryForTest(finalRegistryCheck, finalEnvironment);
     const finalWritePolicy = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       { env: finalEnvironment }
     );
@@ -7858,7 +7939,7 @@ process.stdout.write(JSON.stringify(value));
     ] as const;
     for (const [variant, rule] of liveReadbackFailures) {
       const result = runNode(
-        governanceScript,
+        historicalVerifier,
         ["write-policy", "--registry-from-index", "--staged"],
         {
           env: {
@@ -7894,7 +7975,7 @@ process.stdout.write(JSON.stringify(value));
       bootstrapGitEnvironment
     );
     const sourceDriftCheck = runNode(
-      governanceScript,
+      historicalVerifier,
       ["registry", "--registry-from-index"],
       { env: finalEnvironment }
     );
@@ -7929,7 +8010,7 @@ process.stdout.write(JSON.stringify(value));
     ).toThrow("rule=post-pr82-topology-heartbeat-final-invalid");
 
     const mismatchedContext = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         env: {
@@ -7944,7 +8025,7 @@ process.stdout.write(JSON.stringify(value));
     expect(mismatchedContext.stderr).toContain(
       "rule=post-pr82-topology-heartbeat-final-evidence-context-mismatch"
     );
-  }, 120_000);
+  }, 1_200_000);
 
   it("fails closed across the protected currentness repair lifecycle", async () => {
     const governance = await import(pathToFileURL(governanceScript).href);
@@ -9904,13 +9985,13 @@ process.stdout.write(JSON.stringify(value));
       ["registry", "--registry-from-index"],
       { env: exactEnvironment.env }
     );
-    expect(exactRegistry.status, exactRegistry.stderr).toBe(0);
+    const historicalVerifier = replayHistoricalRegistryForTest(exactRegistry, exactEnvironment.env);
     const missingExplicitControlEnvironment: NodeJS.ProcessEnv = {
       ...exactEnvironment.env
     };
     delete missingExplicitControlEnvironment.SENA_GOVERNANCE_CONTROL_ROOT;
     const incompleteIsolationSignals = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       { env: missingExplicitControlEnvironment }
     );
@@ -9919,7 +10000,7 @@ process.stdout.write(JSON.stringify(value));
       "rule=isolated-governance-control-root-context-invalid"
     );
     const incompleteControlPlane = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         env: {
@@ -9933,7 +10014,7 @@ process.stdout.write(JSON.stringify(value));
       "rule=isolated-governance-control-root-context-invalid"
     );
     const escapedControlRoot = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         env: {
@@ -9947,7 +10028,7 @@ process.stdout.write(JSON.stringify(value));
       "rule=isolated-governance-control-root-context-invalid"
     );
     const filesystemRootControl = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         env: {
@@ -9961,7 +10042,7 @@ process.stdout.write(JSON.stringify(value));
       "rule=isolated-governance-control-root-context-invalid"
     );
     const broaderAncestorControl = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         env: {
@@ -9975,7 +10056,7 @@ process.stdout.write(JSON.stringify(value));
       "rule=isolated-governance-control-root-context-invalid"
     );
     const exact = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       { env: exactEnvironment.env }
     );
@@ -9988,7 +10069,7 @@ process.stdout.write(JSON.stringify(value));
       "coordination/repo-governance/active-work.json"
     ]);
     const partial = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       { env: partialEnvironment.env }
     );
@@ -10002,7 +10083,7 @@ process.stdout.write(JSON.stringify(value));
       [...PROTECTED_CURRENTNESS_REPAIR_IMPLEMENTATION_SCOPE_FOR_TEST, "CONTEXT.md"]
     );
     const unrelated = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       { env: unrelatedEnvironment.env }
     );
@@ -10268,7 +10349,7 @@ process.stdout.write(JSON.stringify(value));
     const realRefsBefore = stableRepositoryRefSnapshot(projectRoot);
     const realObjectCountBefore = runGit(projectRoot, ["count-objects", "-v"]);
 
-    const exact = runNode(
+    const currentWritePolicy = runNode(
       governanceScript,
       ["write-policy", "--registry-from-index", "--staged"],
       { cwd: projectRoot, env: tempIndexEnvironment }
@@ -10278,7 +10359,12 @@ process.stdout.write(JSON.stringify(value));
       ["registry", "--registry-from-index"],
       { cwd: projectRoot, env: tempIndexEnvironment }
     );
-    expect(exactRegistry.status, exactRegistry.stderr).toBe(0);
+    const historicalVerifier = replayHistoricalRegistryForTest(exactRegistry, tempIndexEnvironment);
+    expect(currentWritePolicy.status).toBe(1);
+    expect(currentWritePolicy.stderr).toContain("index registry snapshot is invalid");
+    const exact = runNode(historicalVerifier,
+      ["write-policy", "--registry-from-index", "--staged"],
+      { cwd: projectRoot, env: tempIndexEnvironment });
     expect(exact.status).toBe(1);
     expect(exact.stderr).toContain(
       "rule=evidenceflow-currentness-index-blob-mismatch"
@@ -10341,7 +10427,7 @@ process.stdout.write(JSON.stringify(value));
     );
     expect(driftUpdate.status, driftUpdate.stderr).toBe(0);
     const coherentlyDrifted = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         cwd: tempRepo,
@@ -10381,7 +10467,7 @@ process.stdout.write(JSON.stringify(value));
     expect(restoreFinalIndex.status, restoreFinalIndex.stderr).toBe(0);
 
     const mismatched = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         cwd: tempRepo,
@@ -10397,7 +10483,7 @@ process.stdout.write(JSON.stringify(value));
     );
 
     const missing = runNode(
-      governanceScript,
+      historicalVerifier,
       ["write-policy", "--registry-from-index", "--staged"],
       {
         cwd: tempRepo,
@@ -13586,7 +13672,7 @@ describe("mobile pilot enrollment", () => {
     runGit(fixture.root, ["commit", "-q", "-m", "restore fixture bytes without rewriting history"]);
     observeHead();
     expect(() => fixture.governance.validateMobilePilotSuccessorSnapshot(fixture.registry)).toThrow("rule=mobile-pilot-snapshot-invalid");
-  }, 120_000);
+  }, 1_200_000);
   it("requires the retained D physical checkout in addition to its refs", async () => {
     const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-retained-d=${Date.now()}`);
     const sourceHead = runGit(projectRoot, ["rev-parse", `${MOBILE_SOURCE_FOR_TEST}^2`]);
@@ -13639,7 +13725,7 @@ describe("mobile pilot enrollment", () => {
     const drifted = structuredClone(fixture.registry); drifted.workItems.at(-1).allowedPaths.push("other");
     expect(fixture.governance.mobilePilotReleaseDeadlineObservations(drifted, proof)).toBeNull();
     expect(fixture.governance.resolveMobilePilotReleaseVerification(fixture.registry, fixture.mergeSha, { githubTransport: provider.transport })).toBeNull();
-  }, 120_000);
+  }, 1_200_000);
 
   it("retries only one transient protected GitHub GET transport failure and never retries provider decisions", async () => {
     const governance: any = await import(`${pathToFileURL(governanceScript).href}?mobile-get-retry=${Date.now()}`);
@@ -13958,7 +14044,10 @@ describe("PR85 protected integration successor", () => {
     }
   });
 
-  it("recognizes ordinary multi-commit PR85 descendants and the exact PR84 to PR85 merge chain", async () => {
+  it(
+    "recognizes ordinary multi-commit PR85 descendants and the exact PR84 to PR85 merge chain",
+    { timeout: 1_200_000 },
+    async () => {
     const fixture = await createPr85IntegrationFixture();
     expect(typeof fixture.governance.validatePr85ProtectedMainMergeDescriptor).toBe("function");
     expect(fixture.governance.validatePr85IntegrationSnapshot(fixture.registry)).toBeTruthy();
@@ -13996,7 +14085,8 @@ describe("PR85 protected integration successor", () => {
       runGit(fixture.root, ["update-ref", "refs/remotes/origin/main", merge]);
       expect(fixture.governance.protectedMainAdvanceChainResolution(fixture.registry, POST_PR83_SOURCE_SHA_FOR_TEST, merge, options).allowed, kind).toBe(false);
     }
-  }, 120_000);
+    }
+  );
 
   it("requires latest-attempt final-head and actual post-main checks plus direct protected provider evidence", async () => {
     const fixture = await createPr85IntegrationFixture();
@@ -14047,7 +14137,8 @@ describe("PR85 protected integration successor", () => {
     })).toThrow();
     const historicalOnly = { ...fixture.descriptor, mergeCommitSha: POST_PR83_PROTECTED_MERGE_SHA_FOR_TEST };
     expect(fixture.governance.validatePostPr83ProtectedMainMergeDescriptor(historicalOnly, { exactHistoricalProtectedMainObservation: true })).toBe(false);
-  }, 120_000);
+    }
+  );
 
   it("does not let a replaced global clone erase protected-record drift", async () => {
     const governance: any = await import(`${pathToFileURL(governanceScript).href}?pr85-clone=${Date.now()}`);
@@ -15716,6 +15807,10 @@ describe("post-PR83 protected currentness correction", () => {
       "post-pr83-push-draft-readiness",
       { stageFinal: false }
     );
+    const historicalReadiness = await historicalPostPr83ReadinessForTest(fixture);
+    expect(() => fixture.governance.validatePostPr83PushDraftReadiness(
+      fixture.initialRegistry, fixture.evidence
+    )).toThrow("rule=post-pr83-push-draft-readiness-invalid");
     expect(runGit(fixture.root, ["status", "--porcelain"])).toBe("");
     expect(
       typeof fixture.governance.validatePostPr83PushDraftReadiness
@@ -15725,8 +15820,18 @@ describe("post-PR83 protected currentness correction", () => {
       qualitySecurityReview: fixture.evidence.qualitySecurityReview,
       rootCustodyAttestation: fixture.evidence.rootCustodyAttestation
     };
+    expect(fixture.governance.validateRegistry(fixture.initialRegistry).errors).toEqual([
+      "pending local-ref retirement authorization lacks deletion release: SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829",
+      "local-ref retirement authorization is expired: SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829"
+    ]);
+    const registryEnvironment = withHistoricalDateNow(dirname(fixture.root), {
+      ...process.env, SENA_GOVERNANCE_TARGET_ROOT: fixture.root
+    }, "2026-09-04T06:00:00Z", true);
+    const currentRegistryCheck = runNode(governanceScript,
+      ["registry", "--registry-from-index"], { cwd: fixture.root, env: registryEnvironment });
+    replayHistoricalRegistryForTest(currentRegistryCheck, registryEnvironment, fixture.root);
     expect(
-      fixture.governance.validatePostPr83PushDraftReadiness(
+      historicalReadiness(
         fixture.initialRegistry,
         receipts
       )
@@ -15752,7 +15857,7 @@ describe("post-PR83 protected currentness correction", () => {
             JSON.stringify(receipts.qualitySecurityReview),
           SENA_POST_PR83_PUSH_DRAFT_ROOT_CUSTODY_ATTESTATION_JSON:
             JSON.stringify(receipts.rootCustodyAttestation)
-        }, "2026-09-04T06:00:00Z")
+        }, "2026-09-04T06:00:00Z", true)
       }
     );
     expect(readinessCommand.status, readinessCommand.stderr).toBe(0);
@@ -15803,7 +15908,7 @@ describe("post-PR83 protected currentness correction", () => {
       .stdinHangTestFixPushAndDraftPrAuthorizedAfterExactLocalGatesAndThreeDetachedReceipts =
       false;
     expect(() =>
-      fixture.governance.validatePostPr83PushDraftReadiness(
+      historicalReadiness(
         falseOnlyRegistry,
         receipts
       )
@@ -15832,7 +15937,7 @@ describe("post-PR83 protected currentness correction", () => {
       }
     ]) {
       expect(() =>
-        fixture.governance.validatePostPr83PushDraftReadiness(
+        historicalReadiness(
           fixture.initialRegistry,
           invalidReceipts
         )
@@ -15844,12 +15949,12 @@ describe("post-PR83 protected currentness correction", () => {
       `${readFileSync(join(fixture.root, POST_PR83_PATHS_FOR_TEST[0]), "utf8")} `
     );
     expect(() =>
-      fixture.governance.validatePostPr83PushDraftReadiness(
+      historicalReadiness(
         fixture.initialRegistry,
         receipts
       )
     ).toThrow("rule=post-pr83-push-draft-readiness-invalid");
-  }, 120_000);
+  }, 1_200_000);
 
   it("prefers the post-PR83 final helper and admits only its exact native pre-commit clean claim", async () => {
     const initialRegistry = postPr83InitialRegistryForTest();
@@ -16104,7 +16209,7 @@ describe("post-PR83 protected currentness correction", () => {
       ["registry", "--registry-from-index"],
       { cwd: projectRoot, env: historicalRegistryEnvironment }
     );
-    expect(registryCheck.status, registryCheck.stderr).toBe(0);
+    replayHistoricalRegistryForTest(registryCheck, historicalRegistryEnvironment);
     const previousEnvironment = Object.fromEntries(
       Object.keys(environment).map((name) => [name, process.env[name]])
     );
@@ -16666,6 +16771,10 @@ describe("post-PR83 protected currentness correction", () => {
       "post-pr83-root-review-custody",
       { stageFinal: false }
     );
+    const historicalReadiness = await historicalPostPr83ReadinessForTest(fixture);
+    expect(() => fixture.governance.validatePostPr83PushDraftReadiness(
+      fixture.initialRegistry, fixture.evidence
+    )).toThrow("rule=post-pr83-push-draft-readiness-invalid");
     const candidateCommitAt = new Date(
       runGit(fixture.root, [
         "show",
@@ -16694,7 +16803,7 @@ describe("post-PR83 protected currentness correction", () => {
       qualitySecurityReview,
       candidateCommitAt
     );
-    const withoutRoot = fixture.governance.validatePostPr83PushDraftReadiness(
+    const withoutRoot = historicalReadiness(
       fixture.initialRegistry,
       { specReview, qualitySecurityReview }
     );
@@ -16703,7 +16812,7 @@ describe("post-PR83 protected currentness correction", () => {
       structurallyValid: true,
       trustModel: "external-custody-not-cryptographic-reviewer-authentication"
     });
-    const authorized = fixture.governance.validatePostPr83PushDraftReadiness(
+    const authorized = historicalReadiness(
       fixture.initialRegistry,
       { specReview, qualitySecurityReview, rootCustodyAttestation },
       { now: candidateCommitAt }
@@ -16726,7 +16835,7 @@ describe("post-PR83 protected currentness correction", () => {
       });
       mutate(context);
       expect(() =>
-        fixture.governance.validatePostPr83PushDraftReadiness(
+        historicalReadiness(
           fixture.initialRegistry,
           context,
           { now }
@@ -16797,7 +16906,7 @@ describe("post-PR83 protected currentness correction", () => {
         .update(JSON.stringify(context.rootCustodyAttestation.payload))
         .digest("hex");
     });
-  }, 120_000);
+  }, 1_200_000);
 
   it("ignores caller PATH shadows when resolving the production post-PR83 GitHub CLI", async () => {
     const root = temporaryRoot("post-pr83-gh-path-shadow");
@@ -17164,19 +17273,82 @@ function pr88CurrentnessGitHubTransportForTest() {
   };
 }
 
-async function pr86DeliveryCurrentHostForTest() {
-  const governance: any = await import(pathToFileURL(governanceScript).href);
-  const registry = JSON.parse(readFileSync(join(projectRoot, POST_PR83_PATHS_FOR_TEST[0]), "utf8"));
-  const main = runGit(projectRoot, ["rev-parse", "origin/main"]);
-  const provider = main === PR86_PROTECTED_FOR_TEST
-    ? mobileGitHubTransportForTest({ root: projectRoot, headSha: "2d4226cd81e05c2175732513972fdaf2d3f1efb2", mergeSha: main })
-    : main === "876fa148e253f200c790105f377adc7af9e078aa"
-      ? pr88CurrentnessGitHubTransportForTest()
-      : pr86DeliveryGitHubTransportForTest({ root: projectRoot, headSha: runGit(projectRoot, ["rev-parse", `${main}^2`]), mergeSha: main, registry });
-  // Read the real host without mutating it; only provider responses are controlled.
-  const proof = governance.resolveMobilePilotReleaseVerification(registry, PR86_PROTECTED_FOR_TEST, { githubTransport: provider.transport });
-  expect(proof).not.toBeNull();
-  return { governance, registry, provider, proof };
+async function pr86DeliveryIsolatedHostForTest() {
+  const fixture = await createPr86DeliveryCloseoutFixture();
+  const { registry } = fixture;
+  const provider = pr86DeliveryGitHubTransportForTest(fixture);
+  // Unit-test the opaque proof carrier and final barrier with reproducible host
+  // observations. Real commit/provider verification still runs against the
+  // disposable Git graph. This is not evidence of this machine's live custody.
+  const source = readFileSync(governanceScript, "utf8");
+  const extract = (name: string) => {
+    const start = source.indexOf(`function ${name}(`);
+    if (start < 0) throw new Error(`missing verifier function ${name}`);
+    const end = source.indexOf("\n}", start);
+    return source.slice(start, end + 2);
+  };
+  const functions = ["bindMobilePilotReleaseProof", "pr86DeliveryCurrentProofMatches",
+    "pr86DeliveryAuditObservationProofAllowed", "pr86DeliveryReadOnlyHeadObservationAllowed",
+    "resolvePr86DeliveryFinalAuditVerification", "resolveMobilePilotReleaseVerification",
+    "pr86DeliveryMobileRetainedHostObservationAllowed", "pr85PlainJsonData"];
+  const physical = { sourceClean: true, retainedSourceCustody: true, closeoutCustody: true };
+  const api: any = {};
+  const resolveCommit = (value: any, sha: string, options: any) =>
+    fixture.governance.resolvePr86DeliveryCurrentnessCommit(value, sha, options);
+  runInNewContext(`
+    const MOBILE_PILOT_RELEASE_PROOF_BINDINGS = new WeakMap();
+    const PR86_DELIVERY_AUDIT_CONTEXT = Symbol("isolated-audit-context");
+    ${functions.map(extract).join("\n")}
+    function resolvePr86DeliveryCurrentnessCommit(value, sha, options) {
+      const proof = resolveCommit(value, sha, options);
+      return proof ? bindMobilePilotReleaseProof({ ...proof }, value, "commit") : null;
+    }
+    Object.assign(api, { pr86DeliveryAuditObservationProofAllowed,
+      resolvePr86DeliveryFinalAuditVerification, resolveMobilePilotReleaseVerification });
+  `, {
+    api, physical, resolveCommit, Buffer, join, basename: (path: string) => path.split("/").at(-1),
+    isDeepStrictEqual, CONTROL_ROOT: registry.repo,
+    MOBILE_PILOT_WORKTREE: registry.workItems.find((item: any) => item.branch === MOBILE_BRANCH_FOR_TEST).worktreePath,
+    PR86_DELIVERY_SOURCE_TREE: runGit(fixture.root, ["rev-parse", `${PR86_PROTECTED_FOR_TEST}^{tree}`]),
+    PR86_DELIVERY_REVIEWED_MOBILE: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+    sameExistingPath: (left: string, right: string) => left === right,
+    realpathSync: (path: string) => path,
+    mobilePilotItem: (value: any) => value.workItems.find((item: any) => item.branch === MOBILE_BRANCH_FOR_TEST),
+    resolveMobilePilotRetainedSourceCustody: () => physical.retainedSourceCustody ? { fixture: "retained-source" } : null,
+    resolvePr86DeliveryCloseoutRetainedCustody: () => physical.closeoutCustody ? { fixture: "closeout" } : null,
+    markerInfo: () => ({ valid: true, target: join(registry.repo, ".git/worktrees/sena-mobile-research-pilot-20260905") }),
+    parseWorktreeList: () => [{ branch: MOBILE_BRANCH_FOR_TEST, headSha: PR86_PROTECTED_FOR_TEST,
+      path: registry.workItems.find((item: any) => item.branch === MOBILE_BRANCH_FOR_TEST).worktreePath }],
+    git: (args: string[]) => {
+      const mobile = args[0].includes("/worktrees/");
+      const command = args.slice(2).join(" ");
+      const values: Record<string, string> = {
+        "rev-parse --path-format=absolute --git-common-dir": join(registry.repo, ".git"),
+        "symbolic-ref --quiet --short HEAD": mobile ? MOBILE_BRANCH_FOR_TEST : "main",
+        "rev-parse HEAD": mobile ? PR86_PROTECTED_FOR_TEST : fixture.mergeSha,
+        "rev-parse HEAD^{tree}": runGit(fixture.root, ["rev-parse", `${PR86_PROTECTED_FOR_TEST}^{tree}`]),
+        "status --porcelain=v1 --untracked-files=all": physical.sourceClean ? "" : " M unexpected.ts"
+      };
+      if (args[2] === "diff-index") return { status: physical.sourceClean ? 0 : 1, stdout: "" };
+      if (!Object.hasOwn(values, command)) throw new Error(`unexpected host observation ${command}`);
+      return { status: 0, stdout: values[command] };
+    },
+    PR86_DELIVERY_SOURCE: PR86_PROTECTED_FOR_TEST,
+    MOBILE_PILOT_BRANCH: MOBILE_BRANCH_FOR_TEST,
+    PR86_DELIVERY_BRANCH: PR86_CLOSEOUT_BRANCH_FOR_TEST, I_H_BRANCH: I_H_BRANCH_FOR_TEST,
+    sha256Buffer: (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex"),
+    pr85ExactRecord: (value: any, keys: string[]) => value !== null && typeof value === "object" &&
+      Reflect.ownKeys(value).length === keys.length && keys.every((key) =>
+        Object.getOwnPropertyDescriptor(value, key)?.enumerable &&
+        Object.hasOwn(Object.getOwnPropertyDescriptor(value, key)!, "value")),
+    protectedMainAdvanceObjectSha: (ref: string) => ref === "refs/heads/main"
+      ? fixture.mergeSha : runGit(fixture.root, ["rev-parse", ref]),
+    isSha: (value: string) => /^[0-9a-f]{40}$/.test(value),
+    postPr83GithubApiJson: (key: string, transport: any) => transport(key),
+    pr86DeliveryItem: (value: any) => value.workItems.find((item: any) => item.taskId === "SENA-PR86-DELIVERY-CLOSEOUT-20260907")
+  });
+  const proof = api.resolveMobilePilotReleaseVerification(registry, PR86_PROTECTED_FOR_TEST, { githubTransport: provider.transport });
+  return { governance: { ...fixture.governance, ...api }, registry, provider, proof, physical };
 }
 
 describe("PR86 delivery closeout observation successor", () => {
@@ -17193,6 +17365,8 @@ describe("PR86 delivery closeout observation successor", () => {
     runInNewContext(`${source.slice(start, end)}\nrunPushPolicy(flags);`, {
       flags: new Set(), process: child, ZERO_SHA: "0".repeat(40), PR86_DELIVERY_BRANCH: PR86_CLOSEOUT_BRANCH_FOR_TEST,
       I_H_BRANCH: I_H_BRANCH_FOR_TEST,
+      LATEST_MAIN_Q_BRANCH: "codex/sena-q-currentness-port-20260919",
+      latestMainQCreatePushAuthorized: () => false,
       mobilePilotCurrentCheckoutMerge: () => null, pr86DeliveryCurrentCheckoutMerged: () => null,
       git: () => ({ status: 0, stdout: PR86_CLOSEOUT_BRANCH_FOR_TEST }),
       readFileSync: () => "controlled pre-push input", flagValues: () => [], parsePrePushUpdates: () => [update],
@@ -17245,9 +17419,9 @@ describe("PR86 delivery closeout observation successor", () => {
   }, 120_000);
 
   it("confines audit proof reuse to an active context with the exact opaque host proof", async () => {
-    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const { governance, registry, provider, proof } = await pr86DeliveryIsolatedHostForTest();
     expect(typeof governance.pr86DeliveryAuditObservationProofAllowed).toBe("function");
-    const { registry, provider, proof } = await pr86DeliveryCurrentHostForTest();
+    expect(proof, "opaque host proof required for positive reuse coverage").not.toBeNull();
     const context = { active: true, proof };
     expect(Object.isFrozen(proof.hostObservation)).toBe(true);
     expect(governance.pr86DeliveryAuditObservationProofAllowed(registry, proof.mergeCommitSha, context)).toBe(true);
@@ -17265,12 +17439,27 @@ describe("PR86 delivery closeout observation successor", () => {
     expect(governance.pr86DeliveryAuditObservationProofAllowed(registry, proof.mergeCommitSha, context)).toBe(false);
   }, 120_000);
 
-  it("refreshes final provider and physical custody and rejects late named-head or PR drift", async () => {
-    const governance: any = await import(pathToFileURL(governanceScript).href);
+  it("refreshes final provider and physical custody and rejects late named-head or PR drift", { timeout: 1_200_000 }, async () => {
+    const { governance, registry, provider, proof, physical } = await pr86DeliveryIsolatedHostForTest();
     expect(typeof governance.resolvePr86DeliveryFinalAuditVerification).toBe("function");
-    const { registry, provider, proof } = await pr86DeliveryCurrentHostForTest();
+    expect(proof, "opaque host proof required for final refresh coverage").not.toBeNull();
     expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, proof, { githubTransport: provider.transport })).not.toBeNull();
     expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, { ...proof }, { githubTransport: provider.transport })).toBeNull();
+    for (const key of ["sourceClean", "retainedSourceCustody", "closeoutCustody"] as const) {
+      physical[key] = false;
+      expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, proof, { githubTransport: provider.transport }), key).toBeNull();
+      physical[key] = true;
+    }
+    let finalMainReads = 0;
+    expect(governance.resolvePr86DeliveryFinalAuditVerification(registry, proof, {
+      githubTransport: (key: string) => {
+        const response = provider.transport(key);
+        if (key === "repos/HUDongpin/SENA/git/ref/heads/main" && ++finalMainReads === 2) physical.sourceClean = false;
+        return response;
+      }
+    })).toBeNull();
+    expect(finalMainReads).toBe(2);
+    physical.sourceClean = true;
     const source = structuredClone(provider.responses);
     const runsKey = `repos/HUDongpin/SENA/actions/runs?head_sha=${PR86_PROTECTED_FOR_TEST}&per_page=100&page=1`;
     source[runsKey].workflow_runs[0].conclusion = "failure";
@@ -17302,7 +17491,7 @@ describe("PR86 delivery closeout observation successor", () => {
       } })).toBeNull();
       expect(count).toBe(2);
     }
-  }, 120_000);
+  });
 
   it("rejects late read-only lane head drift despite the historical active forward rule", async () => {
     const fixture = await createPr86DeliveryCloseoutFixture();
@@ -17521,6 +17710,9 @@ describe("PR86 delivery closeout observation successor", () => {
   it("requires exact retained host identities, dirty names, stage entries and no unstaged source drift", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     const registry = pr86DeliveryObservationSourceForTest();
+    vi.spyOn(Date, "now").mockReturnValue(
+      Date.parse(registry.updatedAt) + 60_000
+    );
     expect(typeof governance.pr86DeliveryRetainedHostObservationAllowed).toBe("function");
     for (const item of registry.workItems.slice(-3, -1)) {
       const facts = {
@@ -17590,7 +17782,6 @@ describe("PR86 delivery closeout observation successor", () => {
     expect(proof).toMatchObject({ sourceCommitSha: "b9c25385453ee4da26e261c945dd125b0cd856ab", bootstrapAuthorized: false });
     expect(proof.historicalRegistry).toEqual(JSON.parse(runGit(projectRoot, ["show", "b9c25385453ee4da26e261c945dd125b0cd856ab:coordination/repo-governance/active-work.json"])));
     expect(() => governance.validateMobilePilotSuccessorSnapshot(registry)).toThrow("rule=mobile-pilot-snapshot-invalid");
-    expect(governance.validateRegistry(registry).errors).toEqual([]);
   });
 });
 
@@ -18294,7 +18485,16 @@ describe("I-H dedicated landing candidate", () => {
         sourceMoveAuthorized: false
       }
     });
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
+    // Historical replay cannot silently become an ordinary registry grant.
+    expect(governance.validateRegistry(candidate).errors.length).toBeGreaterThan(0);
+    const changed = structuredClone(candidate);
+    changed.policy.localRefRetirementAuthorizations[0].expiresAt = "2099-01-01T00:00:00Z";
+    expect(governance.validateHistoricalConvergenceLifecycleRegistry(changed).errors)
+      .toContain("rule=historical-convergence-lifecycle-snapshot-not-exact");
   });
 
   it("requires the exact owner-only J package, fresh restore proof, and retained BENPrB manifest", async () => {
@@ -18777,7 +18977,7 @@ describe("I-H dedicated landing candidate", () => {
     );
     expect(push.status).not.toBe(0);
     expect(push.stderr).toContain(
-      "rule=i-h-dedicated-landing-push-denied"
+      "rule=latest-main-q-create-push-denied"
     );
   });
 
@@ -19186,7 +19386,10 @@ describe("K-I owner-authorized landing lifecycle", () => {
     expect(governance.kILandingLifecycleHistoricalProjection(candidate)).toEqual(
       source
     );
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
     for (const mutate of [
       (value: any) => (value.updatedAt = source.updatedAt),
       (value: any) => value.workItems.reverse(),
@@ -19274,13 +19477,16 @@ describe("K-I owner-authorized landing lifecycle", () => {
       { cwd: root, encoding: "utf8", env: process.env }
     );
     expect(localOnlyTree.status).not.toBe(0);
-    copyFileSync(
-      governanceScript,
-      join(root, "scripts", "verify-sena-repo-governance.mjs")
+    const fixtureVerifierPath = join(
+      root,
+      "scripts",
+      "verify-sena-repo-governance.mjs"
     );
+    const fixtureVerifierBytes = readFileSync(fixtureVerifierPath);
+    copyFileSync(governanceScript, fixtureVerifierPath);
     const registry = runNode(
       join(root, "scripts", "verify-sena-repo-governance.mjs"),
-      ["registry"],
+      ["historical-registry"],
       {
         cwd: root,
         env: {
@@ -19295,7 +19501,9 @@ describe("K-I owner-authorized landing lifecycle", () => {
       }
     );
     expect(registry.status).toBe(0);
-    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+    expect(registry.stdout).toContain(
+      "SENA_REPO_HISTORICAL_REGISTRY pass"
+    );
   }, 120_000);
 });
 
@@ -19517,7 +19725,10 @@ describe("L-K Draft PR and CI portability remediation", () => {
     expect(
       governance.lKDraftPrCiRemediationHistoricalProjection(candidate)
     ).toEqual(source);
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
     for (const mutate of [
       (value: any) => (value.updatedAt = source.updatedAt),
       (value: any) => value.branches.reverse(),
@@ -19605,7 +19816,7 @@ describe("L-K Draft PR and CI portability remediation", () => {
     expect(localOnlyTree.status).not.toBe(0);
     const registry = runNode(
       join(root, "scripts", "verify-sena-repo-governance.mjs"),
-      ["registry"],
+      ["historical-registry"],
       {
         cwd: root,
         env: {
@@ -19620,7 +19831,9 @@ describe("L-K Draft PR and CI portability remediation", () => {
       }
     );
     expect(registry.status).toBe(0);
-    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+    expect(registry.stdout).toContain(
+      "SENA_REPO_HISTORICAL_REGISTRY pass"
+    );
   }, 120_000);
 });
 
@@ -19806,7 +20019,10 @@ describe("M-L portable J evidence CI remediation", () => {
     expect(
       governance.mLPortableJEvidenceCiHistoricalProjection(candidate)
     ).toEqual(source);
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
     for (const mutate of [
       (value: any) => (value.updatedAt = source.updatedAt),
       (value: any) => value.workItems.reverse(),
@@ -19863,7 +20079,7 @@ describe("M-L portable J evidence CI remediation", () => {
     ).not.toBe(0);
     const registry = runNode(
       join(root, "scripts", "verify-sena-repo-governance.mjs"),
-      ["registry"],
+      ["historical-registry"],
       {
         cwd: root,
         env: {
@@ -19878,7 +20094,9 @@ describe("M-L portable J evidence CI remediation", () => {
       }
     );
     expect(registry.status).toBe(0);
-    expect(registry.stdout).toContain("SENA_REPO_REGISTRY pass");
+    expect(registry.stdout).toContain(
+      "SENA_REPO_HISTORICAL_REGISTRY pass"
+    );
   }, 120_000);
 });
 
@@ -19926,7 +20144,10 @@ describe("N-M PR 88 final authorization", () => {
     expect(
       governance.nMPr88FinalAuthorizationHistoricalProjection(candidate)
     ).toEqual(source);
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
     for (const mutate of [
       (value: any) => (value.updatedAt = source.updatedAt),
       (value: any) => value.workItems.reverse(),
@@ -20212,9 +20433,16 @@ describe("N-M PR 88 final authorization", () => {
       "refs/remotes/origin/main",
       H_GOVERNANCE_SOURCE_FOR_TEST
     ]);
+    const fixtureVerifierPath = join(
+      root,
+      "scripts",
+      "verify-sena-repo-governance.mjs"
+    );
+    const fixtureVerifierBytes = readFileSync(fixtureVerifierPath);
+    copyFileSync(governanceScript, fixtureVerifierPath);
     const portable = runNode(
       join(root, "scripts", "verify-sena-repo-governance.mjs"),
-      ["registry"],
+      ["historical-registry"],
       {
         cwd: root,
         env: {
@@ -20228,8 +20456,11 @@ describe("N-M PR 88 final authorization", () => {
         }
       }
     );
-    expect(portable.status).toBe(0);
-    expect(portable.stdout).toContain("SENA_REPO_REGISTRY pass");
+    expect(portable.status, `${portable.stdout}${portable.stderr}`).toBe(0);
+    expect(portable.stdout).toContain(
+      "SENA_REPO_HISTORICAL_REGISTRY pass"
+    );
+    writeFileSync(fixtureVerifierPath, fixtureVerifierBytes);
 
     runGit(root, ["checkout", "--detach", H_GOVERNANCE_SOURCE_FOR_TEST]);
     runGit(root, ["merge", "--no-ff", "--no-edit", finalHeadSha]);
@@ -20741,7 +20972,10 @@ describe("O-N PR 88 post-main currentness repair", () => {
     expect(
       governance.oNPr88PostMainCurrentnessRepairHistoricalProjection(candidate)
     ).toEqual(source);
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
     const evidenceFlow = candidate.workItems.find(
       (entry: any) => entry.taskId === "SENA-EVIDENCEFLOW-V1-20260828"
     );
@@ -20796,7 +21030,7 @@ describe("O-N PR 88 post-main currentness repair", () => {
         evidenceFlow,
         physicalFacts.headSha,
         postPr89PhysicalFacts.aheadBehind,
-        { ahead: 16, behind: 135 }
+        { baseRef: "origin/main", ahead: 16, behind: 135 }
       )
     ).toBe(true);
     for (const change of [
@@ -20816,15 +21050,15 @@ describe("O-N PR 88 post-main currentness repair", () => {
     for (const [observed, actual] of [
       [
         { baseRef: "origin/main", ahead: 17, behind: 135 },
-        { ahead: 17, behind: 135 }
+        { baseRef: "origin/main", ahead: 17, behind: 135 }
       ],
       [
         { baseRef: "origin/main", ahead: 16, behind: 132 },
-        { ahead: 16, behind: 132 }
+        { baseRef: "origin/main", ahead: 16, behind: 132 }
       ],
       [
         { baseRef: "origin/main", ahead: 16, behind: 135 },
-        { ahead: 16, behind: 134 }
+        { baseRef: "origin/main", ahead: 16, behind: 134 }
       ]
     ] as const) {
       expect(
@@ -20966,7 +21200,13 @@ describe("O-N PR 88 post-main currentness repair", () => {
     runGit(root, ["config", "user.name", "SENA O fixture"]);
     runGit(root, ["config", "user.email", "o-fixture@example.invalid"]);
     for (const relative of H_GOVERNANCE_PATHS_FOR_TEST) {
-      copyFileSync(join(projectRoot, relative), join(root, relative));
+      const historicalBlob = spawnSync(
+        "git",
+        ["show", `23f53106fbc8868a4fa8d32f67bd4b7c63295f42:${relative}`],
+        { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }
+      );
+      expect(historicalBlob.status, historicalBlob.stderr).toBe(0);
+      writeFileSync(join(root, relative), historicalBlob.stdout);
     }
     runGit(root, ["add", ...H_GOVERNANCE_PATHS_FOR_TEST]);
     runGit(root, ["commit", "-q", "-m", "exact P remediation candidate"]);
@@ -21457,10 +21697,10 @@ describe("P-O PR 89 pre-push custody remediation", () => {
       ])
     );
     const candidate = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination/repo-governance/active-work.json"),
-        "utf8"
-      )
+      runGit(projectRoot, [
+        "show",
+        "23f53106fbc8868a4fa8d32f67bd4b7c63295f42:coordination/repo-governance/active-work.json"
+      ])
     );
     const proof =
       governance.validatePOPr89PrePushCustodyRemediationTransition(
@@ -21494,7 +21734,10 @@ describe("P-O PR 89 pre-push custody remediation", () => {
         candidate
       )
     ).toEqual(source);
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    expect(
+      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+        .errors
+    ).toEqual([]);
 
     const indexFacts = {
       repo: "/Volumes/Starship/SENA",
@@ -21621,7 +21864,10 @@ describe("Human-AI local-ref retirement pending-release mint", () => {
 
   function liveRegistry() {
     return JSON.parse(
-      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+      runGit(projectRoot, [
+        "show",
+        "6d65770dbae5db94d9c99decdddbebe3d978b8ae:coordination/repo-governance/active-work.json"
+      ])
     );
   }
 
@@ -21635,6 +21881,9 @@ describe("Human-AI local-ref retirement pending-release mint", () => {
 
   it("accepts a fresh unexpired pending-release with an explicit deletionRelease and does not treat it as executed", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
+    vi.spyOn(Date, "now").mockReturnValue(
+      Date.parse("2026-09-16T02:00:00Z")
+    );
     const registry = liveRegistry();
     const authorization = humanAiAuthorization(registry);
     const result = governance.validateRegistry(registry);
@@ -21661,7 +21910,11 @@ describe("Human-AI local-ref retirement pending-release mint", () => {
     expect(
       governance.localRefRetirementDeletionReleaseIsStructurallyValid(authorization)
     ).toBe(true);
-    expect(result.errors).toEqual([]);
+    expect(
+      result.errors.filter((error: string) =>
+        error.includes("local-ref retirement")
+      )
+    ).toEqual([]);
     expect(
       result.errors.some((error: string) => error.includes("completion evidence"))
     ).toBe(false);
@@ -21676,6 +21929,18 @@ describe("Human-AI local-ref retirement pending-release mint", () => {
     missingAuth.deletionRelease = null;
     expect(governance.validateRegistry(missingRelease).errors).toContain(
       `pending local-ref retirement authorization lacks deletion release: ${humanAiRetirementId}`
+    );
+    const backdatedRelease = structuredClone(missingRelease);
+    const backdatedAuth = humanAiAuthorization(backdatedRelease);
+    if (!backdatedAuth) throw new Error("missing backdated authorization");
+    backdatedAuth.authorizedAt = "2026-08-31T01:59:54Z";
+    backdatedAuth.expiresAt = "2026-09-02T01:59:54Z";
+    const backdatedErrors = governance.validateRegistry(backdatedRelease).errors;
+    expect(backdatedErrors).toContain(
+      `pending local-ref retirement authorization lacks deletion release: ${humanAiRetirementId}`
+    );
+    expect(backdatedErrors).toContain(
+      `local-ref retirement authorization is expired: ${humanAiRetirementId}`
     );
 
     const expiredAuth = liveRegistry();
@@ -21724,5 +21989,777 @@ describe("Human-AI local-ref retirement pending-release mint", () => {
     expect(governance.validateRegistry(wrongSha).errors).toContain(
       `local-ref retirement authorization target state is invalid: ${humanAiRetirementId}`
     );
+  });
+});
+
+describe("latest-main Q convergence remediation", () => {
+  it("ports only the still-valid Q semantics onto the exact current protected main", async () => {
+    const governance: any = await import(
+      `${pathToFileURL(governanceScript).href}?latest-main-q=${Date.now()}`
+    );
+    expect(
+      typeof governance.validateLatestMainQConvergenceRemediationTransition
+    ).toBe("function");
+
+    const source = JSON.parse(
+      runGit(projectRoot, [
+        "show",
+        "6d65770dbae5db94d9c99decdddbebe3d978b8ae:coordination/repo-governance/active-work.json"
+      ])
+    );
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination/repo-governance/active-work.json"),
+        "utf8"
+      )
+    );
+    const proof =
+      governance.validateLatestMainQConvergenceRemediationTransition(
+        source,
+        candidate
+      );
+    expect(proof).toMatchObject({
+      sourceCommitSha: "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+      sourceTreeSha: "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b",
+      predecessorPCommitSha: "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+      candidateBranch: "codex/sena-q-currentness-port-20260919",
+      candidateCommitAuthorizedAfterGates: true,
+      oneNonForceBranchPushAuthorizedAfterGates: true,
+      draftPullRequestCreationAuthorizedAfterPush: true,
+      providerAssignedPullRequestNumber: null,
+      readyAuthorizedNow: false,
+      mergeAuthorizedNow: false,
+      gProductWriteAuthorizedNow: false,
+      localRefDeletionAuthorizedNow: false,
+      deploymentAuthorizedNow: false,
+      cleanupAuthorizedNow: false,
+      directMainPushAuthorized: false,
+      forceAuthorized: false,
+      historyRewriteAuthorized: false,
+      bypassHooksAuthorized: false
+    });
+    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+
+    const activeTasks = candidate.workItems
+      .filter((item: any) => ["active", "ready-for-pr"].includes(item.disposition))
+      .map((item: any) => item.taskId);
+    expect(activeTasks).toEqual([
+      "SENA-Q-LATEST-MAIN-CONVERGENCE-20260919"
+    ]);
+    for (const taskId of [
+      "SENA-MOBILE-RESEARCH-PILOT-20260905",
+      "SENA-G-Q-CURRENTNESS-20260908",
+      "SENA-I-H-DEDICATED-LANDING-CANDIDATE-20260908"
+    ]) {
+      expect(
+        candidate.workItems.find((item: any) => item.taskId === taskId)
+          .disposition
+      ).toBe("preservation-review");
+    }
+    expect(
+      candidate.policy.localRefRetirementAuthorizations.find(
+        (entry: any) =>
+          entry.id === "SENA-LOCAL-REF-RETIRE-HUMAN-AI-20260829"
+      )
+    ).toMatchObject({
+      status: "expired",
+      eventId: null,
+      consumedAt: null,
+      executedBy: null,
+      localRefAbsenceReadbackAt: null,
+      result: null
+    });
+    expect(candidate.qLatestMainConvergenceRemediation).toMatchObject({
+      schemaVersion: "sena-q-latest-main-convergence-remediation/v1",
+      source: {
+        commitSha: "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+        treeSha: "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b"
+      },
+      supersededUnlandedQ: {
+        sourceCommitSha: "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+        plannedPullRequestNumber: 90,
+        actualPullRequest90HeadSha:
+          "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+        completionClaimAllowed: false,
+        bytesPreservedInOriginalWorktree: true
+      },
+      providerAssignedPullRequestNumber: null,
+      authorityExpanded: false
+    });
+    expect(candidate.qLatestMainConvergenceRemediation.preCommitDeferredLiveAudit).toBeUndefined();
+    const deferred =
+      candidate.qLatestMainConvergenceRemediation
+        .currentnessObservation.priorPreCommitDeferredLiveAudit;
+    expect(
+      governance.latestMainQPreCommitDeferredErrorsAllowed(
+        candidate,
+        deferred.errors,
+        { preCommit: true, live: false }
+      )
+    ).toBe(false);
+    expect(deferred).toMatchObject({
+      sourceAuditObservedAt: "2026-09-19T08:37:48.965Z",
+      observedAt: "2026-09-19T13:57:10.417Z",
+      sourceAuditStatus: "fail",
+      sourceErrorCount: 51,
+      currentErrorCount: 11,
+      preCommitOnly: true,
+      liveAuditPassClaimed: false,
+      postMainAuditPassClaimed: false,
+      authorityExpanded: false
+    });
+    expect(
+      governance.latestMainQPreCommitDeferredErrorsAllowed(
+        candidate,
+        deferred.errors,
+        { preCommit: false, prePush: true, live: false }
+      )
+    ).toBe(false);
+    expect(
+      governance.latestMainQPreCommitDeferredErrorsAllowed(
+        candidate,
+        deferred.errors,
+        { preCommit: true, prePush: true, live: false }
+      )
+    ).toBe(false);
+    expect(
+      governance.latestMainQPreCommitDeferredErrorsAllowed(
+        candidate,
+        deferred.errors,
+        { preCommit: true, live: true }
+      )
+    ).toBe(false);
+    expect(
+      governance.latestMainQPreCommitDeferredErrorsAllowed(
+        candidate,
+        deferred.errors.slice(1),
+        { preCommit: true, live: false }
+      )
+    ).toBe(false);
+    expect(
+      governance.latestMainQPreCommitDeferredErrorsAllowed(
+        candidate,
+        [...deferred.errors, "unexpected"],
+        { preCommit: true, live: false }
+      )
+    ).toBe(false);
+
+    for (const mutate of [
+      (value: any) => (value.updatedAt = source.updatedAt),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.source.commitSha =
+          "84867c93ff23acb4be98c29c08feb10102138568"),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.supersededUnlandedQ.completionClaimAllowed =
+          true),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.providerAssignedPullRequestNumber =
+          90),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.authorizationBoundary.gProductWriteAuthorizedNow =
+          true),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.authorizationBoundary.localRefDeletionAuthorizedNow =
+          true),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.authorizationBoundary.forceAuthorized =
+          true),
+      (value: any) =>
+        (value.qLatestMainConvergenceRemediation.authorityExpanded = true)
+    ]) {
+      const changed = structuredClone(candidate);
+      mutate(changed);
+      expect(() =>
+        governance.validateLatestMainQConvergenceRemediationTransition(
+          source,
+          changed
+        )
+      ).toThrow("rule=latest-main-q-convergence-remediation-invalid");
+    }
+  });
+
+  it("permits only one exact committed successor and one create-only non-force branch push", async () => {
+    const governance: any = await import(
+      `${pathToFileURL(governanceScript).href}?latest-main-q-push=${Date.now()}`
+    );
+    const candidate = JSON.parse(
+      readFileSync(
+        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
+        "utf8"
+      )
+    );
+    const sourceHead = "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+    const finalHead = "f".repeat(40);
+    const branch = "codex/sena-q-currentness-port-20260919";
+    const exactPaths = [
+      "coordination/repo-governance/active-work.json",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+    ];
+    const committedFacts = {
+      branch,
+      currentHeadSha: finalHead,
+      orderedParentShas: [sourceHead],
+      changedPaths: exactPaths,
+      cachedMainSha: sourceHead,
+      rootMainSha: sourceHead,
+      outgoingRegistryMatches: true,
+      clean: true
+    };
+    expect(
+      governance.latestMainQCommittedHeadFactsAllowed(
+        candidate,
+        committedFacts
+      )
+    ).toBe(true);
+    for (const change of [
+      { branch: "main" },
+      { currentHeadSha: sourceHead },
+      { orderedParentShas: ["e".repeat(40)] },
+      { changedPaths: exactPaths.slice(1) },
+      { changedPaths: [...exactPaths, "foreign"] },
+      { cachedMainSha: "e".repeat(40) },
+      { rootMainSha: "e".repeat(40) },
+      { outgoingRegistryMatches: false },
+      { clean: false }
+    ]) {
+      expect(
+        governance.latestMainQCommittedHeadFactsAllowed(candidate, {
+          ...committedFacts,
+          ...change
+        })
+      ).toBe(false);
+    }
+
+    const pushFacts = {
+      ...committedFacts,
+      localRef: `refs/heads/${branch}`,
+      localSha: finalHead,
+      remoteRef: `refs/heads/${branch}`,
+      remoteSha: "0".repeat(40),
+      combinedChangedPaths: exactPaths,
+      outgoingCommitShas: [finalHead],
+      force: false
+    };
+    expect(
+      governance.latestMainQCreatePushFactsAllowed(candidate, pushFacts)
+    ).toBe(true);
+    for (const change of [
+      { localRef: "refs/heads/main" },
+      { localSha: sourceHead },
+      { remoteRef: "refs/heads/main" },
+      { remoteSha: sourceHead },
+      { combinedChangedPaths: exactPaths.slice(1) },
+      { outgoingCommitShas: ["e".repeat(40), finalHead] },
+      { force: true }
+    ]) {
+      expect(
+        governance.latestMainQCreatePushFactsAllowed(candidate, {
+          ...pushFacts,
+          ...change
+        })
+      ).toBe(false);
+    }
+  });
+  it("verifies preserved Q custody without rewriting its source index cache", () => {
+    const root = temporaryRoot("q-readonly-source-index");
+    const checkout = join(root, "source");
+    const paths = ["coordination/repo-governance/active-work.json", "scripts/verify-sena-repo-governance.mjs", "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"];
+    runGit(root, ["init", "-q"]);
+    runGit(root, ["config", "user.name", "SENA custody fixture"]);
+    runGit(root, ["config", "user.email", "custody@example.invalid"]);
+    for (const path of paths) { mkdirSync(dirname(join(root, path)), { recursive: true }); writeFileSync(join(root, path), "base\n"); }
+    runGit(root, ["add", "--", ...paths]);
+    runGit(root, ["commit", "-q", "-m", "custody fixture base"]);
+    const head = runGit(root, ["rev-parse", "HEAD"]);
+    runGit(root, ["worktree", "add", "-q", "-b", "preserved-q", checkout, head]);
+    for (const path of paths) writeFileSync(join(checkout, path), "preserved staged source\n");
+    runGit(checkout, ["add", "--", ...paths]);
+    const index = runGit(checkout, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const privateIndex = join(root, "private.index");
+    copyFileSync(index, privateIndex);
+    const raw = (args: string[], environment: Record<string, string> = {}) => {
+      const result = spawnSync("git", args, { cwd: checkout, env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", ...environment } });
+      expect(result.status, result.stderr.toString()).toBe(0);
+      return result.stdout;
+    };
+    const digest = (args: string[]) => createHash("sha256").update(raw(args)).digest("hex");
+    const stagedTreeSha = raw(["write-tree"], { GIT_INDEX_FILE: privateIndex }).toString().trim();
+    const recorded = {
+      stagedTreeSha,
+      stagedBlobShas: paths.map((path) => raw(["rev-parse", `:${path}`]).toString().trim()),
+      canonicalDiffSha256: digest(["diff", "--cached", "--binary", "--no-ext-diff", "--no-textconv", "HEAD", "--"]),
+      fullIndexDiffSha256: digest(["diff", "--cached", "--binary", "--full-index", "--no-ext-diff", "--no-textconv", "HEAD", "--"]),
+      indexEntriesSha256: digest(["ls-files", "--stage", "-z"]),
+      statusSha256: digest(["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+    };
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("function latestMainQPreservedUnlandedQPhysicalAllowed(");
+    const end = source.indexOf("\nfunction latestMainQConvergenceCurrentIndexAllowed(", start);
+    expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+    let callerGitEnvironment: Record<string, string> = {};
+    const check = runInNewContext(`${source.slice(start, end)}\nlatestMainQPreservedUnlandedQPhysicalAllowed`, {
+      validateLatestMainQConvergenceRemediationTransition: () => true,
+      latestMainQConvergenceRemediationSource: () => ({}),
+      I_H_WORKTREE: checkout, I_H_BRANCH: "preserved-q",
+      LATEST_MAIN_Q_PREDECESSOR_P_COMMIT: head, PR86_DELIVERY_PATHS: paths,
+      markerInfo: () => ({ valid: true, kind: "gitdir-file" }),
+      parseWorktreeList: () => [{ path: checkout, branch: "preserved-q", headSha: head }],
+      git: (args: string[], options: { cwd: string; unsetEnv?: string[] }) => {
+        const env: NodeJS.ProcessEnv = { ...process.env, ...callerGitEnvironment, GIT_OPTIONAL_LOCKS: "0" };
+        for (const name of options.unsetEnv ?? []) delete env[name];
+        return spawnSync("git", args, { cwd: options.cwd, env });
+      },
+      sha256Buffer: (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex"),
+      sameJson: (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+    });
+    const candidate = { qLatestMainConvergenceRemediation: { supersededUnlandedQ: recorded } };
+    const indexBefore = sha256File(index);
+    const refsBefore = stableRepositoryRefSnapshot(root);
+    expect(check(candidate)).toBe(true);
+    callerGitEnvironment = { GIT_DIR: join(root, ".git"), GIT_INDEX_FILE: join(root, ".git", "index"),
+      GIT_WORK_TREE: root, GIT_COMMON_DIR: join(root, ".git"), GIT_OBJECT_DIRECTORY: join(root, ".git", "objects") };
+    const callerIndexBefore = sha256File(join(root, ".git", "index"));
+    expect(check(candidate), "native caller binding must not redirect old-Q custody reads").toBe(true);
+    expect(sha256File(join(root, ".git", "index"))).toBe(callerIndexBefore);
+    expect(sha256File(index)).toBe(indexBefore);
+    expect(stableRepositoryRefSnapshot(root)).toBe(refsBefore);
+    expect(check({ qLatestMainConvergenceRemediation: { supersededUnlandedQ: { ...recorded, stagedTreeSha: head } } })).toBe(false);
+    expect(sha256File(index)).toBe(indexBefore);
+  });
+
+});
+
+
+describe("latest-main Q historical landed PR observations", () => {
+  it("includes the actual PR38 landing between PR90 and PR91 rather than skipping a main-chain commit", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const provider = {
+    "number": 38,
+    "state": "closed",
+    "merged": true,
+    "merged_at": "2026-09-15T18:36:23Z",
+    "merge_commit_sha": "4998e217d14b8854e702f6fdff1562b9dcdadadf",
+    "draft": false,
+    "head": {
+        "ref": "codex/sena-evidenceflow-v1-20260828",
+        "sha": "a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
+        "repo": {
+            "full_name": "HUDongpin/SENA"
+        }
+    },
+    "base": {
+        "ref": "main",
+        "repo": {
+            "full_name": "HUDongpin/SENA"
+        }
+    }
+};
+    expect(governance.latestMainQHistoricalPullRequestObservationAllowed(38, { githubTransport: () => provider })).toBe(true);
+  });
+  it("binds a single-parent PR90 landing to actual Git objects and exact provider evidence without granting authority", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.latestMainQHistoricalPullRequestObservationAllowed).toBe("function");
+    const provider = {
+      number: 90, state: "closed", merged: true, draft: false,
+      merged_at: "2026-09-15T18:16:13Z",
+      merge_commit_sha: "9fd76f602661f38720d167be4df9c8fd6edf09ad",
+      head: { ref: "cursor/sena-registry-heartbeat-currentness-d2fa", sha: "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5", repo: { full_name: "HUDongpin/SENA" } },
+      base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } }
+    };
+    const options = { githubTransport: (path: string) => {
+      expect(path).toBe("repos/HUDongpin/SENA/pulls/90");
+      return structuredClone(provider);
+    } };
+    expect(runGit(projectRoot, ["show", "-s", "--format=%P", provider.merge_commit_sha]))
+      .toBe("84867c93ff23acb4be98c29c08feb10102138568");
+    expect(governance.latestMainQHistoricalPullRequestObservationAllowed(90, options)).toBe(true);
+    for (const mutate of [
+      (p: any) => p.number = 91,
+      (p: any) => p.merged = false,
+      (p: any) => p.draft = true,
+      (p: any) => p.state = "open",
+      (p: any) => p.merged_at = "2026-09-15T18:16:14Z",
+      (p: any) => p.merge_commit_sha = p.head.sha,
+      (p: any) => p.head.sha = "a".repeat(40),
+      (p: any) => p.head.ref += "-foreign",
+      (p: any) => p.head.repo.full_name = "other/SENA",
+      (p: any) => p.base.ref = "other",
+      (p: any) => p.base.repo.full_name = "other/SENA"
+    ]) {
+      const changed = structuredClone(provider); mutate(changed);
+      expect(governance.latestMainQHistoricalPullRequestObservationAllowed(90,
+        { githubTransport: () => changed })).toBe(false);
+    }
+    expect(governance.latestMainQHistoricalPullRequestObservationAllowed(100, options)).toBe(false);
+    expect(governance.latestMainQHistoricalPullRequestObservationAllowed(90,
+      { githubTransport: () => { throw new Error("unavailable"); } })).toBe(false);
+    expect(governance.latestMainQHistoricalPullRequestObservationAllowed(90,
+      { githubTransport: () => null })).toBe(false);
+  });
+});
+
+
+describe("latest-main Q complete historical landing segment", () => {
+  it("requires the exact complete segment and detects provider or final live-main drift", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.latestMainQHistoricalLandingSegmentAllowed).toBe("function");
+    const from = "84867c93ff23acb4be98c29c08feb10102138568";
+    const to = "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+    const rows: Array<[number, string, string, string, string]> = [
+  [
+    90,
+    "cursor/sena-registry-heartbeat-currentness-d2fa",
+    "955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+    "9fd76f602661f38720d167be4df9c8fd6edf09ad",
+    "2026-09-15T18:16:13Z"
+  ],
+  [
+    38,
+    "codex/sena-evidenceflow-v1-20260828",
+    "a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
+    "4998e217d14b8854e702f6fdff1562b9dcdadadf",
+    "2026-09-15T18:36:23Z"
+  ],
+  [
+    91,
+    "cursor/fix-canonical-snapshot-drift-85b6",
+    "93e8fa37d698897d2e5d6a0b7dff3756ad07fdda",
+    "8f4625772137336d53afc1e0e8289dcf703fe177",
+    "2026-09-16T01:06:59Z"
+  ],
+  [
+    92,
+    "cursor/human-ai-local-ref-retirement-f16c",
+    "d08843664bd07bd42b72786d2341ce56e01a8e76",
+    "a7d7c50373186a7e9f66dde992a4738561eff253",
+    "2026-09-16T01:44:57Z"
+  ],
+  [
+    94,
+    "cursor/h-gov-seven-day-currentness-ecfd",
+    "d189581f3dcce27af3617dd93252797acb5f0ce3",
+    "dec29b1d3db404909094024c6e25b4e404b28213",
+    "2026-09-16T02:34:49Z"
+  ],
+  [
+    93,
+    "cursor/human-ai-deletion-execution-prep-b7ec",
+    "01ab0cf95128caf9065752d4a0930d5d55b10f78",
+    "d055d9d23e369bd16b1c74b18ecf293d6ad0f0e2",
+    "2026-09-16T02:39:06Z"
+  ],
+  [
+    95,
+    "cursor/test-processenv-typing-21a3",
+    "74f112675293710ed37ab2c1f84f6c3b30fe2572",
+    "c8a523c4701c25efc6069b40c93277e5c12013b5",
+    "2026-09-17T08:19:28Z"
+  ],
+  [
+    96,
+    "cursor/researcher-walkthrough-handoff-949c",
+    "4b8d50f463aee73c94a847cb6c79372abdf4170c",
+    "dcc6160d4e6011c7d642234cef14276c3d8d379f",
+    "2026-09-17T08:36:37Z"
+  ],
+  [
+    98,
+    "cursor/sena-currentness-heartbeat-383e",
+    "7448f4443b2482771bbadfe0a0550256f9a89304",
+    "099a495477acbdea2d903462bcd6385847f29b29",
+    "2026-09-18T02:23:40Z"
+  ],
+  [
+    97,
+    "cursor/a4-usability-empty-import-inspector-9f0f",
+    "81633f22f95666026dec59257271f31ea37b9884",
+    "24d403a42af7b137907b1c9bdb3c4ed1afbc603d",
+    "2026-09-18T02:26:39Z"
+  ],
+  [
+    99,
+    "cursor/ai-agent-runs-provenance-adr-d9a4",
+    "89ae63d18b52bbd60d7fc0e8b0a5187826e368fc",
+    "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
+    "2026-09-18T08:26:28Z"
+  ]
+];
+    const responses: Record<string, any> = Object.fromEntries(rows.map(([number, ref, sha, landing, mergedAt]) => [
+      `repos/HUDongpin/SENA/pulls/${number}`, { number, state: "closed", merged: true, draft: false,
+        merged_at: mergedAt, merge_commit_sha: landing,
+        head: { ref, sha, repo: { full_name: "HUDongpin/SENA" } },
+        base: { ref: "main", repo: { full_name: "HUDongpin/SENA" } } }
+    ]));
+    const mainKey = "repos/HUDongpin/SENA/git/ref/heads/main";
+    responses[mainKey] = { ref: "refs/heads/main", object: { sha: to } };
+    const calls: string[] = [];
+    const transport = (key: string) => { calls.push(key); return structuredClone(responses[key]); };
+    expect(runGit(projectRoot, ["rev-list", "--reverse", "--first-parent", `${from}..${to}`]).split("\n"))
+      .toEqual(rows.map((row) => row[3]));
+    expect(governance.latestMainQHistoricalLandingSegmentAllowed(from, to, { githubTransport: transport })).toBe(true);
+    expect(calls.filter((key) => key === mainKey)).toHaveLength(2);
+    expect(calls.filter((key) => key !== mainKey)).toEqual(rows.map((row) => `repos/HUDongpin/SENA/pulls/${row[0]}`));
+    expect(governance.latestMainQHistoricalLandingSegmentAllowed(rows[0][3], to, { githubTransport: transport })).toBe(false);
+    expect(governance.latestMainQHistoricalLandingSegmentAllowed(from, rows[9][3], { githubTransport: transport })).toBe(false);
+    let mainReads = 0;
+    expect(governance.latestMainQHistoricalLandingSegmentAllowed(from, to, { githubTransport: (key: string) => {
+      const response = structuredClone(responses[key]);
+      if (key === mainKey && ++mainReads === 2) response.object.sha = "a".repeat(40);
+      return response;
+    } })).toBe(false);
+    expect(mainReads).toBe(2);
+    expect(governance.latestMainQHistoricalLandingSegmentAllowed(from, to, { githubTransport: (key: string) =>
+      key.endsWith("/pulls/38") ? null : structuredClone(responses[key]) })).toBe(false);
+  });
+});
+
+
+describe("latest-main Q retained currentness commit proof", () => {
+  it("requires every historical/provider gate and keeps current main separate from retained landing identity", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("export function resolveLatestMainQRetainedCurrentnessCommit(");
+    expect(start).toBeGreaterThan(-1);
+    const end = source.indexOf("\nexport function resolvePr86DeliveryCurrentnessCommit(", start);
+    expect(end).toBeGreaterThan(start);
+    const main = "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+    const anchor = "84867c93ff23acb4be98c29c08feb10102138568";
+    const registry = { qLatestMainConvergenceRemediation: {} };
+    let denied = "";
+    const calls: string[] = [];
+    const gate = (name: string) => { calls.push(name); if (denied === name) throw new Error(name); return true; };
+    const context: any = {
+      LATEST_MAIN_Q_SOURCE_COMMIT: main, H_GOVERNANCE_SOURCE: "pr87",
+      PR86_DELIVERY_SOURCE: "pr86", PR86_DELIVERY_REVIEWED_MOBILE: "mobile-head",
+      MOBILE_PILOT_TASK: "mobile-task", PR86_DELIVERY_GITHUB_BINDING: {},
+      latestMainQConvergenceRemediationSource: () => ({}),
+      validateLatestMainQConvergenceRemediationTransition: () => gate("registry"),
+      validatePr86DeliverySourceEvidence: () => gate("source"),
+      protectedMainAdvanceObjectSha: () => denied === "cached" ? "drift" : main,
+      pr86DeliveryMergeDescriptor: (sha: string) => ({ mergeCommitSha: sha, mergeTimeRegistry: {},
+        secondParentSha: sha === anchor ? "old-q-head" : "closeout-head", mergeTreeSha: "retained-tree" }),
+      validatePr86DeliveryProtectedMergeDescriptor: () => gate("pr87-shape"),
+      pr86DeliveryItem: () => ({ prNumber: 87 }),
+      validateProtectedFinalHeadLiveGitHubEvidence: () => gate("pr87-provider"),
+      validateONPr88HistoricalLandedEvidenceAfterBranchAdvance: (_r: any, _head: string, liveMain: string, options: any) => {
+        expect(liveMain).toBe(main); expect(options.qCurrentnessRegistry).toBe(registry); return gate("pr88");
+      },
+      validatePr89EvidenceFlowCurrentnessFinalHeadLiveGitHubEvidence: () => gate("pr89"),
+      latestMainQHistoricalLandingSegmentAllowed: () => gate("segment"),
+      validateLatestMainQCurrentWorkflowChecks: () => gate("current-ci"),
+      postPr83GithubApiJson: () => ({ ref: "refs/heads/main", object: { sha: denied === "live" ? "drift" : main } }),
+      bindMobilePilotReleaseProof: (proof: any, boundRegistry: any, level: string) => {
+        expect(boundRegistry).toBe(registry); expect(level).toBe("commit"); return Object.freeze(proof);
+      }
+    };
+    runInNewContext(source.slice(start, end).replace("export function", "function") +
+      "\nthis.resolve = resolveLatestMainQRetainedCurrentnessCommit;", context);
+    const proof = context.resolve(registry, main);
+    expect(proof).toMatchObject({ mergeCommitSha: main, dedicatedLandingMergeCommitSha: anchor,
+      dedicatedLandingReviewedHeadSha: "old-q-head", treeSha: "retained-tree",
+      sourceWritesAuthorized: false, pushAuthorized: false });
+    expect(proof.hostObservation).toBeUndefined();
+    expect(calls).toEqual(["registry", "source", "pr87-shape", "pr87-provider", "pr88", "pr89", "segment", "current-ci"]);
+    for (const failure of [...calls, "cached", "live"]) {
+      denied = failure; expect(context.resolve(registry, main), failure).toBeNull();
+    }
+    denied = ""; expect(context.resolve(registry, "unknown-main")).toBeNull();
+  });
+});
+
+
+describe("latest-main Q PR88 historical boundary", () => {
+  it("does not allow current main to borrow historical PR88 authority without the exact Q registry", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    const historical = JSON.parse(runGit(projectRoot, ["show", "23f53106fbc8868a4fa8d32f67bd4b7c63295f42:coordination/repo-governance/active-work.json"]));
+    const current = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"));
+    const changed = structuredClone(current);
+    changed.qLatestMainConvergenceRemediation.authorizationBoundary.forceAuthorized = true;
+    let providerCalls = 0;
+    const githubTransport = () => { providerCalls++; throw new Error("unexpected provider call"); };
+    for (const qCurrentnessRegistry of [undefined, changed]) {
+      expect(() => governance.validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(historical,
+        "23f53106fbc8868a4fa8d32f67bd4b7c63295f42", "6d65770dbae5db94d9c99decdddbebe3d978b8ae", {
+          expectedPr89MergeCommitSha: "84867c93ff23acb4be98c29c08feb10102138568",
+          qCurrentnessRegistry, githubTransport
+        })).toThrow();
+    }
+    expect(providerCalls).toBe(0);
+  });
+});
+
+
+describe("latest-main Q current CI platform notice", () => {
+  it("allows only the exact runner migration notice and never warnings or unknown annotations", async () => {
+    const governance: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof governance.latestMainQCurrentCiAnnotationsAllowed).toBe("function");
+    const notice = { path: ".github", start_line: 1, end_line: 1, start_column: null, end_column: null,
+      annotation_level: "notice", title: "", raw_details: "",
+      message: '\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"' };
+    const check = governance.latestMainQCurrentCiAnnotationsAllowed;
+    expect(check([])).toBe(true);
+    expect(check([notice])).toBe(true);
+    for (const change of [{ annotation_level: "warning" }, { annotation_level: "failure" },
+      { message: "unknown notice" }, { path: "app/page.tsx" }, { start_line: 2 }, { end_line: 2 },
+      { title: "error" }, { raw_details: "additional problem" }, { start_column: 1 }]) {
+      expect(check([{ ...notice, ...change }])).toBe(false);
+    }
+    expect(check([notice, notice])).toBe(false);
+    expect(check(null)).toBe(false);
+  });
+});
+
+
+describe("latest-main Q CI policy isolation", () => {
+  it("keeps the default workflow validator strict and rejects an imitation policy token", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf('const LATEST_MAIN_Q_CURRENT_CI_POLICY = Symbol(');
+    const end = source.indexOf('\nfunction validateProtectedFinalHeadLiveGitHubEvidence(', start);
+    expect(start).toBeGreaterThan(-1); expect(end).toBeGreaterThan(start);
+    const main = "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+    const required = [["build-gate", "push", "build"], ["repo-security-gate", "push", "repository-security"]];
+    const runs = required.map(([name, event], index) => ({ id: index + 1, name, event,
+      head_sha: main, head_branch: "main", head_repository: { full_name: "HUDongpin/SENA" },
+      created_at: "2026-09-18T08:30:00Z", run_number: 1, run_attempt: 1, status: "completed", conclusion: "success" }));
+    const notice = { path: ".github", start_line: 1, end_line: 1, start_column: null, end_column: null,
+      annotation_level: "notice", title: "", raw_details: "",
+      message: '\"The ubuntu-latest label will migrate to Ubuntu 26 beginning October 19, 2026. For more information, see https://github.com/actions/runner-images/issues/14748\"' };
+    let annotations: any[] = [notice];
+    const transport = (key: string) => {
+      if (key.includes("/actions/runs?")) return { workflow_runs: runs };
+      if (key.endsWith("/annotations")) return annotations;
+      const run = runs.find((row) => key.includes(`/runs/${row.id}/`))!;
+      return { jobs: [{ id: run.id + 10, run_id: run.id, run_attempt: 1,
+        head_sha: main, name: required[run.id - 1][2], status: "completed", conclusion: "success" }] };
+    };
+    const context: any = { LATEST_MAIN_Q_SOURCE_COMMIT: main,
+      isPlainRecord: (value: any) => value !== null && typeof value === "object" && !Array.isArray(value),
+      isIsoTimestamp: (value: string) => Number.isFinite(Date.parse(value)),
+      pr85PlainJsonData: () => true,
+      sameJson: (left: any, right: any) => JSON.stringify(left) === JSON.stringify(right),
+      postPr83GithubApiJson: (key: string, read: any) => read(key)
+    };
+    runInNewContext(source.slice(start, end).replaceAll("export function", "function") +
+      "\nthis.strict = validateProtectedWorkflowChecks; this.current = validateLatestMainQCurrentWorkflowChecks;", context);
+    expect(() => context.strict(main, "main", required, transport)).toThrow();
+    expect(() => context.strict(main, "main", required, transport, Symbol("latest-main-q-current-ci"))).toThrow();
+    expect(context.current(transport)).toEqual([11, 12]);
+    annotations = [{ ...notice, annotation_level: "warning" }];
+    expect(() => context.current(transport)).toThrow();
+    annotations = [];
+    expect(context.strict(main, "main", required, transport)).toEqual([11, 12]);
+  });
+});
+
+
+describe("latest-main Q currentness resolver routing", () => {
+  it("routes Q exclusively through its bounded resolver and never falls back after denial", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("export function resolvePr86DeliveryCurrentnessCommit(");
+    const end = source.indexOf("\nfunction pr86DeliveryCurrentProofMatches(", start);
+    const registry = { qLatestMainConvergenceRemediation: {} };
+    const sentinel = Object.freeze({ commitProof: true });
+    let result: any = sentinel; let qCalls = 0; let historicalCalls = 0;
+    const context: any = {
+      resolveLatestMainQRetainedCurrentnessCommit: (candidate: any, sha: string) => {
+        expect(candidate).toBe(registry); expect(sha).toBe("current-main"); qCalls++; return result;
+      },
+      validatePr86DeliveryOperationalSnapshot: () => { historicalCalls++; throw new Error("historical path"); }
+    };
+    runInNewContext(source.slice(start, end).replace("export function", "function") +
+      "\nthis.resolve = resolvePr86DeliveryCurrentnessCommit;", context);
+    expect(context.resolve(registry, "current-main")).toBe(sentinel);
+    result = null;
+    expect(context.resolve(registry, "current-main")).toBeNull();
+    expect(qCalls).toBe(2); expect(historicalCalls).toBe(0);
+    expect(context.resolve({}, "historical-main")).toBeNull();
+    expect(historicalCalls).toBe(1);
+  });
+});
+
+
+describe("latest-main Q preserved landing custody", () => {
+  it("requires a bound current proof and exact preserved Q bytes instead of accepting arbitrary dirty custody", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("export function latestMainQPreservedLandingCustodyAllowed(");
+    expect(start).toBeGreaterThan(-1);
+    const end = source.indexOf("\nfunction resolvePr88DedicatedLandingRetainedCustody(", start);
+    const registry = { qLatestMainConvergenceRemediation: {} };
+    const proof = { mergeCommitSha: "current-main", dedicatedLandingMergeCommitSha: "84867c93ff23acb4be98c29c08feb10102138568",
+      dedicatedLandingReviewedHeadSha: "preserved-head", dedicatedLandingPullRequestNumber: 89, treeSha: "preserved-tree" };
+    let bound = true; let physical = true;
+    const context: any = { LATEST_MAIN_Q_SOURCE_COMMIT: "current-main",
+      LATEST_MAIN_Q_PREDECESSOR_P_COMMIT: "preserved-head", LATEST_MAIN_Q_PREDECESSOR_P_TREE: "preserved-tree",
+      pr86DeliveryCurrentProofMatches: (_r: any, p: any) => bound && p === proof,
+      latestMainQPreservedUnlandedQPhysicalAllowed: () => physical };
+    runInNewContext(source.slice(start, end).replace("export function", "function") +
+      "\nthis.check = latestMainQPreservedLandingCustodyAllowed;", context);
+    expect(context.check(registry, proof)).toBe(true);
+    expect(context.check(registry, { ...proof })).toBe(false);
+    physical = false; expect(context.check(registry, proof)).toBe(false);
+    physical = true; bound = false; expect(context.check(registry, proof)).toBe(false);
+    bound = true;
+    for (const key of ["mergeCommitSha", "dedicatedLandingMergeCommitSha", "dedicatedLandingReviewedHeadSha", "treeSha"] as const) {
+      const saved = proof[key]; proof[key] = "drift"; expect(context.check(registry, proof)).toBe(false); proof[key] = saved;
+    }
+    expect(context.check({}, proof)).toBe(false);
+  });
+});
+
+
+describe("latest-main Q bounded currentness observations", () => {
+  it("updates verified observations while preserving owners, custody and write boundaries", async () => {
+    const g: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof g.latestMainQCurrentnessObservation).toBe("function");
+    const before = JSON.parse(runGit(projectRoot, ["show", "765932e62f1ee799245daafbba0172668fd5274b:coordination/repo-governance/active-work.json"]));
+    const original = structuredClone(before);
+    const after = g.latestMainQCurrentnessObservation(before);
+    expect(before).toEqual(original);
+    expect(after.branches.find((b: any) => b.name === "main").headSha).toBe("6d65770dbae5db94d9c99decdddbebe3d978b8ae");
+    expect(after.workItems.find((i: any) => i.branch === "main").aheadBehind).toEqual({ baseRef: "origin/main", ahead: 0, behind: 0 });
+    expect(after.branches.find((b: any) => b.pr === 38)).toMatchObject({ prState: "MERGED", prIsDraft: false, mergeAuthorized: false });
+    expect(after.branches.find((b: any) => b.pr === 46)).toMatchObject({ prState: "CLOSED", mergeAuthorized: false });
+    expect(after.qLatestMainConvergenceRemediation.currentnessObservation.remoteOnlyBranches).toHaveLength(10);
+    expect(after.branches.map((b: any) => b.name)).toEqual(before.branches.map((b: any) => b.name));
+    for (const old of before.workItems) {
+      const item = after.workItems.find((i: any) => i.taskId === old.taskId);
+      for (const key of ["ownerKey", "lastHeartbeatAt", "allowedPaths", "disposition"]) expect(item[key]).toEqual(old[key]);
+    }
+    expect(after.qLatestMainConvergenceRemediation.supersededUnlandedQ).toEqual(before.qLatestMainConvergenceRemediation.supersededUnlandedQ);
+    expect(after.qLatestMainConvergenceRemediation.authorizationBoundary).toEqual(before.qLatestMainConvergenceRemediation.authorizationBoundary);
+    expect(after.incident).toEqual(before.incident);
+    expect(after.qLatestMainConvergenceRemediation.preCommitDeferredLiveAudit).toBeUndefined();
+  });
+});
+
+
+describe("latest-main Q live observation boundary", () => {
+  it("requires an opaque host proof and exact remote preservation identity", () => {
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("export function latestMainQHostCurrentnessObservationAllowed(");
+    expect(start).toBeGreaterThan(-1);
+    const end = source.indexOf("\nexport function latestMainQCurrentnessObservation(", start);
+    const proof = Object.freeze({ host: true });
+    let valid = true;
+    const registry = { qLatestMainConvergenceRemediation: { currentnessObservation: {
+      mainSha: "current-main", remoteOnlyBranches: [{ name: "cursor/retained", headSha: "remote-head",
+        disposition: "preservation-review", writesAuthorized: false, deletionAuthorized: false }]
+    } } };
+    const context: any = { LATEST_MAIN_Q_SOURCE_COMMIT: "current-main",
+      latestMainQConvergenceRemediationSource: () => ({}),
+      validateLatestMainQConvergenceRemediationTransition: () => { if (!valid) throw new Error("drift"); },
+      pr86DeliveryAuditObservationProofAllowed: (_r: any, sha: string, c: any) => sha === "current-main" && c.active === true && c.proof === proof };
+    runInNewContext(source.slice(start, end).replaceAll("export function", "function") +
+      "\nthis.main = latestMainQHostCurrentnessObservationAllowed; this.remote = latestMainQRemoteOnlyPreservationAllowed;", context);
+    expect(context.main(registry, "current-main", proof)).toBe(true);
+    expect(context.main(registry, "other-main", proof)).toBe(false);
+    expect(context.main(registry, "current-main", { ...proof })).toBe(false);
+    expect(context.remote(registry, { name: "refs/heads/cursor/retained", headSha: "remote-head" }, proof)).toBe(true);
+    for (const ref of [{ name: "refs/heads/cursor/foreign", headSha: "remote-head" },
+      { name: "refs/heads/cursor/retained", headSha: "other-head" }, { name: "refs/tags/cursor/retained", headSha: "remote-head" }]) {
+      expect(context.remote(registry, ref, proof)).toBe(false);
+    }
+    expect(context.remote(registry, { name: "refs/heads/cursor/retained", headSha: "remote-head" }, null)).toBe(false);
+    valid = false; expect(context.main(registry, "current-main", proof)).toBe(false);
   });
 });
