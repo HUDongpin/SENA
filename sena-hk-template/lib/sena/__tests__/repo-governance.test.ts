@@ -17308,6 +17308,7 @@ async function pr86DeliveryIsolatedHostForTest() {
   `, {
     api, physical, resolveCommit, Buffer, join, basename: (path: string) => path.split("/").at(-1),
     isDeepStrictEqual, CONTROL_ROOT: registry.repo,
+    LATEST_MAIN_Q_BRANCH: "codex/sena-q-currentness-port-20260919",
     MOBILE_PILOT_WORKTREE: registry.workItems.find((item: any) => item.branch === MOBILE_BRANCH_FOR_TEST).worktreePath,
     PR86_DELIVERY_SOURCE_TREE: runGit(fixture.root, ["rev-parse", `${PR86_PROTECTED_FOR_TEST}^{tree}`]),
     PR86_DELIVERY_REVIEWED_MOBILE: "2d4226cd81e05c2175732513972fdaf2d3f1efb2",
@@ -22007,12 +22008,8 @@ describe("latest-main Q convergence remediation", () => {
         "6d65770dbae5db94d9c99decdddbebe3d978b8ae:coordination/repo-governance/active-work.json"
       ])
     );
-    const candidate = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination/repo-governance/active-work.json"),
-        "utf8"
-      )
-    );
+    const candidate = JSON.parse(runGit(projectRoot, ["show",
+      "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e:coordination/repo-governance/active-work.json"]));
     const proof =
       governance.validateLatestMainQConvergenceRemediationTransition(
         source,
@@ -22182,12 +22179,10 @@ describe("latest-main Q convergence remediation", () => {
     const governance: any = await import(
       `${pathToFileURL(governanceScript).href}?latest-main-q-push=${Date.now()}`
     );
-    const candidate = JSON.parse(
-      readFileSync(
-        join(projectRoot, "coordination", "repo-governance", "active-work.json"),
-        "utf8"
-      )
-    );
+    // The initial create grant belongs to the immutable pre-repair registry.
+    // PR100's separate update grant is covered by the repair lifecycle tests.
+    const candidate = JSON.parse(runGit(projectRoot, ["show",
+      "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e:coordination/repo-governance/active-work.json"]));
     const sourceHead = "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
     const finalHead = "f".repeat(40);
     const branch = "codex/sena-q-currentness-port-20260919";
@@ -22526,6 +22521,8 @@ describe("latest-main Q retained currentness commit proof", () => {
     const anchor = "84867c93ff23acb4be98c29c08feb10102138568";
     const registry = { qLatestMainConvergenceRemediation: {} };
     let denied = "";
+    let observedMain = main;
+    const landing = Object.freeze({ mergeCommitSha: "a".repeat(40), finalHeadSha: "b".repeat(40) });
     const calls: string[] = [];
     const gate = (name: string) => { calls.push(name); if (denied === name) throw new Error(name); return true; };
     const context: any = {
@@ -22533,21 +22530,29 @@ describe("latest-main Q retained currentness commit proof", () => {
       PR86_DELIVERY_SOURCE: "pr86", PR86_DELIVERY_REVIEWED_MOBILE: "mobile-head",
       MOBILE_PILOT_TASK: "mobile-task", PR86_DELIVERY_GITHUB_BINDING: {},
       latestMainQConvergenceRemediationSource: () => ({}),
+      resolveLatestMainQPostLanding: (_r: any, sha: string) => {
+        if (sha !== landing.mergeCommitSha) return null;
+        gate("post-landing"); return landing;
+      },
       validateLatestMainQConvergenceRemediationTransition: () => gate("registry"),
       validatePr86DeliverySourceEvidence: () => gate("source"),
-      protectedMainAdvanceObjectSha: () => denied === "cached" ? "drift" : main,
+      protectedMainAdvanceObjectSha: () => denied === "cached" ? "drift" : observedMain,
       pr86DeliveryMergeDescriptor: (sha: string) => ({ mergeCommitSha: sha, mergeTimeRegistry: {},
         secondParentSha: sha === anchor ? "old-q-head" : "closeout-head", mergeTreeSha: "retained-tree" }),
       validatePr86DeliveryProtectedMergeDescriptor: () => gate("pr87-shape"),
       pr86DeliveryItem: () => ({ prNumber: 87 }),
       validateProtectedFinalHeadLiveGitHubEvidence: () => gate("pr87-provider"),
       validateONPr88HistoricalLandedEvidenceAfterBranchAdvance: (_r: any, _head: string, liveMain: string, options: any) => {
-        expect(liveMain).toBe(main); expect(options.qCurrentnessRegistry).toBe(registry); return gate("pr88");
+        expect(liveMain).toBe(observedMain); expect(options.qCurrentnessRegistry).toBe(registry);
+        expect(options.qPostLanding).toBe(observedMain === main ? null : landing); return gate("pr88");
       },
       validatePr89EvidenceFlowCurrentnessFinalHeadLiveGitHubEvidence: () => gate("pr89"),
-      latestMainQHistoricalLandingSegmentAllowed: () => gate("segment"),
+      latestMainQHistoricalLandingSegmentAllowed: (from: string, to: string, options: any) => {
+        expect(from).toBe(anchor); expect(to).toBe(main);
+        expect(options.qPostLanding).toBe(observedMain === main ? null : landing); return gate("segment");
+      },
       validateLatestMainQCurrentWorkflowChecks: () => gate("current-ci"),
-      postPr83GithubApiJson: () => ({ ref: "refs/heads/main", object: { sha: denied === "live" ? "drift" : main } }),
+      postPr83GithubApiJson: () => ({ ref: "refs/heads/main", object: { sha: denied === "live" ? "drift" : observedMain } }),
       bindMobilePilotReleaseProof: (proof: any, boundRegistry: any, level: string) => {
         expect(boundRegistry).toBe(registry); expect(level).toBe("commit"); return Object.freeze(proof);
       }
@@ -22564,6 +22569,15 @@ describe("latest-main Q retained currentness commit proof", () => {
       denied = failure; expect(context.resolve(registry, main), failure).toBeNull();
     }
     denied = ""; expect(context.resolve(registry, "unknown-main")).toBeNull();
+    observedMain = landing.mergeCommitSha; calls.length = 0;
+    const landedProof = context.resolve(registry, observedMain);
+    expect(landedProof).toMatchObject({ mergeCommitSha: observedMain, dedicatedLandingMergeCommitSha: anchor,
+      dedicatedLandingReviewedHeadSha: "old-q-head", treeSha: "retained-tree", sourceWritesAuthorized: false, pushAuthorized: false });
+    expect(landedProof.qPostLanding).toBe(landing);
+    expect(calls).toEqual(["post-landing", "registry", "source", "pr87-shape", "pr87-provider", "pr88", "pr89", "segment", "current-ci"]);
+    for (const failure of [...calls, "cached", "live"]) {
+      denied = failure; expect(context.resolve(registry, observedMain), `landed ${failure}`).toBeNull();
+    }
   });
 });
 
@@ -22643,6 +22657,7 @@ describe("latest-main Q CI policy isolation", () => {
       "\nthis.strict = validateProtectedWorkflowChecks; this.current = validateLatestMainQCurrentWorkflowChecks;", context);
     expect(() => context.strict(main, "main", required, transport)).toThrow();
     expect(() => context.strict(main, "main", required, transport, Symbol("latest-main-q-current-ci"))).toThrow();
+    expect(() => context.strict(main, "main", required, transport, Symbol("latest-main-q-post-merge-ci"))).toThrow();
     expect(context.current(transport)).toEqual([11, 12]);
     annotations = [{ ...notice, annotation_level: "warning" }];
     expect(() => context.current(transport)).toThrow();
@@ -22761,5 +22776,214 @@ describe("latest-main Q live observation boundary", () => {
     }
     expect(context.remote(registry, { name: "refs/heads/cursor/retained", headSha: "remote-head" }, null)).toBe(false);
     valid = false; expect(context.main(registry, "current-main", proof)).toBe(false);
+  });
+});
+
+// PR100 is already pushed. Its one authorized repair must preserve that commit
+// and must not reuse the earlier create-only push grant.
+describe("PR100 bounded post-merge repair lifecycle", () => {
+  it("records only the exact additional repair and observed Draft PR without widening downstream authority", async () => {
+    const g: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof g.latestMainQPostMergeRepairRegistry).toBe("function");
+    const before = JSON.parse(runGit(projectRoot, ["show", "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e:coordination/repo-governance/active-work.json"]));
+    const copy = structuredClone(before);
+    const after = g.latestMainQPostMergeRepairRegistry(before);
+    expect(before).toEqual(copy);
+    expect(after.qLatestMainConvergenceRemediation.postMergeRepair).toMatchObject({
+      pullRequestNumber: 100, parentCommitSha: "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      additionalCommitCount: 1, forceAuthorized: false, readyAuthorized: false, mergeAuthorized: false
+    });
+    expect(after.branches.find((b: any) => b.name === "codex/sena-q-currentness-port-20260919")).toMatchObject({
+      remotePresent: true, remoteHeadSha: "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e", pr: 100, prState: "OPEN", prIsDraft: true
+    });
+    expect(after.qLatestMainConvergenceRemediation.supersededUnlandedQ).toEqual(before.qLatestMainConvergenceRemediation.supersededUnlandedQ);
+    for (const item of before.workItems.filter((i: any) => i.branch !== "codex/sena-q-currentness-port-20260919")) {
+      expect(after.workItems.find((i: any) => i.taskId === item.taskId)).toEqual(item);
+    }
+    expect(after.incident).toEqual(before.incident);
+    const source = JSON.parse(runGit(projectRoot, ["show", "6d65770dbae5db94d9c99decdddbebe3d978b8ae:coordination/repo-governance/active-work.json"]));
+    expect(g.validateLatestMainQConvergenceRemediationTransition(source, after)).toMatchObject({
+      providerAssignedPullRequestNumber: 100, oneNonForceBranchPushAuthorizedAfterGates: false,
+      draftPullRequestCreationAuthorizedAfterPush: false, oneNonForceRepairUpdateAuthorizedAfterGates: true,
+      readyAuthorizedNow: false, mergeAuthorizedNow: false
+    });
+  });
+
+  it("permits only one non-force repair update from the preserved pushed parent", async () => {
+    const g: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof g.latestMainQRepairPushFactsAllowed).toBe("function");
+    const base = JSON.parse(runGit(projectRoot, ["show", "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e:coordination/repo-governance/active-work.json"]));
+    const registry = g.latestMainQPostMergeRepairRegistry(base);
+    const parent = "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e";
+    const head = "a".repeat(40); const main = "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+    const branch = "codex/sena-q-currentness-port-20260919";
+    const paths = ["coordination/repo-governance/active-work.json", "scripts/verify-sena-repo-governance.mjs", "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"];
+    const facts = { branch, currentHeadSha: head, orderedParentShas: [parent], changedPaths: paths,
+      cachedMainSha: main, rootMainSha: main, outgoingRegistryMatches: true, clean: true,
+      localRef: `refs/heads/${branch}`, localSha: head, remoteRef: `refs/heads/${branch}`, remoteSha: parent,
+      combinedChangedPaths: paths, outgoingCommitShas: [head], force: false };
+    expect(g.latestMainQRepairPushFactsAllowed(registry, facts)).toBe(true);
+    for (const delta of [{ remoteSha: "0".repeat(40) }, { orderedParentShas: [main] }, { outgoingCommitShas: [parent, head] },
+      { force: true }, { clean: false }, { remoteRef: "refs/heads/main" }, { changedPaths: [...paths, "product.ts"] }]) {
+      expect(g.latestMainQRepairPushFactsAllowed(registry, { ...facts, ...delta })).toBe(false);
+    }
+    expect(g.latestMainQCreatePushFactsAllowed(registry, facts)).toBe(false);
+    expect(g.latestMainQRepairPushFactsAllowed(base, facts)).toBe(false);
+    expect(() => g.validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(registry,
+      "23f53106fbc8868a4fa8d32f67bd4b7c63295f42", "c".repeat(40), {
+        qCurrentnessRegistry: registry, expectedPr89MergeCommitSha: "84867c93ff23acb4be98c29c08feb10102138568",
+        qPostLanding: { mergeCommitSha: "c".repeat(40), finalHeadSha: head }
+      })).toThrow();
+  });
+});
+
+describe("PR100 exact self-landing descriptor", () => {
+  it("accepts the two-parent landing of the one repair and rejects replay, parent, tree, path, and provider drift", async () => {
+    const g: any = await import(pathToFileURL(governanceScript).href);
+    expect(typeof g.latestMainQPostLandingFactsAllowed).toBe("function");
+    const main = "6d65770dbae5db94d9c99decdddbebe3d978b8ae", parent = "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e";
+    const head = "a".repeat(40), merge = "b".repeat(40), tree = "c".repeat(40);
+    const branch = "codex/sena-q-currentness-port-20260919";
+    const paths = ["coordination/repo-governance/active-work.json", "scripts/verify-sena-repo-governance.mjs", "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"];
+    const repo = { full_name: "HUDongpin/SENA" };
+    const facts = { mergeCommitSha: merge, orderedParentShas: [main, head], secondParentSha: head,
+      headParentShas: [parent], mergeTreeSha: tree, headTreeSha: tree,
+      mergeChangedPaths: paths, repairChangedPaths: paths, registryMatches: true,
+      namedRemoteSha: head, cachedMainSha: merge, liveMainSha: merge,
+      pullRequest: { number: 100, state: "closed", merged: true, draft: false, merge_commit_sha: merge,
+        head: { ref: branch, sha: head, repo }, base: { ref: "main", sha: main, repo } } };
+    expect(g.latestMainQPostLandingFactsAllowed(facts)).toBe(true);
+    for (const delta of [{ orderedParentShas: [main] }, { orderedParentShas: [head, main] }, { headParentShas: [main] },
+      { headTreeSha: "d".repeat(40) }, { registryMatches: false }, { namedRemoteSha: parent }, { cachedMainSha: main },
+      { liveMainSha: main }, { repairChangedPaths: [...paths, "other.ts"] }, { mergeChangedPaths: [] }]) {
+      expect(g.latestMainQPostLandingFactsAllowed({ ...facts, ...delta })).toBe(false);
+    }
+    for (const delta of [{ number: 101 }, { state: "open" }, { merged: false }, { draft: true }, { merge_commit_sha: main },
+      { head: { ...facts.pullRequest.head, repo: { full_name: "foreign/SENA" } } }]) {
+      expect(g.latestMainQPostLandingFactsAllowed({ ...facts, pullRequest: { ...facts.pullRequest, ...delta } })).toBe(false);
+    }
+  });
+});
+
+describe("PR100 actual Git post-landing proof", () => {
+  it("mints only an opaque proof from real matching trees and fresh provider gates, then rejects late drift and failed checks", () => {
+    const controlRoot = temporaryRoot("pr100-post-landing");
+    const root = join(controlRoot, "q-checkout");
+    runGit(controlRoot, ["init", "-b", "main"]); runGit(controlRoot, ["config", "user.name", "Fixture"]); runGit(controlRoot, ["config", "user.email", "fixture@example.invalid"]);
+    const paths = ["coordination/repo-governance/active-work.json", "scripts/verify-sena-repo-governance.mjs", "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"];
+    const registry = { repo: controlRoot, qLatestMainConvergenceRemediation: { postMergeRepair: { pullRequestNumber: 100 } } };
+    const write = (n: number, record: any, cwd = root) => {
+      for (const path of paths) { mkdirSync(dirname(join(cwd, path)), { recursive: true }); writeFileSync(join(cwd, path), path === paths[0] ? JSON.stringify(record) : `fixture ${n}\n`); }
+      runGit(cwd, ["add", "--", ...paths]); runGit(cwd, ["commit", "-m", `fixture ${n}`]); return runGit(cwd, ["rev-parse", "HEAD"]);
+    };
+    const main = write(0, {}, controlRoot); const branch = "codex/pr100-fixture";
+    runGit(controlRoot, ["worktree", "add", "-b", branch, root, main]);
+    const parent = write(1, { prior: true }); const head = write(2, registry); const tree = runGit(root, ["rev-parse", "HEAD^{tree}"]);
+    const mergeResult = spawnSync("git", ["commit-tree", tree, "-p", main, "-p", head], { cwd: root, input: "protected fixture merge\n", encoding: "utf8" });
+    expect(mergeResult.status, mergeResult.stderr).toBe(0); const merge = mergeResult.stdout.trim();
+    runGit(root, ["update-ref", "refs/remotes/origin/main", merge]);
+    const repo = { full_name: "HUDongpin/SENA" };
+    const pr = { number: 100, state: "closed", merged: true, draft: false, merge_commit_sha: merge,
+      head: { ref: branch, sha: head, repo }, base: { ref: "main", sha: main, repo } };
+    let mainReads = 0; let lateMain = false; let lateNamed = false; let failCi = false; let failRules = false; let namedReads = 0;
+    const checks: string[] = [];
+    let hostProof: any = null;
+    let callerGitEnvironment: Partial<NodeJS.ProcessEnv> = {};
+    const context: any = {
+      LATEST_MAIN_Q_SOURCE_COMMIT: main, LATEST_MAIN_Q_REPAIR_PARENT: parent, LATEST_MAIN_Q_BRANCH: branch, LATEST_MAIN_Q_WORKTREE: root,
+      worktreeStatusPaths: () => runGit(root, ["status", "--porcelain=v1"]).split("\n").filter(Boolean),
+      pr86DeliveryAuditObservationProofAllowed: (_r: any, _sha: string, carrier: any) => carrier.proof === hostProof,
+      actualAheadBehind: (sha: string, base: string) => {
+        const [ahead, behind] = runGit(root, ["rev-list", "--left-right", "--count", `${sha}...${base}`]).split(/\s+/).map(Number);
+        return { ahead, behind };
+      },
+      LATEST_MAIN_Q_POST_MERGE_CI_POLICY: Symbol("private-test-policy"), PR86_DELIVERY_PATHS: paths,
+      WeakMap, Object, Buffer, Date, Array, JSON, join, realpathSync, lstatSync,
+      basename: (path: string) => path.split("/").at(-1),
+      markerInfo: (path: string) => ({ valid: true, kind: "gitdir-file", target: readFileSync(join(path, ".git"), "utf8").trim().slice(8) }),
+      parseWorktreeList: () => runGit(controlRoot, ["worktree", "list", "--porcelain"]).split("\n\n").map((block) => {
+        const row = Object.fromEntries(block.split("\n").map((line) => { const i = line.indexOf(" "); return i < 0 ? [line, ""] : [line.slice(0, i), line.slice(i + 1)]; }));
+        return { path: row.worktree, branch: row.branch?.replace("refs/heads/", ""), headSha: row.HEAD };
+      }),
+      git: (args: string[], options: any) => {
+        const env = { ...process.env, ...callerGitEnvironment, GIT_OPTIONAL_LOCKS: "0" };
+        for (const name of options.unsetEnv ?? []) delete (env as NodeJS.ProcessEnv)[name];
+        return spawnSync("git", args, { cwd: options.cwd, env });
+      },
+      pr85PlainJsonData: (x: any) => x !== null && typeof x === "object",
+      isSha: (x: any) => typeof x === "string" && /^[0-9a-f]{40}$/.test(x), sameJson: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b),
+      isDeepStrictEqual: (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b),
+      sha256Buffer: (x: Buffer) => createHash("sha256").update(x).digest("hex"),
+      latestMainQConvergenceRemediationSource: () => ({}),
+      validateLatestMainQConvergenceRemediationTransition: (_s: any, r: any) => { if (r !== registry) throw new Error("registry drift"); },
+      latestMainQRepairSourceAllowed: () => true,
+      protectedMainAdvanceObjectSha: (ref: string) => runGit(root, ["rev-parse", ref]),
+      protectedMainAdvanceCommitParents: (sha: string) => runGit(root, ["show", "-s", "--format=%P", sha]).split(" "),
+      protectedMainAdvanceChangedPaths: (from: string, to: string) => runGit(root, ["diff", "--name-only", from, to]).split("\n"),
+      loadRegistryFromCommit: (sha: string) => ({ parsed: JSON.parse(runGit(root, ["show", `${sha}:${paths[0]}`])) }),
+      postPr83GithubApiJson: (path: string) => {
+        if (path.endsWith("/pulls/100")) return structuredClone(pr);
+        if (path.endsWith("/heads/main")) return { ref: "refs/heads/main", object: { sha: ++mainReads > 1 && lateMain ? main : merge } };
+        if (path.endsWith(`/heads/${branch}`)) return { ref: `refs/heads/${branch}`, object: { sha: ++namedReads > 1 && lateNamed ? parent : head } };
+        if (path.endsWith("/rule-suites/55")) return { id: 55 };
+        throw new Error(`unexpected provider request ${path}`);
+      },
+      discoverPostPr83RuleSuiteId: () => 55,
+      postPr83RuleSuiteReceiptPayload: () => { if (failRules) throw new Error("rules bypassed"); return { suiteId: 55 }; },
+      validateProtectedWorkflowChecks: (sha: string, _branch: string, workflows: any[]) => {
+        if (failCi) throw new Error("check failure"); checks.push(sha); expect(workflows.length).toBe(sha === head ? 3 : 2);
+      }
+    };
+    const source = readFileSync(governanceScript, "utf8");
+    const start = source.indexOf("export function latestMainQPostLandingFactsAllowed(");
+    const end = source.indexOf("\nexport function latestMainQRepairPushFactsAllowed(", start);
+    expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+    runInNewContext(source.slice(start, end).replaceAll("export function", "function") +
+      "\nthis.resolve = resolveLatestMainQPostLanding; this.matches = latestMainQPostLandingBindingMatches; this.auditHead = latestMainQPostLandingAuditHeadAllowed; this.behind = latestMainQPostLandingBehindAllowed;", context);
+    const receipts: any[] = []; const proof = context.resolve(registry, merge, { ruleSuiteReceiptCollector: receipts });
+    expect(proof).toMatchObject({ mergeCommitSha: merge, finalHeadSha: head, treeSha: tree, sourceWritesAuthorized: false, pushAuthorized: false });
+    expect(context.matches(registry, proof)).toBe(true); expect(context.matches(registry, { ...proof })).toBe(false);
+    expect(checks).toEqual([head, merge]); expect(receipts).toHaveLength(1);
+    hostProof = { mergeCommitSha: merge, qPostLanding: proof };
+    expect(context.auditHead(registry, "main", merge, hostProof)).toBe(true);
+    expect(context.auditHead(registry, branch, head, hostProof)).toBe(true);
+    expect(context.auditHead(registry, "main", main, hostProof)).toBe(false);
+    expect(context.auditHead(registry, branch, parent, hostProof)).toBe(false);
+    expect(context.auditHead(registry, branch, head, { ...hostProof })).toBe(false);
+    const callerIndex = join(controlRoot, ".git", "index");
+    const checkoutIndex = runGit(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"]);
+    const callerHash = sha256File(callerIndex), checkoutHash = sha256File(checkoutIndex);
+    callerGitEnvironment = { GIT_DIR: join(controlRoot, ".git"), GIT_WORK_TREE: controlRoot, GIT_INDEX_FILE: callerIndex, GIT_PREFIX: "foreign/" };
+    expect(context.auditHead(registry, branch, head, hostProof), "caller repository binding must not redirect final checkout reads").toBe(true);
+    expect(sha256File(callerIndex)).toBe(callerHash); expect(sha256File(checkoutIndex)).toBe(checkoutHash);
+    callerGitEnvironment = {};
+    const item = { branch, headSha: parent, aheadBehind: { baseRef: "origin/main", ahead: 1, behind: 0 } };
+    expect(context.behind(registry, item, head, { ahead: 0, behind: 1 }, hostProof)).toBe(true);
+    expect(context.behind(registry, item, head, { ahead: 0, behind: 0 }, hostProof)).toBe(false);
+    writeFileSync(join(root, "unexpected.txt"), "dirty");
+    expect(context.auditHead(registry, branch, head, hostProof)).toBe(false);
+    rmSync(join(root, "unexpected.txt"));
+    runGit(root, ["update-ref", `refs/heads/${branch}`, parent]);
+    expect(context.auditHead(registry, branch, head, hostProof)).toBe(false);
+    runGit(root, ["update-ref", `refs/heads/${branch}`, head]);
+    expect(context.auditHead(registry, branch, head, hostProof)).toBe(true);
+    runGit(root, ["checkout", "--detach", parent]);
+    expect(runGit(root, ["rev-parse", `refs/heads/${branch}`])).toBe(head);
+    expect(runGit(root, ["status", "--porcelain=v1"])).toBe("");
+    expect(context.auditHead(registry, branch, head, hostProof), "clean detached checkout must not borrow the intact named ref").toBe(false);
+    runGit(root, ["checkout", branch]);
+    expect(context.auditHead(registry, branch, head, hostProof)).toBe(true);
+    runGit(root, ["switch", "-c", "foreign-clean", head]);
+    expect(runGit(root, ["status", "--porcelain=v1"])).toBe("");
+    expect(runGit(root, ["rev-parse", "HEAD"])).toBe(head);
+    expect(context.auditHead(registry, branch, head, hostProof), "clean different branch at identical commit must fail").toBe(false);
+    runGit(root, ["checkout", branch]);
+    for (const kind of ["main", "named", "ci", "rules"]) {
+      mainReads = namedReads = 0; lateMain = kind === "main"; lateNamed = kind === "named"; failCi = kind === "ci"; failRules = kind === "rules";
+      expect(context.resolve(registry, merge, {}), kind).toBeNull();
+    }
+    lateMain = lateNamed = failCi = failRules = false; mainReads = namedReads = 0;
+    runGit(root, ["update-ref", "refs/remotes/origin/main", main]);
+    expect(context.matches(registry, proof)).toBe(false); expect(context.resolve(registry, merge, {})).toBeNull();
   });
 });

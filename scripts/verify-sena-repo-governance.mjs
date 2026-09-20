@@ -11612,6 +11612,7 @@ export function validatePr85FinalHeadLiveGitHubEvidence(descriptor, options = {}
 }
 
 const LATEST_MAIN_Q_CURRENT_CI_POLICY = Symbol("latest-main-q-current-ci");
+const LATEST_MAIN_Q_POST_MERGE_CI_POLICY = Symbol("latest-main-q-post-merge-ci");
 
 export function latestMainQCurrentCiAnnotationsAllowed(annotations) {
   if (!Array.isArray(annotations) || !pr85PlainJsonData(annotations)) return false;
@@ -11712,7 +11713,7 @@ function validateProtectedWorkflowChecks(headSha, branchName, requiredWorkflows,
       headSha === LATEST_MAIN_Q_SOURCE_COMMIT && branchName === "main" &&
       sameJson(requiredWorkflows, [["build-gate", "push", "build"], ["repo-security-gate", "push", "repository-security"]]);
     if (!Array.isArray(annotations) || (annotations.length !== 0 &&
-        !(exactQCurrentPolicy && latestMainQCurrentCiAnnotationsAllowed(annotations)))) {
+        !((exactQCurrentPolicy || annotationPolicy === LATEST_MAIN_Q_POST_MERGE_CI_POLICY) && latestMainQCurrentCiAnnotationsAllowed(annotations)))) {
       throw new Error("rule=post-pr83-final-head-live-evidence-invalid");
     }
   }
@@ -17462,6 +17463,63 @@ const LATEST_MAIN_Q_AUTHORIZATION_BOUNDARY = Object.freeze({
   bypassHooksAuthorized: false
 });
 
+const LATEST_MAIN_Q_REPAIR_PARENT = "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e";
+const LATEST_MAIN_Q_REPAIR_PARENT_TREE = "078600631ecb746f8461b6d488479802c739399c";
+
+export function latestMainQPostMergeRepairRegistry(candidate) {
+  const result = protectedActivationNativeStructuredClone(candidate);
+  result.qLatestMainConvergenceRemediation.postMergeRepair = {
+    pullRequestNumber: 100,
+    parentCommitSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    parentTreeSha: LATEST_MAIN_Q_REPAIR_PARENT_TREE,
+    additionalCommitCount: 1,
+    allowedPaths: [...PR86_DELIVERY_PATHS],
+    nonForceUpdateFromSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    postMergeObservationOnly: true,
+    forceAuthorized: false,
+    readyAuthorized: false,
+    mergeAuthorized: false
+  };
+  const q = result.qLatestMainConvergenceRemediation;
+  q.providerAssignedPullRequestNumber = 100;
+  Object.assign(q.authorizationBoundary, {
+    providerAssignedPullRequestNumber: 100,
+    oneNonForceBranchPushAuthorizedAfterGates: false,
+    draftPullRequestCreationAuthorizedAfterPush: false,
+    oneNonForceRepairUpdateAuthorizedAfterGates: true
+  });
+  q.requiredExecution = q.requiredExecution.map((step) => ({
+    "commit-only-the-three-governance-paths-on-the-dedicated-branch": "commit-one-additional-three-path-repair-on-preserved-pr100-parent",
+    "push-one-non-force-create-only-branch-ref-after-live-main-and-remote-absence-readback": "push-one-non-force-update-from-exact-pr100-parent-after-live-main-and-ref-readback",
+    "create-one-draft-pr-and-read-back-the-provider-assigned-number": "retain-existing-pr100-as-draft-and-read-back-its-exact-final-head"
+  })[step] ?? step);
+  const item = result.workItems.find((entry) => entry.taskId === LATEST_MAIN_Q_TASK);
+  const branch = result.branches.find((entry) => entry.name === LATEST_MAIN_Q_BRANCH);
+  Object.assign(item, {
+    prNumber: 100, noPrReason: null, prIsDraft: true, prReadyForReview: false,
+    dirtyState: "staged-pr100-single-bounded-post-merge-repair",
+    evidenceState: { ...item.evidenceState,
+      local: "One additional three-path repair is authorized on the preserved b8355c0 parent; old Q is unchanged.",
+      ci: "PR100 initial b8355c0 checks passed; the additional repair requires fresh exact-head checks."
+    }
+  });
+  Object.assign(branch, {
+    upstream: `origin/${LATEST_MAIN_Q_BRANCH}`, upstreamState: "live", upstreamCacheState: "present",
+    remotePresent: true, remoteHeadSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    remoteObservedAt: "2026-09-20T06:10:13.996142Z",
+    pr: 100, noPrReason: null, prHeadSha: LATEST_MAIN_Q_REPAIR_PARENT,
+    prState: "OPEN", prIsDraft: true, prReadyForReview: false,
+    closeout: "PR100 remains Draft; one non-force repair update from b8355c0 is authorized after gates. Ready and merge remain separately gated."
+  });
+  return result;
+}
+
+function latestMainQRepairSourceAllowed() {
+  return protectedMainAdvanceObjectSha(`${LATEST_MAIN_Q_REPAIR_PARENT}^{tree}`) === LATEST_MAIN_Q_REPAIR_PARENT_TREE &&
+    sameJson(protectedMainAdvanceCommitParents(LATEST_MAIN_Q_REPAIR_PARENT), [LATEST_MAIN_Q_SOURCE_COMMIT]) &&
+    sameJson(protectedMainAdvanceChangedPaths(LATEST_MAIN_Q_SOURCE_COMMIT, LATEST_MAIN_Q_REPAIR_PARENT), PR86_DELIVERY_PATHS);
+}
+
 let latestMainQSourceCache = null;
 function latestMainQConvergenceRemediationSource() {
   if (!latestMainQSourceCache) {
@@ -17677,7 +17735,10 @@ export function latestMainQHistoricalLandingSegmentAllowed(fromSha, toSha, optio
         records.some((record, index) => record.parentSha !== (index === 0 ? fromSha : expected[index - 1]))) return false;
     const liveMainMatches = () => {
       const live = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
-      return pr85PlainJsonData(live) && live.ref === "refs/heads/main" && live.object?.sha === toSha;
+      const expectedLive = options.qPostLanding &&
+        latestMainQPostLandingBindingMatches(options.qCurrentnessRegistry, options.qPostLanding)
+        ? options.qPostLanding.mergeCommitSha : toSha;
+      return pr85PlainJsonData(live) && live.ref === "refs/heads/main" && live.object?.sha === expectedLive;
     };
     if (!liveMainMatches()) return false;
     for (const number of order) {
@@ -17690,15 +17751,17 @@ export function latestMainQHistoricalLandingSegmentAllowed(fromSha, toSha, optio
 export function latestMainQHostCurrentnessObservationAllowed(registry, observedMainSha, proof) {
   try {
     validateLatestMainQConvergenceRemediationTransition(latestMainQConvergenceRemediationSource(), registry);
-    return Boolean(observedMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
-      registry.qLatestMainConvergenceRemediation.currentnessObservation.mainSha === observedMainSha &&
+    return Boolean((observedMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
+      registry.qLatestMainConvergenceRemediation.currentnessObservation.mainSha === observedMainSha ||
+      proof?.qPostLanding && latestMainQPostLandingBindingMatches(registry, proof.qPostLanding) &&
+        observedMainSha === proof.qPostLanding.mergeCommitSha) &&
       pr86DeliveryAuditObservationProofAllowed(registry, observedMainSha, { active: true, proof }));
   } catch { return false; }
 }
 
 export function latestMainQRemoteOnlyPreservationAllowed(registry, ref, proof) {
   try {
-    if (!latestMainQHostCurrentnessObservationAllowed(registry, LATEST_MAIN_Q_SOURCE_COMMIT, proof)) return false;
+    if (!latestMainQHostCurrentnessObservationAllowed(registry, proof?.mergeCommitSha ?? LATEST_MAIN_Q_SOURCE_COMMIT, proof)) return false;
     const records = registry.qLatestMainConvergenceRemediation.currentnessObservation.remoteOnlyBranches;
     return records.some((record) => ref?.name === `refs/heads/${record.name}` &&
       ref.headSha === record.headSha && record.disposition === "preservation-review" &&
@@ -18094,10 +18157,9 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       pr85PlainJsonData(sourceRegistry) &&
         pr85PlainJsonData(candidateRegistry) &&
         isDeepStrictEqual(sourceRegistry, source) &&
-        isDeepStrictEqual(
-          candidateRegistry,
-          latestMainQConvergenceRemediationExpectedCandidate(source)
-        )
+        (isDeepStrictEqual(candidateRegistry, latestMainQConvergenceRemediationExpectedCandidate(source)) ||
+          (latestMainQRepairSourceAllowed() && isDeepStrictEqual(candidateRegistry,
+            latestMainQPostMergeRepairRegistry(latestMainQConvergenceRemediationExpectedCandidate(source)))))
     );
   } catch {
     return false;
@@ -18121,7 +18183,7 @@ export function validateLatestMainQConvergenceRemediationTransition(
     sourceTreeSha: LATEST_MAIN_Q_SOURCE_TREE,
     predecessorPCommitSha: LATEST_MAIN_Q_PREDECESSOR_P_COMMIT,
     candidateBranch: LATEST_MAIN_Q_BRANCH,
-    ...LATEST_MAIN_Q_AUTHORIZATION_BOUNDARY
+    ...candidateRegistry.qLatestMainConvergenceRemediation.authorizationBoundary
   };
 }
 
@@ -18184,7 +18246,8 @@ export function latestMainQConvergenceIndexFactsAllowed(registry, facts) {
       markerValid: true,
       markerIsSymlink: false,
       branch: LATEST_MAIN_Q_BRANCH,
-      headSha: LATEST_MAIN_Q_SOURCE_COMMIT,
+      headSha: registry.qLatestMainConvergenceRemediation.postMergeRepair
+        ? LATEST_MAIN_Q_REPAIR_PARENT : LATEST_MAIN_Q_SOURCE_COMMIT,
       cachedOriginMainSha: LATEST_MAIN_Q_SOURCE_COMMIT,
       rootMainSha: LATEST_MAIN_Q_SOURCE_COMMIT,
       stagedPaths: [...PR86_DELIVERY_PATHS],
@@ -18305,7 +18368,8 @@ export function latestMainQCommittedHeadFactsAllowed(registry, facts) {
         facts.branch === LATEST_MAIN_Q_BRANCH &&
         isSha(facts.currentHeadSha) &&
         facts.currentHeadSha !== LATEST_MAIN_Q_SOURCE_COMMIT &&
-        sameJson(facts.orderedParentShas, [LATEST_MAIN_Q_SOURCE_COMMIT]) &&
+        sameJson(facts.orderedParentShas, [registry.qLatestMainConvergenceRemediation.postMergeRepair
+          ? LATEST_MAIN_Q_REPAIR_PARENT : LATEST_MAIN_Q_SOURCE_COMMIT]) &&
         sameJson(facts.changedPaths, PR86_DELIVERY_PATHS) &&
         facts.cachedMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
         facts.rootMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
@@ -18357,7 +18421,8 @@ function latestMainQCommittedPhysicalBarrierAllowed(registry) {
 export function latestMainQCreatePushFactsAllowed(registry, facts) {
   try {
     return Boolean(
-      latestMainQCommittedHeadFactsAllowed(registry, facts) &&
+      !registry?.qLatestMainConvergenceRemediation?.postMergeRepair &&
+        latestMainQCommittedHeadFactsAllowed(registry, facts) &&
         facts.localRef === `refs/heads/${LATEST_MAIN_Q_BRANCH}` &&
         facts.localSha === facts.currentHeadSha &&
         facts.remoteRef === `refs/heads/${LATEST_MAIN_Q_BRANCH}` &&
@@ -18371,10 +18436,141 @@ export function latestMainQCreatePushFactsAllowed(registry, facts) {
   }
 }
 
+export function latestMainQPostLandingFactsAllowed(facts) {
+  try {
+    const pr = facts.pullRequest;
+    return Boolean(pr85PlainJsonData(facts) && isSha(facts.mergeCommitSha) && isSha(facts.secondParentSha) &&
+      facts.mergeCommitSha !== facts.secondParentSha && facts.secondParentSha !== LATEST_MAIN_Q_REPAIR_PARENT &&
+      sameJson(facts.orderedParentShas, [LATEST_MAIN_Q_SOURCE_COMMIT, facts.secondParentSha]) &&
+      sameJson(facts.headParentShas, [LATEST_MAIN_Q_REPAIR_PARENT]) &&
+      isSha(facts.mergeTreeSha) && facts.mergeTreeSha === facts.headTreeSha &&
+      sameJson(facts.mergeChangedPaths, PR86_DELIVERY_PATHS) && sameJson(facts.repairChangedPaths, PR86_DELIVERY_PATHS) &&
+      facts.registryMatches === true && facts.namedRemoteSha === facts.secondParentSha &&
+      facts.cachedMainSha === facts.mergeCommitSha && facts.liveMainSha === facts.mergeCommitSha &&
+      pr?.number === 100 && pr.state === "closed" && pr.merged === true && pr.draft === false &&
+      pr.merge_commit_sha === facts.mergeCommitSha && pr.head?.sha === facts.secondParentSha &&
+      pr.head?.ref === LATEST_MAIN_Q_BRANCH && pr.head?.repo?.full_name === "HUDongpin/SENA" &&
+      pr.base?.sha === LATEST_MAIN_Q_SOURCE_COMMIT && pr.base?.ref === "main" && pr.base?.repo?.full_name === "HUDongpin/SENA");
+  } catch { return false; }
+}
+
+// These proofs can only be minted after actual Git objects, provider records,
+// latest-attempt checks and the enforced protected-merge rule suite agree.
+const LATEST_MAIN_Q_POST_LANDING_BINDINGS = new WeakMap();
+function latestMainQPostLandingBindingMatches(registry, proof) {
+  const digest = proof && LATEST_MAIN_Q_POST_LANDING_BINDINGS.get(proof);
+  return Boolean(digest && digest === sha256Buffer(Buffer.from(JSON.stringify(registry))) &&
+    protectedMainAdvanceObjectSha("origin/main^{commit}") === proof.mergeCommitSha);
+}
+
+export function resolveLatestMainQPostLanding(registry, mergeCommitSha, options = {}) {
+  try {
+    validateLatestMainQConvergenceRemediationTransition(latestMainQConvergenceRemediationSource(), registry);
+    if (!registry.qLatestMainConvergenceRemediation.postMergeRepair || !latestMainQRepairSourceAllowed()) return null;
+    const readFacts = () => {
+      const pr = postPr83GithubApiJson("repos/HUDongpin/SENA/pulls/100", options.githubTransport);
+      const main = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
+      const named = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${LATEST_MAIN_Q_BRANCH}`, options.githubTransport);
+      const head = pr?.head?.sha;
+      if (main?.ref !== "refs/heads/main" || named?.ref !== `refs/heads/${LATEST_MAIN_Q_BRANCH}` || !isSha(head)) return null;
+      return {
+        mergeCommitSha, orderedParentShas: protectedMainAdvanceCommitParents(mergeCommitSha), secondParentSha: head,
+        headParentShas: protectedMainAdvanceCommitParents(head),
+        mergeTreeSha: protectedMainAdvanceObjectSha(`${mergeCommitSha}^{tree}`),
+        headTreeSha: protectedMainAdvanceObjectSha(`${head}^{tree}`),
+        mergeChangedPaths: protectedMainAdvanceChangedPaths(LATEST_MAIN_Q_SOURCE_COMMIT, mergeCommitSha),
+        repairChangedPaths: protectedMainAdvanceChangedPaths(LATEST_MAIN_Q_REPAIR_PARENT, head),
+        registryMatches: isDeepStrictEqual(loadRegistryFromCommit(head).parsed, registry) &&
+          isDeepStrictEqual(loadRegistryFromCommit(mergeCommitSha).parsed, registry),
+        namedRemoteSha: named.object?.sha,
+        cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
+        liveMainSha: main.object?.sha, pullRequest: pr
+      };
+    };
+    const facts = readFacts();
+    if (!latestMainQPostLandingFactsAllowed(facts)) return null;
+    const descriptor = { mergeCommitSha, orderedParentShas: facts.orderedParentShas, secondParentSha: facts.secondParentSha };
+    const binding = { beforeSha: LATEST_MAIN_Q_SOURCE_COMMIT, receiptSchema: "sena-pr100-post-merge-rule-suite/v1" };
+    const suiteId = discoverPostPr83RuleSuiteId(descriptor, options.githubTransport, binding);
+    const suite = postPr83GithubApiJson(`repos/HUDongpin/SENA/rulesets/rule-suites/${suiteId}`, options.githubTransport);
+    const receipt = postPr83RuleSuiteReceiptPayload(suite, descriptor, 100, new Date().toISOString(), binding);
+    validateProtectedWorkflowChecks(facts.secondParentSha, LATEST_MAIN_Q_BRANCH, [
+      ["build-gate", "pull_request", "build"], ["repo-security-gate", "pull_request", "repository-security"],
+      ["repo-security-gate", "push", "repository-security"]
+    ], options.githubTransport, LATEST_MAIN_Q_POST_MERGE_CI_POLICY);
+    validateProtectedWorkflowChecks(mergeCommitSha, "main", [
+      ["build-gate", "push", "build"], ["repo-security-gate", "push", "repository-security"]
+    ], options.githubTransport, LATEST_MAIN_Q_POST_MERGE_CI_POLICY);
+    const finalFacts = readFacts();
+    if (!latestMainQPostLandingFactsAllowed(finalFacts) || !isDeepStrictEqual(facts, finalFacts)) return null;
+    const proof = Object.freeze({ mergeCommitSha, finalHeadSha: facts.secondParentSha, treeSha: facts.mergeTreeSha,
+      pullRequestNumber: 100, sourceWritesAuthorized: false, pushAuthorized: false });
+    LATEST_MAIN_Q_POST_LANDING_BINDINGS.set(proof, sha256Buffer(Buffer.from(JSON.stringify(registry))));
+    if (Array.isArray(options.ruleSuiteReceiptCollector)) options.ruleSuiteReceiptCollector.push(receipt);
+    return proof;
+  } catch { return null; }
+}
+
+function latestMainQPostLandingHostAllowed(registry, proof) {
+  try {
+    if (!proof?.qPostLanding || !latestMainQPostLandingBindingMatches(registry, proof.qPostLanding) ||
+        !pr86DeliveryAuditObservationProofAllowed(registry, proof.qPostLanding.mergeCommitSha, { active: true, proof })) return false;
+    const head = proof.qPostLanding.finalHeadSha;
+    const marker = markerInfo(LATEST_MAIN_Q_WORKTREE);
+    const pointer = lstatSync(join(LATEST_MAIN_Q_WORKTREE, ".git"));
+    const common = realpathSync(join(registry.repo, ".git"));
+    const directory = realpathSync(join(common, "worktrees", basename(LATEST_MAIN_Q_WORKTREE)));
+    const registered = parseWorktreeList().find((entry) => entry.path === LATEST_MAIN_Q_WORKTREE);
+    if (!marker.valid || marker.kind !== "gitdir-file" || !pointer.isFile() || pointer.isSymbolicLink() ||
+        realpathSync(LATEST_MAIN_Q_WORKTREE) !== LATEST_MAIN_Q_WORKTREE || realpathSync(marker.target) !== directory ||
+        registered?.branch !== LATEST_MAIN_Q_BRANCH || registered.headSha !== head) return false;
+    const local = (args) => git(args, { cwd: LATEST_MAIN_Q_WORKTREE, allowFailure: true,
+      unsetEnv: ["GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_PREFIX"] });
+    const text = (args) => { const result = local(args); return result.status === 0 ? String(result.stdout ?? "").trim() : null; };
+    const identityMatches = () =>
+      text(["symbolic-ref", "--quiet", "--short", "HEAD"]) === LATEST_MAIN_Q_BRANCH &&
+      text(["rev-parse", "HEAD"]) === head &&
+      text(["rev-parse", "--absolute-git-dir"]) === directory &&
+      text(["rev-parse", "--path-format=absolute", "--git-common-dir"]) === common;
+    return Boolean(identityMatches() &&
+      local(["diff-index", "--cached", "--quiet", "--no-ext-diff", "--no-textconv", head, "--"]).status === 0 &&
+      text(["status", "--porcelain=v1", "--untracked-files=all"]) === "" &&
+      protectedMainAdvanceObjectSha(`refs/heads/${LATEST_MAIN_Q_BRANCH}`) === head && identityMatches());
+  } catch { return false; }
+}
+
+export function latestMainQPostLandingAuditHeadAllowed(registry, branch, headSha, proof) {
+  if (!latestMainQPostLandingHostAllowed(registry, proof)) return false;
+  if (branch === "main") return headSha === proof.qPostLanding.mergeCommitSha;
+  if (branch === LATEST_MAIN_Q_BRANCH) return headSha === proof.qPostLanding.finalHeadSha;
+  return false;
+}
+
+function latestMainQPostLandingBehindAllowed(registry, item, headSha, observed, proof) {
+  if (!latestMainQPostLandingHostAllowed(registry, proof) || item.aheadBehind?.baseRef !== "origin/main") return false;
+  if (headSha !== item.headSha && !latestMainQPostLandingAuditHeadAllowed(registry, item.branch, headSha, proof)) return false;
+  const actual = actualAheadBehind(headSha, "origin/main");
+  return Boolean(actual && sameJson(actual, observed));
+}
+
+export function latestMainQRepairPushFactsAllowed(registry, facts) {
+  try {
+    return Boolean(registry?.qLatestMainConvergenceRemediation?.postMergeRepair &&
+      latestMainQCommittedHeadFactsAllowed(registry, facts) &&
+      facts.localRef === `refs/heads/${LATEST_MAIN_Q_BRANCH}` && facts.localSha === facts.currentHeadSha &&
+      facts.remoteRef === facts.localRef && facts.remoteSha === LATEST_MAIN_Q_REPAIR_PARENT &&
+      sameJson(facts.combinedChangedPaths, PR86_DELIVERY_PATHS) &&
+      sameJson(facts.outgoingCommitShas, [facts.localSha]) && facts.force === false);
+  } catch { return false; }
+}
+
 function latestMainQCreatePushAuthorized(registry, updates) {
   try {
     if (!Array.isArray(updates) || updates.length !== 1) return false;
     const update = updates[0];
+    const repair = Boolean(registry?.qLatestMainConvergenceRemediation?.postMergeRepair);
+    const base = repair ? LATEST_MAIN_Q_REPAIR_PARENT : LATEST_MAIN_Q_SOURCE_COMMIT;
     const headSha = gitText(["rev-parse", "HEAD"]).trim();
     const branchResult = git(
       ["symbolic-ref", "--quiet", "--short", "HEAD"],
@@ -18383,9 +18579,9 @@ function latestMainQCreatePushAuthorized(registry, updates) {
     const outgoingCommitText = protectedMainAdvanceGitText([
       "rev-list",
       "--reverse",
-      `${LATEST_MAIN_Q_SOURCE_COMMIT}..${update.localSha}`
+      `${base}..${update.localSha}`
     ]);
-    return latestMainQCreatePushFactsAllowed(registry, {
+    return (repair ? latestMainQRepairPushFactsAllowed : latestMainQCreatePushFactsAllowed)(registry, {
       branch:
         branchResult.status === 0
           ? String(branchResult.stdout ?? "").trim()
@@ -18393,7 +18589,7 @@ function latestMainQCreatePushAuthorized(registry, updates) {
       currentHeadSha: headSha,
       orderedParentShas: protectedMainAdvanceCommitParents(update.localSha),
       changedPaths: protectedMainAdvanceChangedPaths(
-        LATEST_MAIN_Q_SOURCE_COMMIT,
+        base,
         update.localSha
       ),
       cachedMainSha: protectedMainAdvanceObjectSha("origin/main^{commit}"),
@@ -18414,7 +18610,7 @@ function latestMainQCreatePushAuthorized(registry, updates) {
       remoteRef: update.remoteRef,
       remoteSha: update.remoteSha,
       combinedChangedPaths: protectedMainAdvanceChangedPaths(
-        LATEST_MAIN_Q_SOURCE_COMMIT,
+        base,
         update.localSha
       ),
       outgoingCommitShas: outgoingCommitText
@@ -18669,14 +18865,16 @@ export function validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(
     operationalRegistry
   );
   let exactQCurrentness = false;
-  if (liveMainSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
+  if ((liveMainSha === LATEST_MAIN_Q_SOURCE_COMMIT ||
+        (options.qPostLanding && latestMainQPostLandingBindingMatches(options.qCurrentnessRegistry, options.qPostLanding) &&
+          liveMainSha === options.qPostLanding.mergeCommitSha)) &&
       advancedBranchHeadSha === LATEST_MAIN_Q_PREDECESSOR_P_COMMIT &&
       options.expectedPr89MergeCommitSha === "84867c93ff23acb4be98c29c08feb10102138568" &&
       options.qCurrentnessRegistry) {
     validateLatestMainQConvergenceRemediationTransition(
       latestMainQConvergenceRemediationSource(), options.qCurrentnessRegistry);
     exactQCurrentness = latestMainQHistoricalLandingSegmentAllowed(
-      options.expectedPr89MergeCommitSha, liveMainSha, options);
+      options.expectedPr89MergeCommitSha, LATEST_MAIN_Q_SOURCE_COMMIT, options);
   }
   if (
     !oNPr89FinalHeadShapeAllowed(registry, advancedBranchHeadSha) ||
@@ -23030,7 +23228,10 @@ function validatePr86DeliverySourceEvidence(registry, options = {}) {
 // custody fact before it can bind a host proof or admit an audit observation.
 export function resolveLatestMainQRetainedCurrentnessCommit(registry, headSha, options = {}) {
   try {
-    if (headSha !== LATEST_MAIN_Q_SOURCE_COMMIT) return null;
+    const qPostLanding = headSha !== LATEST_MAIN_Q_SOURCE_COMMIT
+      ? resolveLatestMainQPostLanding(registry, headSha, options) : null;
+    if (headSha !== LATEST_MAIN_Q_SOURCE_COMMIT && !qPostLanding) return null;
+    options = { ...options, qCurrentnessRegistry: registry, qPostLanding };
     validateLatestMainQConvergenceRemediationTransition(latestMainQConvergenceRemediationSource(), registry);
     if (protectedMainAdvanceObjectSha("origin/main^{commit}") !== headSha) return null;
     validatePr86DeliverySourceEvidence(registry, options);
@@ -23043,7 +23244,7 @@ export function resolveLatestMainQRetainedCurrentnessCommit(registry, headSha, o
     validateONPr88HistoricalLandedEvidenceAfterBranchAdvance(anchor.mergeTimeRegistry,
       anchor.secondParentSha, headSha, { ...options, expectedPr89MergeCommitSha: anchorSha, qCurrentnessRegistry: registry });
     validatePr89EvidenceFlowCurrentnessFinalHeadLiveGitHubEvidence(anchor, options);
-    if (!latestMainQHistoricalLandingSegmentAllowed(anchorSha, headSha, options)) return null;
+    if (!latestMainQHistoricalLandingSegmentAllowed(anchorSha, LATEST_MAIN_Q_SOURCE_COMMIT, options)) return null;
     validateLatestMainQCurrentWorkflowChecks(options.githubTransport);
     const live = postPr83GithubApiJson("repos/HUDongpin/SENA/git/ref/heads/main", options.githubTransport);
     if (live?.ref !== "refs/heads/main" || live.object?.sha !== headSha ||
@@ -23055,6 +23256,7 @@ export function resolveLatestMainQRetainedCurrentnessCommit(registry, headSha, o
       closeoutReviewedHeadSha: closeout.secondParentSha,
       dedicatedLandingReviewedHeadSha: anchor.secondParentSha,
       dedicatedLandingPullRequestNumber: 89, dedicatedLandingMergeCommitSha: anchorSha,
+      ...(qPostLanding ? { qPostLanding } : {}),
       sourceWritesAuthorized: false, pushAuthorized: false
     }, registry, "commit");
   } catch { return null; }
@@ -23255,6 +23457,9 @@ export function pr86DeliveryAuditObservationProofAllowed(registry, toSha, contex
 export function pr86DeliveryReadOnlyHeadObservationAllowed(registry, proof, branchName, observedHeadSha) {
   try {
     if (!pr86DeliveryCurrentProofMatches(registry, proof)) return false;
+    if (branchName === LATEST_MAIN_Q_BRANCH && proof.qPostLanding) {
+      return latestMainQPostLandingAuditHeadAllowed(registry, branchName, observedHeadSha, proof);
+    }
     const expected = branchName === MOBILE_PILOT_BRANCH ? proof.reviewedHeadSha
       : branchName === PR86_DELIVERY_BRANCH ? proof.closeoutReviewedHeadSha
       : branchName === I_H_BRANCH ? proof.dedicatedLandingReviewedHeadSha
@@ -23290,6 +23495,7 @@ export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostP
         refreshed.dedicatedLandingMergeCommitSha ?? refreshed.mergeCommitSha
       ]);
     }
+    if (refreshed.qPostLanding) lanes.push([LATEST_MAIN_Q_BRANCH, 100, refreshed.mergeCommitSha]);
     for (const [branch, prNumber, mergeSha] of lanes) {
       const remote = postPr83GithubApiJson(`repos/HUDongpin/SENA/git/ref/heads/${branch}`, options.githubTransport);
       const pr = postPr83GithubApiJson(`repos/HUDongpin/SENA/pulls/${prNumber}`, options.githubTransport);
@@ -23307,7 +23513,9 @@ export function resolvePr86DeliveryFinalAuditVerification(registry, initialHostP
     // reusing mutable provider responses or retaining a context across commands.
     const context = { active: true, proof: refreshed };
     try {
-      return resolveMobilePilotReleaseVerification(registry, PR86_DELIVERY_SOURCE, { [PR86_DELIVERY_AUDIT_CONTEXT]: context });
+      const finalProof = resolveMobilePilotReleaseVerification(registry, PR86_DELIVERY_SOURCE, { [PR86_DELIVERY_AUDIT_CONTEXT]: context });
+      if (finalProof?.qPostLanding && !latestMainQPostLandingHostAllowed(registry, finalProof)) return null;
+      return finalProof;
     } finally { context.active = false; }
   } catch { return null; }
 }
@@ -23436,7 +23644,9 @@ export function latestMainQPreservedLandingCustodyAllowed(registry, proof) {
   try {
     return Boolean(registry?.qLatestMainConvergenceRemediation &&
       pr86DeliveryCurrentProofMatches(registry, proof) &&
-      proof.mergeCommitSha === LATEST_MAIN_Q_SOURCE_COMMIT &&
+      (proof.mergeCommitSha === LATEST_MAIN_Q_SOURCE_COMMIT ||
+        (proof.qPostLanding && latestMainQPostLandingBindingMatches(registry, proof.qPostLanding) &&
+          proof.mergeCommitSha === proof.qPostLanding.mergeCommitSha)) &&
       proof.dedicatedLandingMergeCommitSha === "84867c93ff23acb4be98c29c08feb10102138568" &&
       proof.dedicatedLandingReviewedHeadSha === LATEST_MAIN_Q_PREDECESSOR_P_COMMIT &&
       proof.dedicatedLandingPullRequestNumber === 89 && proof.treeSha === LATEST_MAIN_Q_PREDECESSOR_P_TREE &&
@@ -24693,7 +24903,8 @@ function runAudit(flags) {
   const observationOptions = auditContext ? { [PR86_DELIVERY_AUDIT_CONTEXT]: auditContext } : {};
   const readOnlyReleaseTasks = new Set([...(mobileRelease ? [mobileRelease.taskId] : []),
     ...(mobileRelease?.closeoutCustody ? [PR86_DELIVERY_TASK] : []),
-    ...(mobileRelease?.dedicatedLandingCustody ? [I_H_TASK] : [])]);
+    ...(mobileRelease?.dedicatedLandingCustody ? [I_H_TASK] : []),
+    ...(latestMainQPostLandingHostAllowed(registry, mobileRelease) ? [LATEST_MAIN_Q_TASK] : [])]);
   const validation = validateMobilePilotHostAuditRegistry(registry, mobileRelease);
   appendHostPhysicalCustodyErrors(registry, validation.errors);
   const registered = parseWorktreeList();
@@ -24799,6 +25010,7 @@ function runAudit(flags) {
     const activeItem =
       branchItem && ACTIVE_WRITE_DISPOSITIONS.has(branchItem.disposition) && !readOnlyReleaseTasks.has(branchItem.taskId) ? branchItem : null;
     const integratedRootRegistryAdvance =
+      latestMainQPostLandingAuditHeadAllowed(registry, branchRecord.name, actual.headSha, mobileRelease) ||
       branchItem?.headSha === branchRecord.headSha &&
       integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
         branchItem,
@@ -24885,7 +25097,7 @@ function runAudit(flags) {
       }
     }
 
-    const integratedRootRegistryAdvance = integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
+    const integratedRootRegistryAdvance = latestMainQPostLandingAuditHeadAllowed(registry, item.branch, actual.headSha, mobileRelease) || integratedReadOnlyRootRegistryAdvanceAllowedForAudit(
       item,
       actual.headSha,
       registry,
@@ -24922,6 +25134,8 @@ function runAudit(flags) {
     } else if (observed.ahead !== item.aheadBehind.ahead || observed.behind !== item.aheadBehind.behind) {
       if (isReadOnlyRelease) {
         // Exact release/root custody was independently derived above.
+      } else if (latestMainQPostLandingBehindAllowed(registry, item, actual.headSha, observed, mobileRelease)) {
+        warnings.push(`preserved lane observed only the exact PR100 landing: ${item.taskId}`);
       } else if (pr86DeliveryRetainedMainAdvanceAllowed(registry, item.taskId, actual.headSha, observed, mobileRelease)) {
         warnings.push(`retained owner observation advanced only behind the verified PR86 closeout main: ${item.taskId}`);
       } else if (
@@ -25138,7 +25352,9 @@ function runAudit(flags) {
                 ).allowed
               : git(["merge-base", "--is-ancestor", branchRecord.remoteHeadSha, liveHeadSha], { allowFailure: true }).status === 0)
           );
-          if (isPermittedForwardAdvance) {
+          if (latestMainQPostLandingAuditHeadAllowed(registry, branchRecord.name, liveHeadSha, mobileRelease)) {
+            warnings.push(`remote branch observed the exact PR100 landing: ${branchRecord.name}`);
+          } else if (isPermittedForwardAdvance) {
             warnings.push(`active remote branch advanced beyond its last observed SHA: ${branchRecord.name}`);
           } else if (isPermittedLowerBoundObservation) {
             warnings.push(`remote branch advanced beyond its observation lower bound: ${branchRecord.name}`);

@@ -7412,18 +7412,18 @@
       "lastObservedAt": "2026-09-19T08:32:27Z",
       "nextReviewAt": "2026-09-21T08:32:27Z",
       "expectedCloseAt": "owner-gated:latest-main-q-protected-pr-lifecycle",
-      "prNumber": null,
-      "noPrReason": "Three-path candidate is local-only until exact index, test, build, security, and native-hook gates pass; the provider will assign any future PR number.",
-      "prIsDraft": false,
+      "prNumber": 100,
+      "noPrReason": null,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "mergeAuthorized": false,
-      "dirtyState": "staged-latest-main-q-three-path-remediation",
+      "dirtyState": "staged-pr100-single-bounded-post-merge-repair",
       "sensitivePaths": [],
       "disposition": "active",
       "freezeException": null,
       "evidenceState": {
-        "local": "Clean source main 6d65770 is isolated on a dedicated branch; only the three governance paths may change.",
-        "ci": "No candidate CI or provider-assigned PR exists yet.",
+        "local": "One additional three-path repair is authorized on the preserved b8355c0 parent; old Q is unchanged.",
+        "ci": "PR100 initial b8355c0 checks passed; the additional repair requires fresh exact-head checks.",
         "merged": "Not merged; protected merge remains gated on exact-head checks.",
         "deployed": "No deployment is authorized or claimed.",
         "live": "Live main and cached origin/main were exact 6d65770 at source freeze; direct main push is forbidden."
@@ -8723,18 +8723,18 @@
       "ownerKey": "Codex-task-01a05865-c301-7223-b74d-96e228b8a435",
       "baseSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
       "headSha": "6d65770dbae5db94d9c99decdddbebe3d978b8ae",
-      "upstream": null,
-      "upstreamState": "not-applicable",
-      "upstreamCacheState": "not-applicable",
-      "remotePresent": false,
-      "remoteHeadSha": null,
-      "remoteObservedAt": "2026-09-19T08:32:27Z",
-      "pr": null,
-      "noPrReason": "Local three-path candidate has not passed gates or been pushed; no provider PR number is predeclared.",
-      "prHeadSha": null,
-      "prState": null,
+      "upstream": "origin/codex/sena-q-currentness-port-20260919",
+      "upstreamState": "live",
+      "upstreamCacheState": "present",
+      "remotePresent": true,
+      "remoteHeadSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "remoteObservedAt": "2026-09-20T06:10:13.996142Z",
+      "pr": 100,
+      "noPrReason": null,
+      "prHeadSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "prState": "OPEN",
       "prBase": "main",
-      "prIsDraft": false,
+      "prIsDraft": true,
       "prReadyForReview": false,
       "prStateObservationMode": "monotonic",
       "lastOwnerHeartbeatAt": "2026-09-19T08:32:27Z",
@@ -8743,7 +8743,7 @@
       "nextReviewAt": "2026-09-21T08:32:27Z",
       "expectedCloseAt": "owner-gated:latest-main-q-protected-pr-lifecycle",
       "disposition": "active",
-      "closeout": "Dedicated latest-main candidate; commit, push, Draft PR, Ready, and merge remain individually gated."
+      "closeout": "PR100 remains Draft; one non-force repair update from b8355c0 is authorized after gates. Ready and merge remain separately gated."
     }
   ],
   "orphanWorktrees": [
@@ -13849,14 +13849,14 @@
       "protectedRetirementBehind": 73,
       "mobileGAndIHPreservedReadOnly": true
     },
-    "providerAssignedPullRequestNumber": null,
+    "providerAssignedPullRequestNumber": 100,
     "requiredExecution": [
       "pass-strict-currentness-live-audit-before-the-single-final-commit",
       "pass-exact-index-registry-write-policy-security-and-native-precommit-gates",
       "pass-the-complete-current-governance-suite-with-no-timeout-or-assertion-failure",
-      "commit-only-the-three-governance-paths-on-the-dedicated-branch",
-      "push-one-non-force-create-only-branch-ref-after-live-main-and-remote-absence-readback",
-      "create-one-draft-pr-and-read-back-the-provider-assigned-number",
+      "commit-one-additional-three-path-repair-on-preserved-pr100-parent",
+      "push-one-non-force-update-from-exact-pr100-parent-after-live-main-and-ref-readback",
+      "retain-existing-pr100-as-draft-and-read-back-its-exact-final-head",
       "verify-exact-final-head-build-and-security-checks-before-ready",
       "use-one-protected-merge-with-exact-head-lease-and-no-admin-bypass",
       "verify-post-main-checks-and-commit-bound-live-audit-before-any-g-reactivation",
@@ -13864,11 +13864,12 @@
     ],
     "authorizationBoundary": {
       "candidateCommitAuthorizedAfterGates": true,
-      "oneNonForceBranchPushAuthorizedAfterGates": true,
-      "draftPullRequestCreationAuthorizedAfterPush": true,
+      "oneNonForceBranchPushAuthorizedAfterGates": false,
+      "draftPullRequestCreationAuthorizedAfterPush": false,
+      "oneNonForceRepairUpdateAuthorizedAfterGates": true,
       "readyMayBeAuthorizedOnlyAfterExactFinalHeadChecks": true,
       "protectedMergeMayBeAuthorizedOnlyAfterExactFinalHeadChecks": true,
-      "providerAssignedPullRequestNumber": null,
+      "providerAssignedPullRequestNumber": 100,
       "readyAuthorizedNow": false,
       "mergeAuthorizedNow": false,
       "gProductWriteAuthorizedNow": false,
@@ -14043,6 +14044,22 @@
         "requiresSeparateLandedMainCurrentnessTransition": true,
         "authorityExpanded": false
       }
+    },
+    "postMergeRepair": {
+      "pullRequestNumber": 100,
+      "parentCommitSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "parentTreeSha": "078600631ecb746f8461b6d488479802c739399c",
+      "additionalCommitCount": 1,
+      "allowedPaths": [
+        "coordination/repo-governance/active-work.json",
+        "scripts/verify-sena-repo-governance.mjs",
+        "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
+      ],
+      "nonForceUpdateFromSha": "b8355c02685fd9e80f8dd3d6504f8abe50aa4a1e",
+      "postMergeObservationOnly": true,
+      "forceAuthorized": false,
+      "readyAuthorized": false,
+      "mergeAuthorized": false
     }
   }
 }
