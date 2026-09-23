@@ -606,25 +606,32 @@ function normalizeAiAgentRuns(rows: SenaImportRow[], mapping: SenaColumnMapping,
   });
 }
 
+function aiActorList(ids: string[]) {
+  return ids.length === 1 ? `AI actor (${ids[0]})` : `${ids.length} AI actors (${ids.join(", ")})`;
+}
+
 function discloseAiActorProvenance(people: SenaPerson[], runs: SenaAiAgentRun[], warnings: string[]) {
   const aiActorIds = people.filter((person) => person.actorType === "ai_agent").map((person) => person.id);
   if (aiActorIds.length === 0) return;
-  const covered = new Set(runs.map((run) => run.actorId));
-  const missing = aiActorIds.filter((id) => !covered.has(id));
+  const runActorIds = new Set(runs.map((run) => run.actorId));
+  const coveredIds = aiActorIds.filter((id) => runActorIds.has(id));
+  const missingIds = aiActorIds.filter((id) => !runActorIds.has(id));
   const actorLabel = aiActorIds.length === 1
-    ? `an AI actor (${aiActorIds.join(", ")})`
+    ? `an AI actor (${aiActorIds[0]})`
     : `${aiActorIds.length} AI actors (${aiActorIds.join(", ")})`;
   const rosterGuard = `people declares ${actorLabel}. Actor typing is roster semantics only (ADR-0006 D2); putting an AI row in people does not make a Human-AI SENA claim.`;
-  if (missing.length > 0) {
+  const coverage = coveredIds.length === 0
+    ? "ADR-0013 coverage: none."
+    : `ADR-0013 coverage: matching ai_agent_runs rows cover ${aiActorList(coveredIds)}.`;
+  if (missingIds.length > 0) {
+    const verb = missingIds.length === 1 ? "is" : "are";
     warnings.push(
-      `${rosterGuard} ADR-0013 run provenance does not cover ${
-        missing.length === 1 ? `AI actor (${missing[0]})` : `${missing.length} AI actors (${missing.join(", ")})`
-      }; missing model/config/version provenance is not optional when AI actors are present in research claims, so Human-AI findings remain exploratory.`
+      `${rosterGuard} ${coverage} ADR-0013 gap: ${aiActorList(missingIds)} ${verb} present without a matching ai_agent_runs row; missing model/config/version provenance is not optional when AI actors are present in research claims, so Human-AI findings remain exploratory.`
     );
     return;
   }
   warnings.push(
-    `${rosterGuard} ADR-0013 recorded ${runs.length === 1 ? "1 ai_agent_runs row" : `${runs.length} ai_agent_runs rows`}; Human-AI findings remain exploratory until the remaining research-grade gates pass.`
+    `${rosterGuard} ${coverage} ADR-0013 gap: none for these roster ids. Human-AI findings remain exploratory until the remaining research-grade gates pass.`
   );
 }
 

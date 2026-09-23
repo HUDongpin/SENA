@@ -130,8 +130,9 @@ describe("ADR-0013 ai_agent_runs provenance", () => {
     expect(isSenaProvenanceUnavailable(run?.deploymentId)).toBe(true);
     expect(isSenaProvenanceUnavailable(run?.topP)).toBe(true);
     expect(result.warnings.some((warning) => warning.includes("missing agent_run_id or actor_id"))).toBe(true);
-    expect(result.warnings.some((warning) => warning.includes("recorded 1 ai_agent_runs row"))).toBe(true);
-    expect(result.warnings.some((warning) => warning.includes("putting an AI row in people does not make a Human-AI SENA claim"))).toBe(true);
+    expect(result.warnings).toContain(
+      "people declares an AI actor (T1). Actor typing is roster semantics only (ADR-0006 D2); putting an AI row in people does not make a Human-AI SENA claim. ADR-0013 coverage: matching ai_agent_runs rows cover AI actor (T1). ADR-0013 gap: none for these roster ids. Human-AI findings remain exploratory until the remaining research-grade gates pass."
+    );
   });
 
   it("treats missing run provenance as required when AI actors are present", () => {
@@ -139,8 +140,23 @@ describe("ADR-0013 ai_agent_runs provenance", () => {
       mappedCsv("people", "person_id,actor_type\nT1,ai_agent\n")
     ]);
     expect(Object.keys(result.dataset)).not.toContain("ai_agent_runs");
-    expect(result.warnings.some((warning) => warning.includes("roster semantics only"))).toBe(true);
-    expect(result.warnings.some((warning) => warning.includes("missing model/config/version provenance is not optional"))).toBe(true);
+    expect(result.warnings).toContain(
+      "people declares an AI actor (T1). Actor typing is roster semantics only (ADR-0006 D2); putting an AI row in people does not make a Human-AI SENA claim. ADR-0013 coverage: none. ADR-0013 gap: AI actor (T1) is present without a matching ai_agent_runs row; missing model/config/version provenance is not optional when AI actors are present in research claims, so Human-AI findings remain exploratory."
+    );
+  });
+
+  it("names ADR-0013 coverage and the unmatched ai_agent gap in one disclosure", () => {
+    const result = buildSenaDatasetFromTables([
+      mappedCsv("people", "person_id,actor_type\nT1,ai_agent\nA,human\nT2,ai_agent\n"),
+      mappedCsv(
+        "ai_agent_runs",
+        "agent_run_id,actor_id,provider\nrun-1,T1,openai\nrun-other,NotOnRoster,openai\n"
+      )
+    ]);
+    expect(result.warnings).toContain(
+      "people declares 2 AI actors (T1, T2). Actor typing is roster semantics only (ADR-0006 D2); putting an AI row in people does not make a Human-AI SENA claim. ADR-0013 coverage: matching ai_agent_runs rows cover AI actor (T1). ADR-0013 gap: AI actor (T2) is present without a matching ai_agent_runs row; missing model/config/version provenance is not optional when AI actors are present in research claims, so Human-AI findings remain exploratory."
+    );
+    expect(result.warnings.some((warning) => warning.includes('actor_id "NotOnRoster"'))).toBe(true);
   });
 
   it("accepts JSON camelCase/snake_case runs without changing fusion matrices", () => {

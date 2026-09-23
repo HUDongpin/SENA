@@ -11,11 +11,12 @@ human, unknown values disclosed and read as human, the field is only stored
 when declared so untyped rosters stay byte-identical); `target_actor_ids` /
 `targetActorIds` import as aliases of the stored `targetPersonIds`; the blank
 `people.csv` template exposes `actor_type` (pilot-package manifest refreshed,
-bytes 36→47); and an `ai_agent` roster row raises the cleaning-manifest
-disclosure that typing is roster semantics only — per the brief's §8 guardrail,
-no Human–AI claim follows from an AI row. No matrix behavior reads `actorType`.
-`ai_agent_runs` provenance is ADR-0013 (Track C-P0, additive sidecar). The event
-ledger (C-P1/P2) remains a future ADR.
+bytes 36→47); and an `ai_agent` roster row raises a cleaning-manifest disclosure: typing stays
+roster semantics only (ADR-0006 D2), and the same warning names ADR-0013 coverage
+versus gaps (AI actors present without a matching `ai_agent_runs` row). Per the
+brief's §8 guardrail, no Human–AI claim follows from an AI row. No matrix behavior
+reads `actorType`. `ai_agent_runs` provenance is ADR-0013 (Track C-P0, additive
+sidecar). The event ledger (C-P1/P2) remains a future ADR.
 
 ## Context
 
