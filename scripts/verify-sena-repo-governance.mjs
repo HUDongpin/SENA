@@ -17102,11 +17102,11 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-09-18T02:18:00Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-20T02:18:00Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-18T10:18:00+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-18T10:19:00+08:00";
-const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-18T10:20:00+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-09-23T02:18:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-25T02:18:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-23T10:18:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-23T10:19:00+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-23T10:20:00+08:00";
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
   "branch head differs from registry: main",
@@ -18147,19 +18147,84 @@ function latestMainQConvergenceRemediationExpectedCandidate(source) {
   return latestMainQCurrentnessObservation(expected);
 }
 
+function latestMainQCurrentnessHeartbeatRegistry(candidate) {
+  const expected = protectedActivationNativeStructuredClone(candidate);
+  const item = (taskId) => {
+    const found = expected.workItems.find((entry) => entry.taskId === taskId);
+    if (!found) {
+      throw new Error("rule=latest-main-q-currentness-heartbeat-invalid");
+    }
+    return found;
+  };
+  const branch = (name) => {
+    const found = expected.branches.find((entry) => entry.name === name);
+    if (!found) {
+      throw new Error("rule=latest-main-q-currentness-heartbeat-invalid");
+    }
+    return found;
+  };
+  expected.updatedAt = P_O_CURRENTNESS_RECORDED_AT;
+  for (const taskId of [
+    MOBILE_PILOT_TASK,
+    H_GOVERNANCE_G_TASK,
+    I_H_TASK,
+    LATEST_MAIN_Q_TASK
+  ]) {
+    Object.assign(item(taskId), {
+      lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+      lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+      nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+    });
+  }
+  for (const [name, lastCommitAt] of [
+    [MOBILE_PILOT_BRANCH, P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT],
+    [H_GOVERNANCE_G_BRANCH, P_O_CURRENTNESS_G_LAST_COMMIT_AT],
+    [I_H_BRANCH, P_O_CURRENTNESS_IH_LAST_COMMIT_AT]
+  ]) {
+    Object.assign(branch(name), {
+      remoteObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+      lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+      lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+      lastCommitAt,
+      nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+    });
+  }
+  Object.assign(branch(LATEST_MAIN_Q_BRANCH), {
+    lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+  });
+  return expected;
+}
+
 function latestMainQConvergenceRemediationStructurallyAllowed(
   sourceRegistry,
   candidateRegistry
 ) {
   try {
     const source = latestMainQConvergenceRemediationSource();
-    return Boolean(
-      pr85PlainJsonData(sourceRegistry) &&
-        pr85PlainJsonData(candidateRegistry) &&
-        isDeepStrictEqual(sourceRegistry, source) &&
-        (isDeepStrictEqual(candidateRegistry, latestMainQConvergenceRemediationExpectedCandidate(source)) ||
-          (latestMainQRepairSourceAllowed() && isDeepStrictEqual(candidateRegistry,
-            latestMainQPostMergeRepairRegistry(latestMainQConvergenceRemediationExpectedCandidate(source)))))
+    if (
+      !pr85PlainJsonData(sourceRegistry) ||
+      !pr85PlainJsonData(candidateRegistry) ||
+      !isDeepStrictEqual(sourceRegistry, source)
+    ) {
+      return false;
+    }
+    const historical =
+      latestMainQConvergenceRemediationExpectedCandidate(source);
+    const repairAllowed = latestMainQRepairSourceAllowed();
+    const historicalRepair = repairAllowed
+      ? latestMainQPostMergeRepairRegistry(historical)
+      : null;
+    const current = latestMainQCurrentnessHeartbeatRegistry(
+      historicalRepair ?? historical
+    );
+    return [
+      historical,
+      historicalRepair,
+      current
+    ].some(
+      (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
     );
   } catch {
     return false;
