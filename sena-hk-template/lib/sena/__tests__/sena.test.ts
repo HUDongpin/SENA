@@ -5039,8 +5039,9 @@ describe("SENA model builder", () => {
   it("exposes actor_type in the blank people template and types actors through import (ADR-0006 D2)", () => {
     // Track C-P0: the roster gains additive actor typing. An empty cell means
     // human and stores nothing (untyped rosters stay byte-identical); an AI
-    // row is disclosed as roster semantics only, never as achieved Human-AI
-    // SENA; an unrecognized value is disclosed and read as human.
+    // row is disclosed as roster semantics only and names the ADR-0013 gap
+    // when no matching ai_agent_runs row exists; an unrecognized value is
+    // disclosed and read as human.
     const templateHeader = readPilotAsset("templates/people.csv").split(/\r?\n/)[0];
     expect(templateHeader.split(",")).toContain("actor_type");
 
@@ -5058,7 +5059,9 @@ describe("SENA model builder", () => {
     expect(Object.keys(byId.get("X") ?? {})).not.toContain("actorType");
     expect(result.warnings.some((warning) => warning.includes('actor_type "robot"'))).toBe(true);
     expect(result.warnings.filter((warning) => warning.includes("roster semantics only"))).toHaveLength(1);
-    expect(result.warnings.some((warning) => warning.includes("(T1)"))).toBe(true);
+    expect(result.warnings).toContain(
+      "people declares an AI actor (T1). Actor typing is roster semantics only (ADR-0006 D2); putting an AI row in people does not make a Human-AI SENA claim. ADR-0013 coverage: none. ADR-0013 gap: AI actor (T1) is present without a matching ai_agent_runs row; missing model/config/version provenance is not optional when AI actors are present in research claims, so Human-AI findings remain exploratory."
+    );
   });
 
   it("maps target_actor_ids and JSON actor typing onto the stored contract fields (ADR-0006 D2)", () => {
