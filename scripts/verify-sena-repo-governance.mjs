@@ -2216,16 +2216,23 @@ function physicalWorkItemCustodyError(registryRepoResolution, item) {
 }
 
 function appendHostPhysicalCustodyErrors(registry, errors) {
+  const historicalRegistry = gLocalIntegrationReadOnlyRegistry(registry);
   const exactLatestMainQCandidate = Boolean(
-    registry?.qLatestMainConvergenceRemediation &&
+    historicalRegistry?.qLatestMainConvergenceRemediation &&
       latestMainQConvergenceRemediationStructurallyAllowed(
         latestMainQConvergenceRemediationSource(),
-        registry
+        historicalRegistry
       )
   );
   if (exactLatestMainQCandidate) {
-    if (!latestMainQPreservedUnlandedQPhysicalAllowed(registry)) {
+    if (!latestMainQPreservedUnlandedQPhysicalAllowed(historicalRegistry)) {
       errors.push("rule=latest-main-q-preserved-source-custody-invalid");
+    }
+    if (historicalRegistry !== registry) {
+      const gItem = registry.workItems.find((item) => item.taskId === G_LOCAL_SUCCESSOR_TASK_ID);
+      const registryRepoResolution = existingPathResolution(registry.repo);
+      const custodyError = physicalWorkItemCustodyError(registryRepoResolution, gItem);
+      if (custodyError) errors.push(custodyError);
     }
     return;
   }
@@ -17410,6 +17417,23 @@ export function pOPr89PrePushCustodyRemediationHistoricalProjection(
 
 const LATEST_MAIN_Q_SOURCE_COMMIT =
   "6d65770dbae5db94d9c99decdddbebe3d978b8ae";
+// A01 review-only successor from the exact protected main after PR #102.
+// This does not carry Q's historical commit, push, or merge authorization.
+const G_LOCAL_SUCCESSOR_SOURCE_COMMIT =
+  "9274e313251014d142369a5f338e7a5a7f1f1fc7";
+const G_LOCAL_SUCCESSOR_SOURCE_TREE =
+  "e6c837f66528b98040ce6c226b512a90b3c95597";
+const G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_BLOB =
+  "5d28382bed375f9cfe64ba972b24fd06e8cd87a9";
+const G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_SHA256 =
+  "20be42e82bfceb9e45d4f57b8ec494840983e82dfe5709437948627bd52811cc";
+const G_LOCAL_SUCCESSOR_UPDATED_AT = "2026-09-23T11:31:44Z";
+const G_LOCAL_SUCCESSOR_TASK_ID = "SENA-G-LOCAL-INTEGRATION-20260923";
+const G_LOCAL_SUCCESSOR_BRANCH = "codex/sena-g-local-integration-20260923";
+const G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 =
+  "069f59aac7da596b495f39baeee295c596bb42898fbf586458de11187465504c";
+const G_LOCAL_SUCCESSOR_BRANCH_SHA256 =
+  "f265eb7548a0989c7263ba7907fcfa9ee0e730b3a62136d7779fd380782c53c3";
 const LATEST_MAIN_Q_SOURCE_TREE =
   "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b";
 const LATEST_MAIN_Q_SOURCE_PARENT =
@@ -18195,6 +18219,80 @@ function latestMainQCurrentnessHeartbeatRegistry(candidate) {
     nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
   });
   return expected;
+}
+
+// Project only the one reviewed G registration back to the immutable main
+// registry for historical shape checks. The full G registry is never passed to
+// Q's authorization-bearing transition function.
+function gLocalIntegrationSuccessorHistoricalProjection(candidateRegistry, sourceRegistry) {
+  try {
+    if (
+      !pr85PlainJsonData(candidateRegistry) ||
+      !pr85PlainJsonData(sourceRegistry) ||
+      protectedMainAdvanceObjectSha(`${G_LOCAL_SUCCESSOR_SOURCE_COMMIT}^{tree}`) !==
+        G_LOCAL_SUCCESSOR_SOURCE_TREE ||
+      protectedMainAdvanceObjectSha(
+        `${G_LOCAL_SUCCESSOR_SOURCE_COMMIT}:${REGISTRY_REPO_PATH}`
+      ) !== G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_BLOB ||
+      sha256Buffer(git(["cat-file", "blob", G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_BLOB]).stdout) !==
+        G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_SHA256
+    ) return null;
+    const protectedRegistry = loadRegistryFromCommit(G_LOCAL_SUCCESSOR_SOURCE_COMMIT).parsed;
+    if (
+      !isDeepStrictEqual(sourceRegistry, protectedRegistry) ||
+      candidateRegistry.updatedAt !== G_LOCAL_SUCCESSOR_UPDATED_AT ||
+      candidateRegistry.workItems?.length !== protectedRegistry.workItems.length + 1 ||
+      candidateRegistry.branches?.length !== protectedRegistry.branches.length + 1
+    ) return null;
+    const gItem = candidateRegistry.workItems.at(-1);
+    const gBranch = candidateRegistry.branches.at(-1);
+    if (
+      gItem?.taskId !== G_LOCAL_SUCCESSOR_TASK_ID ||
+      gBranch?.name !== G_LOCAL_SUCCESSOR_BRANCH ||
+      gItem.branch !== gBranch.name ||
+      gItem.baseSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+      gItem.headSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+      gBranch.baseSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+      gBranch.headSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+      sha256Buffer(Buffer.from(JSON.stringify(gItem))) !== G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 ||
+      sha256Buffer(Buffer.from(JSON.stringify(gBranch))) !== G_LOCAL_SUCCESSOR_BRANCH_SHA256
+    ) return null;
+    const historical = protectedActivationNativeStructuredClone(candidateRegistry);
+    historical.updatedAt = protectedRegistry.updatedAt;
+    historical.workItems.pop();
+    historical.branches.pop();
+    return isDeepStrictEqual(historical, protectedRegistry) ? historical : null;
+  } catch {
+    return null;
+  }
+}
+
+export function validateGLocalIntegrationGovernanceSuccessor(sourceRegistry, candidateRegistry) {
+  if (!gLocalIntegrationSuccessorHistoricalProjection(candidateRegistry, sourceRegistry)) {
+    throw new Error("rule=g-local-integration-successor-invalid");
+  }
+  return {
+    sourceCommitSha: G_LOCAL_SUCCESSOR_SOURCE_COMMIT,
+    sourceTreeSha: G_LOCAL_SUCCESSOR_SOURCE_TREE,
+    registeredTaskId: G_LOCAL_SUCCESSOR_TASK_ID,
+    registeredBranch: G_LOCAL_SUCCESSOR_BRANCH,
+    authorityExpanded: false,
+    commitAuthorized: false,
+    pushAuthorized: false,
+    mergeAuthorized: false
+  };
+}
+
+function gLocalIntegrationReadOnlyRegistry(registry) {
+  if (!registry?.workItems?.some((item) => item.taskId === G_LOCAL_SUCCESSOR_TASK_ID)) {
+    return registry;
+  }
+  try {
+    const source = loadRegistryFromCommit(G_LOCAL_SUCCESSOR_SOURCE_COMMIT).parsed;
+    return gLocalIntegrationSuccessorHistoricalProjection(registry, source) ?? registry;
+  } catch {
+    return registry;
+  }
 }
 
 function latestMainQConvergenceRemediationStructurallyAllowed(
@@ -20143,7 +20241,8 @@ function evidenceFlowObserverHeartbeatWarningAllowed(item) {
 }
 
 function postPr83ProtectedLaneContract(item, registry) {
-  const lifecycle = postPr83CurrentnessLifecycle(registry);
+  const historicalRegistry = gLocalIntegrationReadOnlyRegistry(registry);
+  const lifecycle = postPr83CurrentnessLifecycle(historicalRegistry);
   if (
     ![
       POST_PR83_CURRENTNESS_INITIAL_STATUS,
@@ -20170,12 +20269,12 @@ function postPr83ProtectedLaneContract(item, registry) {
   ) ?? null;
   if (
     contract?.taskId === POST_PR83_FORWARD_RETIREMENT_TASK_ID &&
-    (postPr83ForwardSnapshotExact(registry) ||
-      pr85IntegrationSnapshotAllowed(registry) ||
-      (registry.qLatestMainConvergenceRemediation &&
+    (postPr83ForwardSnapshotExact(historicalRegistry) ||
+      pr85IntegrationSnapshotAllowed(historicalRegistry) ||
+      (historicalRegistry.qLatestMainConvergenceRemediation &&
         latestMainQConvergenceRemediationStructurallyAllowed(
           latestMainQConvergenceRemediationSource(),
-          registry
+          historicalRegistry
         )))
   ) {
     return {
@@ -21335,7 +21434,9 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
   );
   if (hasPostPr83CurrentnessCorrection) {
     try {
-      validatePostPr83CurrentnessCorrectionSnapshot(registry);
+      validatePostPr83CurrentnessCorrectionSnapshot(
+        gLocalIntegrationReadOnlyRegistry(registry)
+      );
     } catch (error) {
       errors.push(
         error instanceof Error
@@ -24339,16 +24440,17 @@ export function pr86DeliveryPreservedTestFixtureAllowed(registry, marker) {
 
 export function pr86DeliveryOrphanInstructionObservationAllowed(registry, orphanPath, expected, observed) {
   try {
-    if (registry?.iHDedicatedLandingCandidate) {
+    const historicalRegistry = gLocalIntegrationReadOnlyRegistry(registry);
+    if (historicalRegistry?.iHDedicatedLandingCandidate) {
       return iHDedicatedLandingOrphanInstructionObservationAllowed(
-        registry,
+        historicalRegistry,
         orphanPath,
         expected,
         observed
       );
     }
-    validatePr86DeliveryOperationalSnapshot(registry);
-    const binding = registry.pr86DeliveryCloseout.orphanInstructionObservation;
+    validatePr86DeliveryOperationalSnapshot(historicalRegistry);
+    const binding = historicalRegistry.pr86DeliveryCloseout.orphanInstructionObservation;
     if (orphanPath !== binding.orphanPath ||
         !isDeepStrictEqual(expected, { relativePath: binding.relativePath, type: "file", size: binding.beforeSize, sha256: binding.beforeSha256 }) ||
         !isDeepStrictEqual(observed, { relativePath: binding.relativePath, type: "file", size: binding.afterSize, sha256: binding.afterSha256 }) ||
@@ -24405,9 +24507,10 @@ export function iHDedicatedLandingBenprbFixtureMarkerAllowed(
   marker
 ) {
   try {
-    iHDedicatedLandingHistoricalProjection(registry);
+    const historicalRegistry = gLocalIntegrationReadOnlyRegistry(registry);
+    iHDedicatedLandingHistoricalProjection(historicalRegistry);
     const benprb =
-      registry.jHEvidenceCustodyReconstruction.retainedSources.benprb;
+      historicalRegistry.jHEvidenceCustodyReconstruction.retainedSources.benprb;
     return isDeepStrictEqual(marker, {
       path: benprb.path,
       markerPath: join(benprb.path, ".git"),
