@@ -17109,11 +17109,18 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-09-23T02:18:00Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-25T02:18:00Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-23T10:18:00+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-23T10:19:00+08:00";
-const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-23T10:20:00+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-09-24T02:04:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-26T02:04:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-24T10:04:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-24T10:05:00+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-24T10:06:00+08:00";
+const P_O_CURRENTNESS_HEARTBEAT_20260923 = Object.freeze({
+  recordedAt: "2026-09-23T02:18:00Z",
+  nextReviewAt: "2026-09-25T02:18:00Z",
+  gLastCommitAt: "2026-09-23T10:18:00+08:00",
+  ihLastCommitAt: "2026-09-23T10:19:00+08:00",
+  mobileLastCommitAt: "2026-09-23T10:20:00+08:00"
+});
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
   "branch head differs from registry: main",
@@ -17428,6 +17435,8 @@ const G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_BLOB =
 const G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_SHA256 =
   "20be42e82bfceb9e45d4f57b8ec494840983e82dfe5709437948627bd52811cc";
 const G_LOCAL_SUCCESSOR_UPDATED_AT = "2026-09-23T11:31:44Z";
+const G_LOCAL_ADMITTED_RECORDED_AT = "2026-09-23T08:22:51Z";
+const G_LOCAL_ADMITTED_NEXT_REVIEW_AT = "2026-09-25T08:22:51Z";
 const G_LOCAL_SUCCESSOR_TASK_ID = "SENA-G-LOCAL-INTEGRATION-20260923";
 const G_LOCAL_SUCCESSOR_BRANCH = "codex/sena-g-local-integration-20260923";
 const G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 =
@@ -18171,7 +18180,18 @@ function latestMainQConvergenceRemediationExpectedCandidate(source) {
   return latestMainQCurrentnessObservation(expected);
 }
 
-function latestMainQCurrentnessHeartbeatRegistry(candidate) {
+function currentnessHeartbeatClocks(clocks) {
+  return clocks ?? {
+    recordedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
+    gLastCommitAt: P_O_CURRENTNESS_G_LAST_COMMIT_AT,
+    ihLastCommitAt: P_O_CURRENTNESS_IH_LAST_COMMIT_AT,
+    mobileLastCommitAt: P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT
+  };
+}
+
+function latestMainQCurrentnessHeartbeatRegistry(candidate, clocks) {
+  const stamp = currentnessHeartbeatClocks(clocks);
   const expected = protectedActivationNativeStructuredClone(candidate);
   const item = (taskId) => {
     const found = expected.workItems.find((entry) => entry.taskId === taskId);
@@ -18187,7 +18207,7 @@ function latestMainQCurrentnessHeartbeatRegistry(candidate) {
     }
     return found;
   };
-  expected.updatedAt = P_O_CURRENTNESS_RECORDED_AT;
+  expected.updatedAt = stamp.recordedAt;
   for (const taskId of [
     MOBILE_PILOT_TASK,
     H_GOVERNANCE_G_TASK,
@@ -18195,25 +18215,75 @@ function latestMainQCurrentnessHeartbeatRegistry(candidate) {
     LATEST_MAIN_Q_TASK
   ]) {
     Object.assign(item(taskId), {
-      lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
-      lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-      nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+      lastHeartbeatAt: stamp.recordedAt,
+      lastObservedAt: stamp.recordedAt,
+      nextReviewAt: stamp.nextReviewAt
     });
   }
   for (const [name, lastCommitAt] of [
-    [MOBILE_PILOT_BRANCH, P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT],
-    [H_GOVERNANCE_G_BRANCH, P_O_CURRENTNESS_G_LAST_COMMIT_AT],
-    [I_H_BRANCH, P_O_CURRENTNESS_IH_LAST_COMMIT_AT]
+    [MOBILE_PILOT_BRANCH, stamp.mobileLastCommitAt],
+    [H_GOVERNANCE_G_BRANCH, stamp.gLastCommitAt],
+    [I_H_BRANCH, stamp.ihLastCommitAt]
   ]) {
     Object.assign(branch(name), {
-      remoteObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-      lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
-      lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+      remoteObservedAt: stamp.recordedAt,
+      lastOwnerHeartbeatAt: stamp.recordedAt,
+      lastObservedAt: stamp.recordedAt,
       lastCommitAt,
-      nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+      nextReviewAt: stamp.nextReviewAt
     });
   }
   Object.assign(branch(LATEST_MAIN_Q_BRANCH), {
+    lastOwnerHeartbeatAt: stamp.recordedAt,
+    lastObservedAt: stamp.recordedAt,
+    nextReviewAt: stamp.nextReviewAt
+  });
+  return expected;
+}
+
+function gLocalExactSuccessorHistorical(candidateRegistry, protectedRegistry) {
+  if (
+    candidateRegistry.updatedAt !== G_LOCAL_SUCCESSOR_UPDATED_AT ||
+    candidateRegistry.workItems?.length !== protectedRegistry.workItems.length + 1 ||
+    candidateRegistry.branches?.length !== protectedRegistry.branches.length + 1
+  ) return null;
+  const gItem = candidateRegistry.workItems.at(-1);
+  const gBranch = candidateRegistry.branches.at(-1);
+  if (
+    gItem?.taskId !== G_LOCAL_SUCCESSOR_TASK_ID ||
+    gBranch?.name !== G_LOCAL_SUCCESSOR_BRANCH ||
+    gItem.branch !== gBranch.name ||
+    gItem.baseSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+    gItem.headSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+    gBranch.baseSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+    gBranch.headSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
+    sha256Buffer(Buffer.from(JSON.stringify(gItem))) !== G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 ||
+    sha256Buffer(Buffer.from(JSON.stringify(gBranch))) !== G_LOCAL_SUCCESSOR_BRANCH_SHA256
+  ) return null;
+  const historical = protectedActivationNativeStructuredClone(candidateRegistry);
+  historical.updatedAt = protectedRegistry.updatedAt;
+  historical.workItems.pop();
+  historical.branches.pop();
+  return isDeepStrictEqual(historical, protectedRegistry) ? historical : null;
+}
+
+function applyGLocalCurrentnessHeartbeat(exactRegistry) {
+  const expected = latestMainQCurrentnessHeartbeatRegistry(exactRegistry);
+  const gItem = expected.workItems.find(
+    (entry) => entry.taskId === G_LOCAL_SUCCESSOR_TASK_ID
+  );
+  const gBranch = expected.branches.find(
+    (entry) => entry.name === G_LOCAL_SUCCESSOR_BRANCH
+  );
+  if (!gItem || !gBranch) {
+    throw new Error("rule=g-local-integration-successor-invalid");
+  }
+  Object.assign(gItem, {
+    lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
+    lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+  });
+  Object.assign(gBranch, {
     lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
     nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
@@ -18221,9 +18291,73 @@ function latestMainQCurrentnessHeartbeatRegistry(candidate) {
   return expected;
 }
 
+function gLocalHeartbeatSuccessorHistorical(candidateRegistry, protectedRegistry) {
+  if (candidateRegistry.updatedAt !== P_O_CURRENTNESS_RECORDED_AT) return null;
+  const reverted = protectedActivationNativeStructuredClone(candidateRegistry);
+  reverted.updatedAt = G_LOCAL_SUCCESSOR_UPDATED_AT;
+  const restoreItem = (taskId) => {
+    const item = reverted.workItems.find((entry) => entry.taskId === taskId);
+    const pinned = protectedRegistry.workItems.find((entry) => entry.taskId === taskId);
+    if (!item || !pinned) return false;
+    item.lastHeartbeatAt = pinned.lastHeartbeatAt;
+    item.lastObservedAt = pinned.lastObservedAt;
+    item.nextReviewAt = pinned.nextReviewAt;
+    return true;
+  };
+  const restoreBranch = (name, fields) => {
+    const branch = reverted.branches.find((entry) => entry.name === name);
+    const pinned = protectedRegistry.branches.find((entry) => entry.name === name);
+    if (!branch || !pinned) return false;
+    for (const field of fields) branch[field] = pinned[field];
+    return true;
+  };
+  const branchClocks = [
+    "remoteObservedAt",
+    "lastOwnerHeartbeatAt",
+    "lastObservedAt",
+    "lastCommitAt",
+    "nextReviewAt"
+  ];
+  if (
+    ![
+      MOBILE_PILOT_TASK,
+      H_GOVERNANCE_G_TASK,
+      I_H_TASK,
+      LATEST_MAIN_Q_TASK
+    ].every(restoreItem) ||
+    ![
+      MOBILE_PILOT_BRANCH,
+      H_GOVERNANCE_G_BRANCH,
+      I_H_BRANCH
+    ].every((name) => restoreBranch(name, branchClocks)) ||
+    !restoreBranch(LATEST_MAIN_Q_BRANCH, [
+      "lastOwnerHeartbeatAt",
+      "lastObservedAt",
+      "nextReviewAt"
+    ])
+  ) return null;
+  const gItem = reverted.workItems.at(-1);
+  const gBranch = reverted.branches.at(-1);
+  if (!gItem || !gBranch) return null;
+  gItem.lastHeartbeatAt = G_LOCAL_ADMITTED_RECORDED_AT;
+  gItem.lastObservedAt = G_LOCAL_ADMITTED_RECORDED_AT;
+  gItem.nextReviewAt = G_LOCAL_ADMITTED_NEXT_REVIEW_AT;
+  gBranch.lastOwnerHeartbeatAt = G_LOCAL_ADMITTED_RECORDED_AT;
+  gBranch.lastObservedAt = G_LOCAL_ADMITTED_RECORDED_AT;
+  gBranch.nextReviewAt = G_LOCAL_ADMITTED_NEXT_REVIEW_AT;
+  const admitted = gLocalExactSuccessorHistorical(reverted, protectedRegistry);
+  if (!admitted) return null;
+  return isDeepStrictEqual(
+    candidateRegistry,
+    applyGLocalCurrentnessHeartbeat(reverted)
+  ) ? admitted : null;
+}
+
 // Project only the one reviewed G registration back to the immutable main
 // registry for historical shape checks. The full G registry is never passed to
-// Q's authorization-bearing transition function.
+// Q's authorization-bearing transition function. A later heartbeat may advance
+// only the shared currentness clocks; allowed paths, SHAs, remote presence,
+// and authority stay on the admitted registration.
 function gLocalIntegrationSuccessorHistoricalProjection(candidateRegistry, sourceRegistry) {
   try {
     if (
@@ -18238,30 +18372,9 @@ function gLocalIntegrationSuccessorHistoricalProjection(candidateRegistry, sourc
         G_LOCAL_SUCCESSOR_SOURCE_REGISTRY_SHA256
     ) return null;
     const protectedRegistry = loadRegistryFromCommit(G_LOCAL_SUCCESSOR_SOURCE_COMMIT).parsed;
-    if (
-      !isDeepStrictEqual(sourceRegistry, protectedRegistry) ||
-      candidateRegistry.updatedAt !== G_LOCAL_SUCCESSOR_UPDATED_AT ||
-      candidateRegistry.workItems?.length !== protectedRegistry.workItems.length + 1 ||
-      candidateRegistry.branches?.length !== protectedRegistry.branches.length + 1
-    ) return null;
-    const gItem = candidateRegistry.workItems.at(-1);
-    const gBranch = candidateRegistry.branches.at(-1);
-    if (
-      gItem?.taskId !== G_LOCAL_SUCCESSOR_TASK_ID ||
-      gBranch?.name !== G_LOCAL_SUCCESSOR_BRANCH ||
-      gItem.branch !== gBranch.name ||
-      gItem.baseSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
-      gItem.headSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
-      gBranch.baseSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
-      gBranch.headSha !== G_LOCAL_SUCCESSOR_SOURCE_COMMIT ||
-      sha256Buffer(Buffer.from(JSON.stringify(gItem))) !== G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 ||
-      sha256Buffer(Buffer.from(JSON.stringify(gBranch))) !== G_LOCAL_SUCCESSOR_BRANCH_SHA256
-    ) return null;
-    const historical = protectedActivationNativeStructuredClone(candidateRegistry);
-    historical.updatedAt = protectedRegistry.updatedAt;
-    historical.workItems.pop();
-    historical.branches.pop();
-    return isDeepStrictEqual(historical, protectedRegistry) ? historical : null;
+    if (!isDeepStrictEqual(sourceRegistry, protectedRegistry)) return null;
+    return gLocalExactSuccessorHistorical(candidateRegistry, protectedRegistry) ??
+      gLocalHeartbeatSuccessorHistorical(candidateRegistry, protectedRegistry);
   } catch {
     return null;
   }
@@ -18314,12 +18427,16 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
     const historicalRepair = repairAllowed
       ? latestMainQPostMergeRepairRegistry(historical)
       : null;
-    const current = latestMainQCurrentnessHeartbeatRegistry(
-      historicalRepair ?? historical
+    const heartbeatBase = historicalRepair ?? historical;
+    const current = latestMainQCurrentnessHeartbeatRegistry(heartbeatBase);
+    const admittedOn20260923 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20260923
     );
     return [
       historical,
       historicalRepair,
+      admittedOn20260923,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
