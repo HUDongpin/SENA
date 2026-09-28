@@ -17109,17 +17109,24 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-09-24T02:04:00Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-26T02:04:00Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-24T10:04:00+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-24T10:05:00+08:00";
-const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-24T10:06:00+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-09-28T07:50:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-09-30T07:50:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-28T15:50:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-28T15:51:00+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-28T15:52:00+08:00";
 const P_O_CURRENTNESS_HEARTBEAT_20260923 = Object.freeze({
   recordedAt: "2026-09-23T02:18:00Z",
   nextReviewAt: "2026-09-25T02:18:00Z",
   gLastCommitAt: "2026-09-23T10:18:00+08:00",
   ihLastCommitAt: "2026-09-23T10:19:00+08:00",
   mobileLastCommitAt: "2026-09-23T10:20:00+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20260924 = Object.freeze({
+  recordedAt: "2026-09-24T02:04:00Z",
+  nextReviewAt: "2026-09-26T02:04:00Z",
+  gLastCommitAt: "2026-09-24T10:04:00+08:00",
+  ihLastCommitAt: "2026-09-24T10:05:00+08:00",
+  mobileLastCommitAt: "2026-09-24T10:06:00+08:00"
 });
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
@@ -18433,10 +18440,15 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20260923
     );
+    const admittedOn20260924 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20260924
+    );
     return [
       historical,
       historicalRepair,
       admittedOn20260923,
+      admittedOn20260924,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
