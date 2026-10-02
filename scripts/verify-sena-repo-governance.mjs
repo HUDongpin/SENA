@@ -17109,11 +17109,11 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-09-30T01:56:00Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-02T01:56:00Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-30T09:56:00+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-30T09:57:00+08:00";
-const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-30T09:58:00+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-10-02T01:55:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-04T01:55:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-10-02T09:55:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-10-02T09:56:00+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-10-02T09:57:00+08:00";
 const P_O_CURRENTNESS_HEARTBEAT_20260923 = Object.freeze({
   recordedAt: "2026-09-23T02:18:00Z",
   nextReviewAt: "2026-09-25T02:18:00Z",
@@ -17134,6 +17134,13 @@ const P_O_CURRENTNESS_HEARTBEAT_20260928 = Object.freeze({
   gLastCommitAt: "2026-09-28T15:50:00+08:00",
   ihLastCommitAt: "2026-09-28T15:51:00+08:00",
   mobileLastCommitAt: "2026-09-28T15:52:00+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20260930 = Object.freeze({
+  recordedAt: "2026-09-30T01:56:00Z",
+  nextReviewAt: "2026-10-02T01:56:00Z",
+  gLastCommitAt: "2026-09-30T09:56:00+08:00",
+  ihLastCommitAt: "2026-09-30T09:57:00+08:00",
+  mobileLastCommitAt: "2026-09-30T09:58:00+08:00"
 });
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
@@ -17457,6 +17464,12 @@ const G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 =
   "069f59aac7da596b495f39baeee295c596bb42898fbf586458de11187465504c";
 const G_LOCAL_SUCCESSOR_BRANCH_SHA256 =
   "f265eb7548a0989c7263ba7907fcfa9ee0e730b3a62136d7779fd380782c53c3";
+const G_LOCAL_ADMITTED_DISPOSITION = "active";
+const G_LOCAL_ADMITTED_CLOSEOUT =
+  "Local G integration authorized and in progress; no remote lifecycle action.";
+const G_LOCAL_PRESERVATION_REVIEW_DISPOSITION = "preservation-review";
+const G_LOCAL_PRESERVATION_REVIEW_CLOSEOUT =
+  "No local commit for more than 7 days and remote-absent; preserved for manual review. Reactivation requires a fresh explicit owner transition. Nothing deleted.";
 const LATEST_MAIN_Q_SOURCE_TREE =
   "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b";
 const LATEST_MAIN_Q_SOURCE_PARENT =
@@ -18295,12 +18308,15 @@ function applyGLocalCurrentnessHeartbeat(exactRegistry) {
   Object.assign(gItem, {
     lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
+    disposition: G_LOCAL_PRESERVATION_REVIEW_DISPOSITION
   });
   Object.assign(gBranch, {
     lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
+    disposition: G_LOCAL_PRESERVATION_REVIEW_DISPOSITION,
+    closeout: G_LOCAL_PRESERVATION_REVIEW_CLOSEOUT
   });
   return expected;
 }
@@ -18356,9 +18372,12 @@ function gLocalHeartbeatSuccessorHistorical(candidateRegistry, protectedRegistry
   gItem.lastHeartbeatAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gItem.lastObservedAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gItem.nextReviewAt = G_LOCAL_ADMITTED_NEXT_REVIEW_AT;
+  gItem.disposition = G_LOCAL_ADMITTED_DISPOSITION;
   gBranch.lastOwnerHeartbeatAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gBranch.lastObservedAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gBranch.nextReviewAt = G_LOCAL_ADMITTED_NEXT_REVIEW_AT;
+  gBranch.disposition = G_LOCAL_ADMITTED_DISPOSITION;
+  gBranch.closeout = G_LOCAL_ADMITTED_CLOSEOUT;
   const admitted = gLocalExactSuccessorHistorical(reverted, protectedRegistry);
   if (!admitted) return null;
   return isDeepStrictEqual(
@@ -18370,8 +18389,10 @@ function gLocalHeartbeatSuccessorHistorical(candidateRegistry, protectedRegistry
 // Project only the one reviewed G registration back to the immutable main
 // registry for historical shape checks. The full G registry is never passed to
 // Q's authorization-bearing transition function. A later heartbeat may advance
-// only the shared currentness clocks; allowed paths, SHAs, remote presence,
-// and authority stay on the admitted registration.
+// the shared currentness clocks and record the seven-day preservation-review
+// disposition and closeout. Those review fields revert before the admitted
+// registration hash is checked. Allowed paths, SHAs, remote presence, and
+// authority stay on the admitted registration.
 function gLocalIntegrationSuccessorHistoricalProjection(candidateRegistry, sourceRegistry) {
   try {
     if (
@@ -18455,12 +18476,17 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20260928
     );
+    const admittedOn20260930 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20260930
+    );
     return [
       historical,
       historicalRepair,
       admittedOn20260923,
       admittedOn20260924,
       admittedOn20260928,
+      admittedOn20260930,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
