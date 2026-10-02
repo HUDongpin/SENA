@@ -17464,6 +17464,12 @@ const G_LOCAL_SUCCESSOR_WORK_ITEM_SHA256 =
   "069f59aac7da596b495f39baeee295c596bb42898fbf586458de11187465504c";
 const G_LOCAL_SUCCESSOR_BRANCH_SHA256 =
   "f265eb7548a0989c7263ba7907fcfa9ee0e730b3a62136d7779fd380782c53c3";
+const G_LOCAL_ADMITTED_DISPOSITION = "active";
+const G_LOCAL_ADMITTED_CLOSEOUT =
+  "Local G integration authorized and in progress; no remote lifecycle action.";
+const G_LOCAL_PRESERVATION_REVIEW_DISPOSITION = "preservation-review";
+const G_LOCAL_PRESERVATION_REVIEW_CLOSEOUT =
+  "No local commit for more than 7 days and remote-absent; preserved for manual review. Reactivation requires a fresh explicit owner transition. Nothing deleted.";
 const LATEST_MAIN_Q_SOURCE_TREE =
   "e77ec3ee42f050375c5d8530f5d4e76fd0b76d8b";
 const LATEST_MAIN_Q_SOURCE_PARENT =
@@ -18288,21 +18294,6 @@ function gLocalExactSuccessorHistorical(candidateRegistry, protectedRegistry) {
   return isDeepStrictEqual(historical, protectedRegistry) ? historical : null;
 }
 
-// The admitted G-local branch has no PR by contract. Its lastCommitAt stays
-// the real 2026-09-23 commit, so the seven-day gate would demand a
-// preservation-review disposition this heartbeat is not allowed to set.
-function admittedGLocalBranchKeepsFrozenCommitClock(branch) {
-  return Boolean(
-    branch?.name === G_LOCAL_SUCCESSOR_BRANCH &&
-      branch.disposition === "active" &&
-      branch.remotePresent === false &&
-      branch.pr == null &&
-      branch.lastCommitAt === "2026-09-23T16:14:18+08:00" &&
-      branch.baseSha === G_LOCAL_SUCCESSOR_SOURCE_COMMIT &&
-      branch.headSha === G_LOCAL_SUCCESSOR_SOURCE_COMMIT
-  );
-}
-
 function applyGLocalCurrentnessHeartbeat(exactRegistry) {
   const expected = latestMainQCurrentnessHeartbeatRegistry(exactRegistry);
   const gItem = expected.workItems.find(
@@ -18317,12 +18308,15 @@ function applyGLocalCurrentnessHeartbeat(exactRegistry) {
   Object.assign(gItem, {
     lastHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
+    disposition: G_LOCAL_PRESERVATION_REVIEW_DISPOSITION
   });
   Object.assign(gBranch, {
     lastOwnerHeartbeatAt: P_O_CURRENTNESS_RECORDED_AT,
     lastObservedAt: P_O_CURRENTNESS_RECORDED_AT,
-    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT
+    nextReviewAt: P_O_CURRENTNESS_NEXT_REVIEW_AT,
+    disposition: G_LOCAL_PRESERVATION_REVIEW_DISPOSITION,
+    closeout: G_LOCAL_PRESERVATION_REVIEW_CLOSEOUT
   });
   return expected;
 }
@@ -18378,9 +18372,12 @@ function gLocalHeartbeatSuccessorHistorical(candidateRegistry, protectedRegistry
   gItem.lastHeartbeatAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gItem.lastObservedAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gItem.nextReviewAt = G_LOCAL_ADMITTED_NEXT_REVIEW_AT;
+  gItem.disposition = G_LOCAL_ADMITTED_DISPOSITION;
   gBranch.lastOwnerHeartbeatAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gBranch.lastObservedAt = G_LOCAL_ADMITTED_RECORDED_AT;
   gBranch.nextReviewAt = G_LOCAL_ADMITTED_NEXT_REVIEW_AT;
+  gBranch.disposition = G_LOCAL_ADMITTED_DISPOSITION;
+  gBranch.closeout = G_LOCAL_ADMITTED_CLOSEOUT;
   const admitted = gLocalExactSuccessorHistorical(reverted, protectedRegistry);
   if (!admitted) return null;
   return isDeepStrictEqual(
@@ -18392,8 +18389,10 @@ function gLocalHeartbeatSuccessorHistorical(candidateRegistry, protectedRegistry
 // Project only the one reviewed G registration back to the immutable main
 // registry for historical shape checks. The full G registry is never passed to
 // Q's authorization-bearing transition function. A later heartbeat may advance
-// only the shared currentness clocks; allowed paths, SHAs, remote presence,
-// and authority stay on the admitted registration.
+// the shared currentness clocks and record the seven-day preservation-review
+// disposition and closeout. Those review fields revert before the admitted
+// registration hash is checked. Allowed paths, SHAs, remote presence, and
+// authority stay on the admitted registration.
 function gLocalIntegrationSuccessorHistoricalProjection(candidateRegistry, sourceRegistry) {
   try {
     if (
@@ -21475,8 +21474,7 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
     if (
       !branch.pr &&
       ageHours(branch.lastCommitAt) > 7 * 24 &&
-      !MANUAL_REVIEW_BRANCH_DISPOSITIONS.has(branch.disposition) &&
-      !admittedGLocalBranchKeepsFrozenCommitClock(branch)
+      !MANUAL_REVIEW_BRANCH_DISPOSITIONS.has(branch.disposition)
     ) {
       errors.push(`branch ${branch.name ?? "<unknown>"} is older than seven days without a PR and must enter manual preservation review`);
     }

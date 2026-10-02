@@ -7614,7 +7614,7 @@
       "noPrReason": "Owner authorized bounded local G integration, repairs and verification in this task; no commit, push, PR, merge or deployment authority.",
       "dirtyState": "isolated-local-integration-in-progress",
       "sensitivePaths": [],
-      "disposition": "active",
+      "disposition": "preservation-review",
       "freezeException": null,
       "evidenceState": {
         "local": "Owner authorized the proposed G scope plus three exact single-file test/browser fixes on 2026-09-23; frozen G source and old Q remain read-only.",
@@ -8965,8 +8965,8 @@
       "lastCommitAt": "2026-09-23T16:14:18+08:00",
       "nextReviewAt": "2026-10-04T01:55:00Z",
       "expectedCloseAt": "owner-gated:g-local-integration-verification",
-      "disposition": "active",
-      "closeout": "Local G integration authorized and in progress; no remote lifecycle action."
+      "disposition": "preservation-review",
+      "closeout": "No local commit for more than 7 days and remote-absent; preserved for manual review. Reactivation requires a fresh explicit owner transition. Nothing deleted."
     }
   ],
   "orphanWorktrees": [
