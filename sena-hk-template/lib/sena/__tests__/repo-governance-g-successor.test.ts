@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const projectRoot = resolve(process.cwd(), "..");
 const registryPath = join(projectRoot, "coordination", "repo-governance", "active-work.json");
@@ -50,7 +50,12 @@ describe("A01 protected G registration successor", () => {
     const rules: any = await governance();
     const protectedMain = protectedRegistry();
     const candidate = gSuccessorRegistry();
-    expect(rules.validateRegistry(protectedMain).errors).toEqual([]);
+    const frozenNow = vi.spyOn(Date, "now").mockReturnValue(Date.parse(protectedMain.updatedAt));
+    try {
+      expect(rules.validateRegistry(protectedMain).errors).toEqual([]);
+    } finally {
+      frozenNow.mockRestore();
+    }
     expect(candidate.workItems.filter((item: any) => item.taskId === gTaskId)).toHaveLength(1);
     expect(candidate.branches.filter((branch: any) => branch.name === gBranch)).toHaveLength(1);
     expect(rules.validateRegistry(candidate).errors).toEqual([]);
