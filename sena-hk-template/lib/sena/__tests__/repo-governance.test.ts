@@ -22035,7 +22035,23 @@ describe("latest-main Q convergence remediation", () => {
       historyRewriteAuthorized: false,
       bypassHooksAuthorized: false
     });
-    expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    const recordedClocks = [
+      ...candidate.workItems.flatMap((item: any) => [
+        item.createdAt, item.lastObservedAt, item.lastHeartbeatAt
+      ]),
+      ...candidate.branches.flatMap((branch: any) => [
+        branch.lastObservedAt, branch.lastOwnerHeartbeatAt
+      ])
+    ];
+    const frozenNow = Math.max(...recordedClocks
+      .map((value: unknown) => Date.parse(String(value)))
+      .filter((value: number) => Number.isFinite(value)));
+    const clock = vi.spyOn(Date, "now").mockReturnValue(frozenNow);
+    try {
+      expect(governance.validateRegistry(candidate).errors).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
 
     const activeTasks = candidate.workItems
       .filter((item: any) => ["active", "ready-for-pr"].includes(item.disposition))
