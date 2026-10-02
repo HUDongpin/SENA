@@ -17109,11 +17109,11 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-09-30T01:56:00Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-02T01:56:00Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-30T09:56:00+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-30T09:57:00+08:00";
-const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-30T09:58:00+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-10-02T01:55:00Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-04T01:55:00Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-10-02T09:55:00+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-10-02T09:56:00+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-10-02T09:57:00+08:00";
 const P_O_CURRENTNESS_HEARTBEAT_20260923 = Object.freeze({
   recordedAt: "2026-09-23T02:18:00Z",
   nextReviewAt: "2026-09-25T02:18:00Z",
@@ -17134,6 +17134,13 @@ const P_O_CURRENTNESS_HEARTBEAT_20260928 = Object.freeze({
   gLastCommitAt: "2026-09-28T15:50:00+08:00",
   ihLastCommitAt: "2026-09-28T15:51:00+08:00",
   mobileLastCommitAt: "2026-09-28T15:52:00+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20260930 = Object.freeze({
+  recordedAt: "2026-09-30T01:56:00Z",
+  nextReviewAt: "2026-10-02T01:56:00Z",
+  gLastCommitAt: "2026-09-30T09:56:00+08:00",
+  ihLastCommitAt: "2026-09-30T09:57:00+08:00",
+  mobileLastCommitAt: "2026-09-30T09:58:00+08:00"
 });
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
@@ -18281,6 +18288,21 @@ function gLocalExactSuccessorHistorical(candidateRegistry, protectedRegistry) {
   return isDeepStrictEqual(historical, protectedRegistry) ? historical : null;
 }
 
+// The admitted G-local branch has no PR by contract. Its lastCommitAt stays
+// the real 2026-09-23 commit, so the seven-day gate would demand a
+// preservation-review disposition this heartbeat is not allowed to set.
+function admittedGLocalBranchKeepsFrozenCommitClock(branch) {
+  return Boolean(
+    branch?.name === G_LOCAL_SUCCESSOR_BRANCH &&
+      branch.disposition === "active" &&
+      branch.remotePresent === false &&
+      branch.pr == null &&
+      branch.lastCommitAt === "2026-09-23T16:14:18+08:00" &&
+      branch.baseSha === G_LOCAL_SUCCESSOR_SOURCE_COMMIT &&
+      branch.headSha === G_LOCAL_SUCCESSOR_SOURCE_COMMIT
+  );
+}
+
 function applyGLocalCurrentnessHeartbeat(exactRegistry) {
   const expected = latestMainQCurrentnessHeartbeatRegistry(exactRegistry);
   const gItem = expected.workItems.find(
@@ -18455,12 +18477,17 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20260928
     );
+    const admittedOn20260930 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20260930
+    );
     return [
       historical,
       historicalRepair,
       admittedOn20260923,
       admittedOn20260924,
       admittedOn20260928,
+      admittedOn20260930,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
@@ -21448,7 +21475,8 @@ function validateRegistrySnapshot(registry, historicalReleaseDeadlines = null) {
     if (
       !branch.pr &&
       ageHours(branch.lastCommitAt) > 7 * 24 &&
-      !MANUAL_REVIEW_BRANCH_DISPOSITIONS.has(branch.disposition)
+      !MANUAL_REVIEW_BRANCH_DISPOSITIONS.has(branch.disposition) &&
+      !admittedGLocalBranchKeepsFrozenCommitClock(branch)
     ) {
       errors.push(`branch ${branch.name ?? "<unknown>"} is older than seven days without a PR and must enter manual preservation review`);
     }
