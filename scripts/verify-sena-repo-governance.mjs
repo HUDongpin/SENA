@@ -17109,11 +17109,11 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-10-02T08:51:54Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-04T08:51:54Z";
-const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-10-02T16:51:54+08:00";
-const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-10-02T16:52:54+08:00";
-const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-10-02T16:53:54+08:00";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-10-05T02:48:58Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-07T02:48:58Z";
+const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-08T02:29:37+08:00";
+const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-09T11:46:37+08:00";
+const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-07T16:28:51+08:00";
 const P_O_CURRENTNESS_HEARTBEAT_20260923 = Object.freeze({
   recordedAt: "2026-09-23T02:18:00Z",
   nextReviewAt: "2026-09-25T02:18:00Z",
@@ -17148,6 +17148,13 @@ const P_O_CURRENTNESS_HEARTBEAT_20261002 = Object.freeze({
   gLastCommitAt: "2026-10-02T09:55:00+08:00",
   ihLastCommitAt: "2026-10-02T09:56:00+08:00",
   mobileLastCommitAt: "2026-10-02T09:57:00+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20261002T0851 = Object.freeze({
+  recordedAt: "2026-10-02T08:51:54Z",
+  nextReviewAt: "2026-10-04T08:51:54Z",
+  gLastCommitAt: "2026-10-02T16:51:54+08:00",
+  ihLastCommitAt: "2026-10-02T16:52:54+08:00",
+  mobileLastCommitAt: "2026-10-02T16:53:54+08:00"
 });
 const P_O_FAILED_PRE_PUSH_ERRORS = Object.freeze([
   "mobile pilot merged checkout lacks exact live release-verification custody",
@@ -18491,6 +18498,10 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20261002
     );
+    const admittedOn20261002T0851 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20261002T0851
+    );
     return [
       historical,
       historicalRepair,
@@ -18499,6 +18510,7 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       admittedOn20260928,
       admittedOn20260930,
       admittedOn20261002,
+      admittedOn20261002T0851,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
