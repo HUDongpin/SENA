@@ -17109,8 +17109,8 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-10-08T01:21:51Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-10T01:21:51Z";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-10-11T04:25:06Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-13T04:25:06Z";
 const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-08T02:29:37+08:00";
 const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-09T11:46:37+08:00";
 const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-07T16:28:51+08:00";
@@ -17159,6 +17159,13 @@ const P_O_CURRENTNESS_HEARTBEAT_20261002T0851 = Object.freeze({
 const P_O_CURRENTNESS_HEARTBEAT_20261005 = Object.freeze({
   recordedAt: "2026-10-05T02:48:58Z",
   nextReviewAt: "2026-10-07T02:48:58Z",
+  gLastCommitAt: "2026-09-08T02:29:37+08:00",
+  ihLastCommitAt: "2026-09-09T11:46:37+08:00",
+  mobileLastCommitAt: "2026-09-07T16:28:51+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20261008 = Object.freeze({
+  recordedAt: "2026-10-08T01:21:51Z",
+  nextReviewAt: "2026-10-10T01:21:51Z",
   gLastCommitAt: "2026-09-08T02:29:37+08:00",
   ihLastCommitAt: "2026-09-09T11:46:37+08:00",
   mobileLastCommitAt: "2026-09-07T16:28:51+08:00"
@@ -18513,6 +18520,10 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20261005
     );
+    const admittedOn20261008 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20261008
+    );
     return [
       historical,
       historicalRepair,
@@ -18523,6 +18534,7 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       admittedOn20261002,
       admittedOn20261002T0851,
       admittedOn20261005,
+      admittedOn20261008,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
