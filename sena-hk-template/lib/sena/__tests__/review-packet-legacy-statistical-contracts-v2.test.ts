@@ -163,6 +163,73 @@ describe("review-packet statistical contract compatibility", () => {
     );
   });
 
+  it("re-imports a saved normalized sealed v1 packet from its recorded origin", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(source)));
+    const saved = JSON.parse(JSON.stringify(imported)) as ReturnType<typeof buildSenaReviewPacket>;
+    const href = "/sena-pilot/templates/ai_agent_runs.csv";
+
+    expect(saved.contents.pilotPackageManifest.sealedPilotAssetOrigin).toEqual({
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    });
+    expect(saved.contents.pilotPackageManifest.assets).toEqual(source.contents.pilotPackageManifest.assets);
+    expect(saved.contents.pilotPackageManifest.assetIntegrity).toEqual(
+      source.contents.pilotPackageManifest.assetIntegrity
+    );
+    expect(saved.contents.pilotPackageManifest.assets.templates).not.toContain(href);
+    expect(saved.contents.pilotPackageManifest.exportArtifactSchemas["sena-fusion-math-audit.json"])
+      .toBe("sena-fusion-math-audit/v2");
+    expect(saved.contents.pilotPackageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"])
+      .toBe("sena-coding-reliability-gate/v2");
+
+    expect(importSenaReviewPacket(saved)).toEqual(imported);
+    expect(isSenaReviewPacket(saved)).toBe(true);
+
+    delete saved.contents.pilotPackageManifest.sealedPilotAssetOrigin;
+    expect(() => importSenaReviewPacket(saved)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+  });
+
+  it("round-trips a current review packet unchanged", () => {
+    const packet = readyCurrentV2ReviewPacket();
+    const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(packet)));
+    expect(imported).toEqual(packet);
+    expect(imported.contents.pilotPackageManifest.sealedPilotAssetOrigin).toBeUndefined();
+
+    const saved = JSON.parse(JSON.stringify(imported)) as ReturnType<typeof buildSenaReviewPacket>;
+    expect(importSenaReviewPacket(saved)).toEqual(packet);
+    expect(isSenaReviewPacket(saved)).toBe(true);
+  });
+
+  it("does not let a current packet relabelled as sealed-v1 omit the ADR-0013 template", () => {
+    const href = "/sena-pilot/templates/ai_agent_runs.csv";
+    const current = readyCurrentV2ReviewPacket();
+    current.contents.pilotPackageManifest.assets.templates =
+      current.contents.pilotPackageManifest.assets.templates.filter((template) => template !== href);
+    current.contents.pilotPackageManifest.assetIntegrity =
+      current.contents.pilotPackageManifest.assetIntegrity.filter((asset) => asset.href !== href);
+    current.contents.pilotPackageManifest.sealedPilotAssetOrigin = {
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    };
+
+    expect(() => importSenaReviewPacket(current)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+
+    for (const leaf of statisticalLeaves(current)) {
+      leaf.fusionMathAudit.schemaVersion = "sena-fusion-math-audit/v1" as never;
+      leaf.fusionMathAudit.sourceSchemaVersion = "sena-fusion-math-audit/v1";
+      leaf.codingReliabilityGate.schemaVersion = "sena-coding-reliability-gate/v1" as never;
+      leaf.codingReliabilityGate.sourceSchemaVersion = "sena-coding-reliability-gate/v1";
+    }
+    expect(() => importSenaReviewPacket(current)).toThrow(
+      /canonical pilot-package mapping|fusion math audit|coding reliability gate/
+    );
+  });
+
   it("normalizes genuine 14bb306 fusion-audit v1 leaves without treating nonnegative evidence as proven", () => {
     const { packet, auditV1 } = packetWithGenuine14bb306StatisticalLeaves();
     expect((auditV1.items as JsonRecord[]).map((item) => item.id)).toEqual([
