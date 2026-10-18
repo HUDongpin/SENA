@@ -123,7 +123,7 @@ The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: Dongpin.
 
-No preview environment variables exist. Add preview-scoped config so the target commit can be previewed before production.
+No preview environment variables exist. Add preview-scoped config so the target commit can be previewed before production. Name plan: `docs/runbooks/www-sena-hk-g5-preview-env.md`.
 
 Run this gate before the preview deploy. Add the preview-scoped database, storage, and ops variables and save them first. Vercel applies environment changes on the next deployment. A preview created before those variables exist is not G4 or G6 evidence. After any later change to preview variables, run the G2 dirty-worktree refusal again, deploy a new preview, and rerun G4 and G6 on that new deployment.
 
