@@ -16,9 +16,11 @@ Target commit: current main at the time of the redeploy.
 
 ## G2. Git provenance
 
-Do this first. Dongpin chooses A or B.
+Dongpin chose option B on 2026-10-18 at 21:34 HKT. CLI deploys continue, and each deploy records its commit. Option A, the git link, is not chosen.
 
 ### A. Link the project to git
+
+Option A is not chosen.
 
 Link Vercel project `sena-hk` to `HUDongpin/SENA`. Set the root directory to `sena-hk-template`. That directory contains the Next app and `vercel.json`. Deploy from main, so every deploy records its commit.
 
@@ -26,19 +28,29 @@ Leave automatic assignment of the production domain off. Promoting `www.sena.hk`
 
 ### B. Keep CLI deploys and record the commit
 
-Keep CLI deploys. Store the commit on the deployment:
+Check out the target commit in a clean git worktree before every deploy. Confirm that `git status` shows a clean worktree.
+
+Deploy a preview first:
 
 ```bash
-vercel deploy --prod --meta gitCommitSha=$(git rev-parse HEAD)
+vercel deploy --meta gitCommitSha=$(git rev-parse HEAD)
 ```
 
-`--prod` promotes. Do not use it before G8. Put the same `--meta gitCommitSha=$(git rev-parse HEAD)` on the preview deploy.
+Use `--prod` on that command only after Dongpin and the CTO sign off at G8.
 
-### Recommendation
+After each deploy, run:
 
-Choose A. A git link makes drift measurable and rollback auditable. Keep auto-promotion off, so production promotion stays manual.
+```bash
+vercel inspect <deployment-url>
+```
+
+Confirm that the `gitCommitSha` meta equals the target commit. Record the deployment id and the commit sha.
+
+Auto-promotion stays off. The rollback target stays `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`.
 
 ## G3. Production environment
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: Dongpin.
 
@@ -68,6 +80,8 @@ npm run sena:vercel:preflight
 The script name is `sena:vercel:preflight` in `sena-hk-template/package.json` line 53. It runs `scripts/verify-sena-vercel-production.ts`.
 
 ## G4. Commit-bound evidence
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: code and Dongpin.
 
@@ -117,6 +131,8 @@ Those commands call the same probe functions as the ops routes. They use the env
 
 ## G5. Preview environment
 
+The G2 decision unblocks this gate. The production redeploy remains held.
+
 Owner: Dongpin.
 
 No preview environment variables exist. Add preview-scoped config so the target commit can be previewed before production.
@@ -130,6 +146,8 @@ vercel env ls preview
 Use the same full-list rule as G3. A list that stops at 100 entries is incomplete.
 
 ## G6. File writes, Postgres, and Blob
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: code and Dongpin.
 
@@ -149,6 +167,8 @@ Also read, on the preview:
 These routes require ops access. `SENA_OPS_TOKEN` is the bearer (`sena-hk-template/lib/sena/enterprise/ops-status.ts` lines 178-187).
 
 ## G7. Enterprise tests
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: code.
 
