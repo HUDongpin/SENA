@@ -150,7 +150,7 @@ The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: Dongpin.
 
-No preview environment variables exist. Add preview-scoped config so the target commit can be previewed before production.
+No preview environment variables exist. Add preview-scoped config so the target commit can be previewed before production. Name plan: `docs/runbooks/www-sena-hk-g5-preview-env.md`.
 
 Confirm with a complete list:
 
