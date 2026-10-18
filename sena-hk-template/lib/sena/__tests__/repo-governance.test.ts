@@ -2378,6 +2378,41 @@ describe("SENA repository governance", () => {
     expect(result.stdout).toContain(`activeWriters=${activeWriterCount}`);
   });
 
+  it("rejects an expired active heartbeat identically locally and under portable CI reconstruction", () => {
+    const registry = JSON.parse(
+      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
+    );
+    const activeWriters = registry.workItems.filter((item: { disposition?: string }) =>
+      item.disposition === "active" || item.disposition === "ready-for-pr"
+    );
+    expect(activeWriters.length).toBeGreaterThan(0);
+    for (const item of activeWriters) {
+      item.lastHeartbeatAt = "2020-01-01T00:00:00Z";
+    }
+    const registryPath = join(temporaryRoot("portable-registry-rule"), "active-work.json");
+    writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
+    const portableCiIdentity = {
+      CI: "true",
+      GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "HUDongpin/SENA",
+      GITHUB_EVENT_NAME: "pull_request"
+    };
+    const local = runNode(governanceScript, ["registry", "--registry", registryPath]);
+    const ci = runNode(governanceScript, ["registry", "--registry", registryPath], {
+      env: portableCiIdentity
+    });
+    expect(local.status).toBe(1);
+    expect(ci.status).toBe(1);
+    expect(ci.stdout).toBe(local.stdout);
+    expect(ci.stderr).toBe(local.stderr);
+    expect(local.stdout).not.toContain("SENA_REPO_REGISTRY pass");
+    for (const item of activeWriters) {
+      expect(local.stderr).toContain(
+        `SENA_REPO_REGISTRY error=active workItem ${item.taskId} has no heartbeat for more than 72 hours and must be frozen`
+      );
+    }
+  });
+
   it("derives the isolated control root from the common git directory of a linked worktree", () => {
     const primary = temporaryRoot("linked-control-primary");
     runGit(primary, ["init", "-q"]);
