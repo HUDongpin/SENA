@@ -108,6 +108,8 @@ No preview environment variables exist. Add preview-scoped config so the target 
 
 Run this gate before the preview deploy. Add the preview-scoped database, storage, and ops variables and save them first. Vercel applies environment changes on the next deployment. A preview created before those variables exist is not G4 or G6 evidence. After any later change to preview variables, run the G2 dirty-worktree refusal again, deploy a new preview, and rerun G4 and G6 on that new deployment.
 
+Isolate preview data in this gate before the conference-load rehearsal. The preview deploy uses its own Neon branch, its own Blob store, and preview secrets. The 50-user, 1800-second load runs only against that preview deploy, and only after this isolation. It does not run against `www.sena.hk` or production data.
+
 Confirm with a complete list:
 
 ```bash
@@ -177,22 +179,89 @@ Leave those keys to the binder (`ops-productionization.ts` lines 444-448). The b
 
 ### Conference-load rehearsal
 
-Production posture requires `conference-load-rehearsal`: a passed `npm run sena:conference:load-check` for at least 50 users and 1800 seconds. Run that rehearsal against the preview of the target commit. Write a named artifact. Bind that artifact's complete tuple before G8. Discard a rehearsal taken from `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC` or from any other deployment.
+Production posture requires `conference-load-rehearsal`: a passed `npm run sena:conference:load-check` for at least 50 users and 1800 seconds. Run that rehearsal only against the preview deploy of the target commit, and only after G5 has isolated preview data: its own Neon branch, its own Blob store, and preview secrets. Write a named artifact. Bind that artifact's complete tuple before G8 only when the run stays inside the abort budget. Discard a rehearsal taken from `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`, from `www.sena.hk`, or from any production database, Blob store, or secret.
+
+The load target is the preview host. `www.sena.hk` and any production host are refused. Set `SENA_PREVIEW_DATA_ISOLATED=1` only after G5 isolation is true for the deployment under test. The abort budget is the checker default: error rate above 1 percent (`SENA_LOAD_MAX_ERROR_RATE_PERCENT=1`) or p95 latency above 2000 ms (`SENA_LOAD_MAX_P95_MS=2000`). Crossing either budget aborts the rehearsal. Do not bind an aborted run. Do not repeat this rehearsal against `www.sena.hk` after promotion.
+
+Run this block as one shell script from `sena-hk-template`:
 
 ```bash
+set -e
+PREVIEW_URL="https://<preview-host>"
+PREVIEW_DEPLOYMENT_ID="<preview-deployment-id>"
+if [ "$SENA_PREVIEW_DATA_ISOLATED" != "1" ]; then
+  echo "refuse: G5 preview data is not isolated (Neon branch, Blob store, secrets)" >&2
+  exit 1
+fi
+target_lc="$(printf '%s' "$PREVIEW_URL" | tr '[:upper:]' '[:lower:]')"
+preview_host="$(printf '%s' "$target_lc" | awk -F/ '{print $3}' | cut -d: -f1)"
+case "$preview_host" in
+  www.sena.hk|sena.hk|*production*)
+    echo "refuse: conference load target host is ${preview_host}" >&2
+    exit 1
+    ;;
+esac
+if [ -z "$preview_host" ]; then
+  echo "refuse: conference load target host is empty" >&2
+  exit 1
+fi
+mkdir -p output/production-evidence
+log=output/production-evidence/conference-load-rehearsal.log
+set +e
 SENA_LOAD_REQUIRE_PRODUCTION_TARGET=1 \
-SENA_LOAD_TARGET_URL=https://<preview-host> \
+SENA_LOAD_TARGET_URL="$PREVIEW_URL" \
 SENA_LOAD_TARGET_USERS=50 \
 SENA_LOAD_CONCURRENCY=50 \
 SENA_LOAD_RAMP_SECONDS=120 \
 SENA_LOAD_DURATION_SECONDS=1800 \
 SENA_LOAD_THINK_TIME_MS=1000 \
-npm run sena:conference:load-check -- --output output/production-evidence/conference-load-rehearsal.json
-npm run sena:production-evidence:bind -- --artifact output/production-evidence/conference-load-rehearsal.json --target-url https://<preview-host>
-npm run sena:production-evidence:bind -- --artifact output/production-evidence/conference-load-rehearsal.json --target-url https://<preview-host> --yes
+SENA_LOAD_MAX_ERROR_RATE_PERCENT=1 \
+SENA_LOAD_MAX_P95_MS=2000 \
+npm run sena:conference:load-check -- --output output/production-evidence/conference-load-rehearsal.json \
+  >"$log" 2>&1
+load_status=$?
+set -e
+error_rate="$(awk -F= '/^conferenceLoadRehearsalErrorRatePercent=/ {print $2}' "$log" | tail -n 1)"
+p95_ms="$(awk -F= '/^conferenceLoadRehearsalP95Ms=/ {print $2}' "$log" | tail -n 1)"
+sustain_error_rate="$(awk -F= '/^conferenceLoadRehearsalSustainErrorRatePercent=/ {print $2}' "$log" | tail -n 1)"
+sustain_p95_ms="$(awk -F= '/^conferenceLoadRehearsalSustainP95Ms=/ {print $2}' "$log" | tail -n 1)"
+abort_reason=""
+if [ "$load_status" -ne 0 ]; then
+  abort_reason="checker-exit-${load_status}"
+fi
+awk -v rate="$error_rate" 'BEGIN { if (rate == "" || rate+0 > 1) exit 0; exit 1 }' && abort_reason="${abort_reason:+$abort_reason,}error-rate"
+awk -v p95="$p95_ms" 'BEGIN { if (p95 == "" || p95+0 > 2000) exit 0; exit 1 }' && abort_reason="${abort_reason:+$abort_reason,}p95-latency"
+if [ -n "$abort_reason" ]; then
+  abort_file=output/production-evidence/conference-load-rehearsal-abort.txt
+  {
+    echo "abortedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    echo "reason=${abort_reason}"
+    echo "previewDeploymentId=${PREVIEW_DEPLOYMENT_ID}"
+    echo "targetHost=${preview_host}"
+    echo "users=50"
+    echo "durationSeconds=1800"
+    echo "errorRatePercent=${error_rate:-missing}"
+    echo "p95Ms=${p95_ms:-missing}"
+    echo "sustainErrorRatePercent=${sustain_error_rate:-missing}"
+    echo "sustainP95Ms=${sustain_p95_ms:-missing}"
+    echo "checkerExit=${load_status}"
+    echo "artifact=output/production-evidence/conference-load-rehearsal.json"
+    echo "log=${log}"
+    echo "binderRan=false"
+    echo "productionTargetRefused=true"
+  } >"$abort_file"
+  echo "abort: conference load ${abort_reason}; recorded ${abort_file}" >&2
+  exit 1
+fi
+npm run sena:production-evidence:bind -- --artifact output/production-evidence/conference-load-rehearsal.json --target-url "$PREVIEW_URL"
+npm run sena:production-evidence:bind -- --artifact output/production-evidence/conference-load-rehearsal.json --target-url "$PREVIEW_URL" --yes
 ```
 
-`--target-url` is the same preview origin the rehearsal measured. The binder compares the artifact origin hash to that URL. The dry run names this file. The `--yes` run writes the complete tuple:
+`exit 1` from the host guard stops the script before `sena:conference:load-check`. A host of `www.sena.hk`, `sena.hk`, or a host containing `production` is a refusal. An empty host is a refusal. The same refusal applies when G5 isolation is not set.
+
+An abort also stops the script before the binder. Record `output/production-evidence/conference-load-rehearsal-abort.txt` with the UTC time, reason (`error-rate`, `p95-latency`, or the checker exit), preview deployment id, target host, users, duration, error rate, p95, sustain error rate, sustain p95, checker exit status, artifact path, log path, `binderRan=false`, and `productionTargetRefused=true`. Keep the log and the artifact JSON beside that file. If the process is stopped early because the preview is already above 1 percent errors or 2000 ms p95, write the same abort file with `abortedEarly=true` and the samples observed so far. Leave the binder unrun.
+
+When the checker exits 0 and both budgets hold, `--target-url` is that same preview origin. The binder compares the artifact origin hash to that URL. The dry run names this file. The `--yes` run writes the complete tuple:
 
 - `SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED`
 - `SENA_CONFERENCE_LOAD_REHEARSAL_ARTIFACT_SHA256`
