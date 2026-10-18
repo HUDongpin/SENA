@@ -84,6 +84,7 @@ export type SenaReviewPacketImportOptions = {
 };
 
 const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifest;
+const historicalV1PilotTemplateHref = "/sena-pilot/templates/ai_agent_runs.csv";
 
 const artifactManifest = listSenaReviewPacketArtifacts();
 
@@ -1061,6 +1062,19 @@ function assertSenaPilotPackageManifest(
     SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotReviewGuardrails
   );
   const expectedExportArtifactSchemas = structuredClone(pilotPackageManifest.exportArtifactSchemas);
+  const expectedAssets = allowHistoricalV1StatisticalSchemas
+    ? {
+        sample: pilotPackageManifest.assets.sample,
+        templates: pilotPackageManifest.assets.templates.filter(
+          (href) => href !== historicalV1PilotTemplateHref
+        )
+      }
+    : pilotPackageManifest.assets;
+  const expectedAssetIntegrity = allowHistoricalV1StatisticalSchemas
+    ? pilotPackageManifest.assetIntegrity.filter(
+        (asset) => asset.href !== historicalV1PilotTemplateHref
+      )
+    : pilotPackageManifest.assetIntegrity;
   if (allowHistoricalV1StatisticalSchemas) {
     expectedExportArtifactSchemas["sena-fusion-math-audit.json"] =
       SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
@@ -1070,8 +1084,8 @@ function assertSenaPilotPackageManifest(
   const canonicalMappings: Array<[unknown, unknown, string]> = [
     [root.exportArtifacts, pilotPackageManifest.exportArtifacts, "exportArtifacts"],
     [root.exportArtifactSchemas, expectedExportArtifactSchemas, "exportArtifactSchemas"],
-    [root.assets, pilotPackageManifest.assets, "assets"],
-    [root.assetIntegrity, pilotPackageManifest.assetIntegrity, "assetIntegrity"],
+    [root.assets, expectedAssets, "assets"],
+    [root.assetIntegrity, expectedAssetIntegrity, "assetIntegrity"],
     [root.handoffChecks, pilotPackageManifest.handoffChecks, "handoffChecks"]
   ];
   const mismatch = canonicalMappings.find(([actual, expected]) =>
@@ -1852,6 +1866,7 @@ function assertSenaReviewPacket(value: unknown): void {
     // The pilot-manifest mapping exception is available only after both
     // explicitly tagged legacy leaves prove they are genuine supported v1
     // contracts. Relabelled current wrappers never reach that exception.
+    // Those sealed packets predate the ADR-0013 ai_agent_runs template.
     normalizeSenaFusionMathAudit(
       contents.fusionMathAudit,
       reviewPacketFusionEvidence(contents, "review packet.contents")

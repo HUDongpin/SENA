@@ -114,6 +114,30 @@ function currentNeedsReviewFusionPacket() {
 }
 
 describe("review-packet statistical contract compatibility", () => {
+  it("keeps the sealed 14bb306 pilot asset inventory and still requires the ADR-0013 template on current packets", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const sealedAssets = structuredClone(source.contents.pilotPackageManifest.assets);
+    const sealedIntegrity = structuredClone(source.contents.pilotPackageManifest.assetIntegrity);
+    const imported = importSenaReviewPacket(source) as ReturnType<typeof buildSenaReviewPacket>;
+
+    expect(sealedAssets.templates).not.toContain("/sena-pilot/templates/ai_agent_runs.csv");
+    expect(imported.contents.pilotPackageManifest.assets).toEqual(sealedAssets);
+    expect(imported.contents.pilotPackageManifest.assetIntegrity).toEqual(sealedIntegrity);
+
+    const current = readyCurrentV2ReviewPacket();
+    current.contents.pilotPackageManifest.assets.templates =
+      current.contents.pilotPackageManifest.assets.templates.filter(
+        (href) => href !== "/sena-pilot/templates/ai_agent_runs.csv"
+      );
+    current.contents.pilotPackageManifest.assetIntegrity =
+      current.contents.pilotPackageManifest.assetIntegrity.filter(
+        (asset) => asset.href !== "/sena-pilot/templates/ai_agent_runs.csv"
+      );
+    expect(() => importSenaReviewPacket(current)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+  });
+
   it("normalizes genuine 14bb306 fusion-audit v1 leaves without treating nonnegative evidence as proven", () => {
     const { packet, auditV1 } = packetWithGenuine14bb306StatisticalLeaves();
     expect((auditV1.items as JsonRecord[]).map((item) => item.id)).toEqual([
