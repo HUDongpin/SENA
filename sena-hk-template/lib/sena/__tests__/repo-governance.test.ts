@@ -2378,7 +2378,12 @@ describe("SENA repository governance", () => {
     expect(result.stdout).toContain(`activeWriters=${activeWriterCount}`);
   });
 
-  it("rejects an expired active heartbeat identically locally and under portable CI reconstruction", () => {
+  it("rejects an expired active heartbeat identically on reconstruction and the physical path", () => {
+    const verifierSource = readFileSync(governanceScript, "utf8");
+    const stagedTree = verifierSource.match(/const I_H_SOURCE_STAGED_TREE = "([0-9a-f]{40})"/)?.[1];
+    const reconstructionCommit = verifierSource.match(/const K_I_SOURCE_COMMIT = "([0-9a-f]{40})"/)?.[1];
+    expect(stagedTree).toMatch(/^[0-9a-f]{40}$/);
+    expect(reconstructionCommit).toMatch(/^[0-9a-f]{40}$/);
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
@@ -2391,23 +2396,53 @@ describe("SENA repository governance", () => {
     }
     const registryPath = join(temporaryRoot("portable-registry-rule"), "active-work.json");
     writeFileSync(registryPath, `${JSON.stringify(registry, null, 2)}\n`);
-    const portableCiIdentity = {
-      CI: "true",
-      GITHUB_ACTIONS: "true",
-      GITHUB_REPOSITORY: "HUDongpin/SENA",
-      GITHUB_EVENT_NAME: "pull_request"
-    };
-    const local = runNode(governanceScript, ["registry", "--registry", registryPath]);
-    const ci = runNode(governanceScript, ["registry", "--registry", registryPath], {
-      env: portableCiIdentity
+    const stripped = temporaryRoot("ih-reconstruction-checkout");
+    runGit(projectRoot, [
+      "clone", "--no-local", "--single-branch", "--no-tags",
+      projectRoot, stripped
+    ]);
+    const strippedRoot = realpathSync(stripped);
+    const missingTree = spawnSync("git", ["cat-file", "-e", `${stagedTree}^{tree}`], {
+      cwd: strippedRoot,
+      encoding: "utf8",
+      env: { ...process.env, GIT_NO_LAZY_FETCH: "1" }
     });
-    expect(local.status).toBe(1);
-    expect(ci.status).toBe(1);
-    expect(ci.stdout).toBe(local.stdout);
-    expect(ci.stderr).toBe(local.stderr);
-    expect(local.stdout).not.toContain("SENA_REPO_REGISTRY pass");
+    expect(missingTree.status).not.toBe(0);
+    expect(runGit(strippedRoot, ["cat-file", "-t", reconstructionCommit!])).toBe("commit");
+    const physicalTree = spawnSync("git", ["cat-file", "-e", `${stagedTree}^{tree}`], {
+      cwd: projectRoot,
+      encoding: "utf8",
+      env: { ...process.env, GIT_NO_LAZY_FETCH: "1" }
+    });
+    const registryErrorLines = (stderr: string | null | undefined) =>
+      (stderr ?? "").split("\n").filter((line) => line.startsWith("SENA_REPO_REGISTRY error="));
+    const reconstructed = runNode(governanceScript, ["registry", "--registry", registryPath], {
+      cwd: strippedRoot,
+      env: {
+        CI: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_REPOSITORY: "HUDongpin/SENA",
+        GITHUB_EVENT_NAME: "pull_request",
+        SENA_GOVERNANCE_TARGET_ROOT: strippedRoot
+      }
+    });
+    const physical = runNode(governanceScript, ["registry", "--registry", registryPath], {
+      cwd: projectRoot
+    });
+    expect(reconstructed.status).toBe(1);
+    expect(physical.status).toBe(1);
+    expect(reconstructed.stderr ?? "").toContain("SENA_REPO_REGISTRY h-source=reconstructed");
+    expect(reconstructed.stderr ?? "").not.toContain("SENA_REPO_REGISTRY h-source=physical");
+    if (physicalTree.status === 0) {
+      expect(physical.stderr ?? "").toContain("SENA_REPO_REGISTRY h-source=physical");
+    } else {
+      expect(physical.stderr ?? "").not.toContain("SENA_REPO_REGISTRY h-source=");
+    }
+    expect(registryErrorLines(reconstructed.stderr)).toEqual(registryErrorLines(physical.stderr));
+    expect(reconstructed.stdout).toBe(physical.stdout);
+    expect(reconstructed.stdout).not.toContain("SENA_REPO_REGISTRY pass");
     for (const item of activeWriters) {
-      expect(local.stderr).toContain(
+      expect(registryErrorLines(reconstructed.stderr)).toContain(
         `SENA_REPO_REGISTRY error=active workItem ${item.taskId} has no heartbeat for more than 72 hours and must be frozen`
       );
     }

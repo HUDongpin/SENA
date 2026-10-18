@@ -14289,6 +14289,9 @@ function jHEvidenceCustodyPhysicalAllowed(
 }
 
 let iHSourceCache = null;
+function noteIHDedicatedLandingSourceResolution(mode) {
+  process.stderr.write(`SENA_REPO_REGISTRY h-source=${mode}\n`);
+}
 function iHDedicatedLandingPortableSourceReconstructionAllowed() {
   try {
     if (
@@ -14345,6 +14348,7 @@ function iHDedicatedLandingSource() {
         throw new Error("rule=i-h-dedicated-landing-source-invalid");
       }
       iHSourceCache = expected;
+      noteIHDedicatedLandingSourceResolution("reconstructed");
       return protectedActivationNativeStructuredClone(iHSourceCache);
     }
     for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
@@ -14368,6 +14372,7 @@ function iHDedicatedLandingSource() {
       throw new Error("rule=i-h-dedicated-landing-source-invalid");
     }
     iHSourceCache = source;
+    noteIHDedicatedLandingSourceResolution("physical");
   }
   return protectedActivationNativeStructuredClone(iHSourceCache);
 }
@@ -14568,6 +14573,16 @@ export function jHEvidenceCustodyReconstructionAllowed(
 }
 
 export function iHDedicatedLandingHistoricalProjection(registry) {
+  // Resolve the H source before a later projection throw. An expired heartbeat
+  // fails the Q snapshot first, and that used to skip the branch CI actually
+  // takes when the local-only tree is absent.
+  if (
+    protectedMainAdvanceObjectSha(`${I_H_SOURCE_STAGED_TREE}^{tree}`) ===
+      I_H_SOURCE_STAGED_TREE ||
+    iHDedicatedLandingPortableSourceReconstructionAllowed()
+  ) {
+    iHDedicatedLandingSource();
+  }
   const latestMainQProjection = Boolean(
     registry?.qLatestMainConvergenceRemediation &&
       latestMainQConvergenceRemediationStructurallyAllowed(
