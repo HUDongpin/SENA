@@ -42,21 +42,31 @@ const projectRoot = checkoutRepositoryRoot();
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
 const tempRoots: string[] = [];
 
-function gitCommandSucceeds(args: string[], cwd = projectRoot) {
-  return spawnSync("git", args, {
-    cwd,
+function gitRevisionPresent(revision: string) {
+  const result = spawnSync("git", ["rev-parse", "--verify", "--end-of-options", revision], {
+    cwd: projectRoot,
     encoding: "utf8",
     env: { ...process.env, GIT_NO_LAZY_FETCH: "1" }
-  }).status === 0;
+  });
+  if (result.error) {
+    throw new Error(`git rev-parse --verify ${revision} could not start: ${result.error.message}`);
+  }
+  if (result.status === 0) return true;
+  const stderr = result.stderr ?? "";
+  const missingRevision = result.status === 1 || result.status === 128;
+  const missingMessage = stderr.length === 0 ||
+    /not a valid object name|needed a single revision|ambiguous argument|unknown revision|bad revision|bad object|could not get object info|exists on disk, but not in/i.test(stderr);
+  if (missingRevision && missingMessage) return false;
+  throw new Error(`git rev-parse --verify ${revision} failed: ${stderr || `status ${result.status}`}`);
 }
 
 function checkoutObjectPresent(object: string) {
-  return gitCommandSucceeds(["cat-file", "-e", object]);
+  return gitRevisionPresent(object);
 }
 
 function checkoutBranchRef(branch: string) {
   for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
-    if (gitCommandSucceeds(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])) return ref;
+    if (gitRevisionPresent(`${ref}^{commit}`)) return ref;
   }
   return null;
 }
