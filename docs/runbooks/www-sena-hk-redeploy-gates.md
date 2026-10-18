@@ -36,7 +36,22 @@ Deploy a preview first:
 vercel deploy --meta gitCommitSha=$(git rev-parse HEAD)
 ```
 
-Use `--prod` on that command only after Dongpin and the CTO sign off at G8.
+Use `--prod` on that command only after Dongpin and the CTO sign off at G8. Keep this rollback command in the runbook before any `--prod` deploy.
+
+```bash
+vercel rollback dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC --scope <team>
+```
+
+Replace `<team>` with the Vercel team scope. `vercel rollback` points production at `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC` without a new build. On the Hobby plan, `vercel rollback` accepts only the immediately previous production deployment.
+
+After rollback, run:
+
+```bash
+vercel rollback status --scope <team>
+vercel inspect https://www.sena.hk --scope <team>
+```
+
+Confirm that the rollback completed. Confirm that `vercel inspect` reports deployment id `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Record that deployment id.
 
 After each deploy, run:
 
@@ -184,4 +199,19 @@ npm test
 
 Owner: Dongpin and the CTO.
 
-Both agree before `www.sena.hk` moves. Until that agreement, the rollback target remains `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`.
+Both agree before `www.sena.hk` moves. Until that agreement, the rollback target remains `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Keep this rollback command in the runbook before any `--prod` deploy.
+
+```bash
+vercel rollback dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC --scope <team>
+```
+
+Replace `<team>` with the Vercel team scope. `vercel rollback` points production at `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC` without a new build. On the Hobby plan, `vercel rollback` accepts only the immediately previous production deployment.
+
+After rollback, run:
+
+```bash
+vercel rollback status --scope <team>
+vercel inspect https://www.sena.hk --scope <team>
+```
+
+Confirm that the rollback completed. Confirm that `vercel inspect` reports deployment id `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Record that deployment id.
