@@ -301,6 +301,27 @@ function gitDerivedControlRoot() {
   );
 }
 
+function primaryCheckoutControlRoot() {
+  const commonDirectory = realpathSync(resolve(
+    SCRIPT_REPO_ROOT,
+    gitText(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        cwd: SCRIPT_REPO_ROOT,
+        unsetEnv: [
+          "GIT_DIR",
+          "GIT_WORK_TREE",
+          "GIT_COMMON_DIR",
+          "GIT_INDEX_FILE",
+          "GIT_OBJECT_DIRECTORY",
+          "GIT_ALTERNATE_OBJECT_DIRECTORIES"
+        ]
+      }
+    ).trim()
+  ));
+  return realpathSync(dirname(commonDirectory));
+}
+
 function resolveCanonicalRegistryRepositoryRoot() {
   const recorded = JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo;
   if (typeof recorded !== "string" || recorded.length === 0) {
@@ -315,7 +336,10 @@ function resolveCanonicalRegistryRepositoryRoot() {
   if (recordedResolution.errorCode !== "ENOENT") {
     throw new Error("rule=isolated-governance-control-root-context-invalid");
   }
-  return realpathSync(resolve(gitText(["rev-parse", "--show-toplevel"]).trim()));
+  // A linked worktree's --show-toplevel has a .git pointer file. Git's
+  // alternate object directory is <primary>/.git/objects, so the control
+  // root is the parent of the common git directory.
+  return primaryCheckoutControlRoot();
 }
 
 export function validateIsolatedGovernanceControlRootContext(context) {

@@ -82,6 +82,29 @@ function recordedRegistryRepositoryRoot() {
   return registry.repo;
 }
 
+function primaryCheckoutControlRoot() {
+  const env = { ...process.env };
+  for (const name of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES"
+  ]) {
+    delete env[name];
+  }
+  const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    cwd: projectRoot,
+    encoding: "utf8",
+    env
+  });
+  if (result.status !== 0) {
+    throw new Error(`git rev-parse --git-common-dir failed: ${result.stderr}`);
+  }
+  return realpathSync(dirname(result.stdout.trim()));
+}
+
 function resolveRecordedRepositoryRoot(recorded = recordedRegistryRepositoryRoot()) {
   const override = process.env.SENA_REPO_ROOT;
   if (typeof override === "string" && override.length > 0) {
@@ -91,7 +114,7 @@ function resolveRecordedRepositoryRoot(recorded = recordedRegistryRepositoryRoot
     return realpathSync(recorded);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return projectRoot;
+    return primaryCheckoutControlRoot();
   }
 }
 
@@ -128,11 +151,11 @@ function itUnless(present: boolean, reason: string) {
 }
 
 const IH_SOURCE_STAGED_TREE_OBJECT = "8657ad8da77348afe46bbd74cefe5d7818f966ad";
-const Q_CURRENTNESS_OBSERVATION_COMMIT = "765932e62f1ee799245daafbba0172668fd5274b";
+const Q_CURRENTNESS_OBSERVATION_TREE = "765932e62f1ee799245daafbba0172668fd5274b";
 const ihSourceTreePresent = checkoutObjectPresent(`${IH_SOURCE_STAGED_TREE_OBJECT}^{tree}`);
-const qCurrentnessObservationPresent = checkoutObjectPresent(`${Q_CURRENTNESS_OBSERVATION_COMMIT}^{commit}`);
+const qCurrentnessObservationPresent = checkoutObjectPresent(`${Q_CURRENTNESS_OBSERVATION_TREE}^{tree}`);
 const ihSourceAbsentReason = `commit ${IH_SOURCE_STAGED_TREE_OBJECT} is absent from this checkout`;
-const qObservationAbsentReason = `commit ${Q_CURRENTNESS_OBSERVATION_COMMIT} is absent from this checkout`;
+const qObservationAbsentReason = `tree ${Q_CURRENTNESS_OBSERVATION_TREE} is absent from this checkout`;
 
 // This file exercises real Git graphs, full-object fsck, fresh clones, native
 // hooks, and provider readback on a shared research host. Keep a finite uniform
@@ -2324,7 +2347,7 @@ describe("SENA repository governance", () => {
     expect(insideLookingExternal.error).toMatch(/outside the canonical control-root hooks directory/);
   });
 
-  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("accepts the machine-readable active-work registry", () => {
+  it("accepts the machine-readable active-work registry", () => {
     const registry = JSON.parse(
       readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
     );
@@ -2335,14 +2358,87 @@ describe("SENA repository governance", () => {
     const activeWriterCount = registry.workItems.filter((item: { disposition: string }) =>
       ["active", "ready-for-pr"].includes(item.disposition)
     ).length;
-    const result = runNode(governanceScript, ["registry"]);
+    // The repository-security workflow always runs this command. Fresh clones
+    // lack the local-only H tree, and the verifier test process does not
+    // inherit GITHUB_*, so the direct check supplies that portable CI identity.
+    const result = runNode(governanceScript, ["registry"], {
+      env: {
+        CI: "true",
+        GITHUB_ACTIONS: "true",
+        GITHUB_REPOSITORY: "HUDongpin/SENA",
+        GITHUB_EVENT_NAME: "pull_request"
+      }
+    });
     expect(protectedCurrentnessRepair).toMatchObject({
       disposition: "integrated",
       aheadBehindObservationMode: "integrated-monotonic-behind"
     });
-    expect(result.status).toBe(0);
+    expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("SENA_REPO_REGISTRY pass");
     expect(result.stdout).toContain(`activeWriters=${activeWriterCount}`);
+  });
+
+  it("derives the isolated control root from the common git directory of a linked worktree", () => {
+    const primary = temporaryRoot("linked-control-primary");
+    runGit(primary, ["init", "-q"]);
+    runGit(primary, ["config", "user.name", "SENA linked control"]);
+    runGit(primary, ["config", "user.email", "linked-control@example.invalid"]);
+    writeFileSync(join(primary, "README"), "primary\n");
+    runGit(primary, ["add", "README"]);
+    runGit(primary, ["commit", "-q", "-m", "primary"]);
+    const worktree = join(primary, ".worktrees", "linked");
+    mkdirSync(dirname(worktree), { recursive: true });
+    runGit(primary, ["worktree", "add", "--detach", worktree, "HEAD"]);
+    const worktreeTop = realpathSync(runGit(worktree, ["rev-parse", "--show-toplevel"]));
+    const primaryControl = realpathSync(dirname(runGit(worktree, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ])));
+    expect(worktreeTop).not.toBe(primaryControl);
+    expect(lstatSync(join(worktree, ".git")).isFile()).toBe(true);
+
+    mkdirSync(join(worktree, "scripts"), { recursive: true });
+    mkdirSync(join(worktree, "coordination", "repo-governance"), { recursive: true });
+    copyFileSync(
+      governanceScript,
+      join(worktree, "scripts", "verify-sena-repo-governance.mjs")
+    );
+    const missingRecordedRoot = join(primary, "missing-recorded-root");
+    writeFileSync(
+      join(worktree, "coordination", "repo-governance", "active-work.json"),
+      `${JSON.stringify({ repo: missingRecordedRoot })}\n`
+    );
+
+    const isolated = temporaryRoot("linked-control-isolated");
+    const gitDirectory = join(isolated, "git");
+    const indexPath = join(isolated, "index");
+    const objectDirectory = join(isolated, "objects");
+    runGit(isolated, ["init", "--bare", "-q", gitDirectory]);
+    mkdirSync(objectDirectory, { recursive: true });
+    writeFileSync(indexPath, "");
+    const result = spawnSync(process.execPath, [
+      join(worktree, "scripts", "verify-sena-repo-governance.mjs"),
+      "help"
+    ], {
+      cwd: worktree,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        GIT_DIR: realpathSync(gitDirectory),
+        GIT_WORK_TREE: worktreeTop,
+        GIT_INDEX_FILE: realpathSync(indexPath),
+        GIT_OBJECT_DIRECTORY: realpathSync(objectDirectory),
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: realpathSync(join(primaryControl, ".git", "objects")),
+        GIT_OPTIONAL_LOCKS: "0",
+        SENA_GOVERNANCE_CONTROL_ROOT: primaryControl,
+        SENA_GOVERNANCE_TARGET_ROOT: worktreeTop
+      }
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("Usage:");
+    expect(result.stderr ?? "").not.toContain("rule=isolated-governance-control-root-context-invalid");
   });
 
   it("declares monotonic control-plane observations without weakening feature branches", () => {

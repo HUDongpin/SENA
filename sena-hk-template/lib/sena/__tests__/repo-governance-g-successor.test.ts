@@ -17,11 +17,29 @@ function checkoutRepositoryRoot() {
 }
 
 const projectRoot = checkoutRepositoryRoot();
-const ihSourceTreePresent = spawnSync("git", ["cat-file", "-e", "8657ad8da77348afe46bbd74cefe5d7818f966ad^{tree}"], {
+const IH_SOURCE_TREE_REVISION = "8657ad8da77348afe46bbd74cefe5d7818f966ad^{tree}";
+
+function gitCatFileIndicatesPresent(
+  result: { error?: Error | null; status: number | null; stderr?: string | null },
+  revision: string
+) {
+  if (result.error) {
+    throw new Error(`git cat-file -e ${revision} could not start: ${result.error.message}`);
+  }
+  if (result.status === 0) return true;
+  const stderr = result.stderr ?? "";
+  const missingRevision = result.status === 1 || result.status === 128;
+  const missingMessage = stderr.length === 0 ||
+    /not a valid object name|needed a single revision|ambiguous argument|unknown revision|bad revision|bad object|could not get object info|exists on disk, but not in/i.test(stderr);
+  if (missingRevision && missingMessage) return false;
+  throw new Error(`git cat-file -e ${revision} failed: ${stderr || `status ${result.status}`}`);
+}
+
+const ihSourceTreePresent = gitCatFileIndicatesPresent(spawnSync("git", ["cat-file", "-e", IH_SOURCE_TREE_REVISION], {
   cwd: projectRoot,
   encoding: "utf8",
   env: { ...process.env, GIT_NO_LAZY_FETCH: "1" }
-}).status === 0;
+}), IH_SOURCE_TREE_REVISION);
 const ihSourceAbsentReason = "commit 8657ad8da77348afe46bbd74cefe5d7818f966ad is absent from this checkout";
 const registryPath = join(projectRoot, "coordination", "repo-governance", "active-work.json");
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
@@ -63,6 +81,27 @@ async function governance() {
 }
 
 describe("A01 protected G registration successor", () => {
+  it("fails closed when git cat-file cannot prove the historical tree is absent", () => {
+    expect(gitCatFileIndicatesPresent({ status: 0, stderr: "" }, IH_SOURCE_TREE_REVISION)).toBe(true);
+    expect(gitCatFileIndicatesPresent({
+      status: 128,
+      stderr: "fatal: git cat-file: could not get object info\n"
+    }, IH_SOURCE_TREE_REVISION)).toBe(false);
+    expect(() => gitCatFileIndicatesPresent({
+      error: new Error("spawn ENOENT"),
+      status: null,
+      stderr: ""
+    }, IH_SOURCE_TREE_REVISION)).toThrow(/could not start/);
+    expect(() => gitCatFileIndicatesPresent({
+      status: 128,
+      stderr: "fatal: loose object is corrupt\n"
+    }, IH_SOURCE_TREE_REVISION)).toThrow(/failed/);
+    expect(() => gitCatFileIndicatesPresent({
+      status: null,
+      stderr: ""
+    }, IH_SOURCE_TREE_REVISION)).toThrow(/failed/);
+  });
+
   const test = it.skipIf(!ihSourceTreePresent);
   test(ihSourceTreePresent
     ? "admits the one exact G work item and branch without changing historical Q authority"
