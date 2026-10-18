@@ -13,6 +13,7 @@ import {
   isSenaRuntimeBundle
 } from "../statistical-leaf-read";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
+import pilotPackageManifestJson from "../../../public/sena-pilot/sena-pilot-package-manifest.json";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -134,6 +135,30 @@ describe("review-packet statistical contract compatibility", () => {
         (asset) => asset.href !== "/sena-pilot/templates/ai_agent_runs.csv"
       );
     expect(() => importSenaReviewPacket(current)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+  });
+
+  it("rejects a v1-tagged packet that includes the ADR-0013 ai_agent_runs template", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const href = "/sena-pilot/templates/ai_agent_runs.csv";
+    const integrity = pilotPackageManifestJson.assetIntegrity.find((asset) => asset.href === href);
+    expect(source.contents.fusionMathAudit.schemaVersion).toBe("sena-fusion-math-audit/v1");
+    expect(source.contents.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(JSON.stringify(source.contents.pilotPackageManifest)).not.toContain(href);
+    if (!integrity || integrity.kind !== "template" || integrity.format !== "csv") {
+      throw new Error("Live pilot manifest is missing the ADR-0013 template integrity row.");
+    }
+
+    source.contents.pilotPackageManifest.assets.templates.push(href);
+    source.contents.pilotPackageManifest.assetIntegrity.push({
+      href,
+      kind: "template",
+      format: "csv",
+      bytes: integrity.bytes,
+      sha256: integrity.sha256
+    });
+    expect(() => importSenaReviewPacket(source)).toThrow(
       "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
     );
   });

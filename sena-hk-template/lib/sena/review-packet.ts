@@ -1062,6 +1062,8 @@ function assertSenaPilotPackageManifest(
     SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotReviewGuardrails
   );
   const expectedExportArtifactSchemas = structuredClone(pilotPackageManifest.exportArtifactSchemas);
+  // Intended. Sealed v1 packets, including 14bb306, never contained
+  // ai_agent_runs.csv, so a v1 tag that adds it fails this exact match.
   const expectedAssets = allowHistoricalV1StatisticalSchemas
     ? {
         sample: pilotPackageManifest.assets.sample,
@@ -1866,7 +1868,6 @@ function assertSenaReviewPacket(value: unknown): void {
     // The pilot-manifest mapping exception is available only after both
     // explicitly tagged legacy leaves prove they are genuine supported v1
     // contracts. Relabelled current wrappers never reach that exception.
-    // Those sealed packets predate the ADR-0013 ai_agent_runs template.
     normalizeSenaFusionMathAudit(
       contents.fusionMathAudit,
       reviewPacketFusionEvidence(contents, "review packet.contents")
