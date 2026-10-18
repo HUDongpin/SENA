@@ -1,11 +1,28 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 
-const projectRoot = resolve(process.cwd(), "..");
+function checkoutRepositoryRoot() {
+  const override = process.env.SENA_REPO_ROOT;
+  if (typeof override === "string" && override.length > 0) {
+    return realpathSync(resolve(override));
+  }
+  return realpathSync(execFileSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  }).trim());
+}
+
+const projectRoot = checkoutRepositoryRoot();
+const ihSourceTreePresent = spawnSync("git", ["cat-file", "-e", "8657ad8da77348afe46bbd74cefe5d7818f966ad^{tree}"], {
+  cwd: projectRoot,
+  encoding: "utf8",
+  env: { ...process.env, GIT_NO_LAZY_FETCH: "1" }
+}).status === 0;
+const ihSourceAbsentReason = "commit 8657ad8da77348afe46bbd74cefe5d7818f966ad is absent from this checkout";
 const registryPath = join(projectRoot, "coordination", "repo-governance", "active-work.json");
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
 const protectedMainSha = "9274e313251014d142369a5f338e7a5a7f1f1fc7";
@@ -46,7 +63,10 @@ async function governance() {
 }
 
 describe("A01 protected G registration successor", () => {
-  it("admits the one exact G work item and branch without changing historical Q authority", async () => {
+  const test = it.skipIf(!ihSourceTreePresent);
+  test(ihSourceTreePresent
+    ? "admits the one exact G work item and branch without changing historical Q authority"
+    : `admits the one exact G work item and branch without changing historical Q authority — ${ihSourceAbsentReason}`, async () => {
     const rules: any = await governance();
     const protectedMain = protectedRegistry();
     const candidate = gSuccessorRegistry();

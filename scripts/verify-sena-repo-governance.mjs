@@ -301,6 +301,23 @@ function gitDerivedControlRoot() {
   );
 }
 
+function resolveCanonicalRegistryRepositoryRoot() {
+  const recorded = JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo;
+  if (typeof recorded !== "string" || recorded.length === 0) {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  }
+  const override = process.env.SENA_REPO_ROOT;
+  if (typeof override === "string" && override.length > 0) {
+    return realpathSync(resolve(override));
+  }
+  const recordedResolution = existingPathResolution(recorded);
+  if (recordedResolution.ok) return recordedResolution.path;
+  if (recordedResolution.errorCode !== "ENOENT") {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  }
+  return realpathSync(resolve(gitText(["rev-parse", "--show-toplevel"]).trim()));
+}
+
 export function validateIsolatedGovernanceControlRootContext(context) {
   const fail = () => {
     throw new Error("rule=isolated-governance-control-root-context-invalid");
@@ -582,9 +599,7 @@ function isolatedGovernanceControlRootFromEnvironment() {
         ]).trim()
       )
     );
-    const canonicalRegistryRepositoryRoot = realpathSync(
-      resolve(JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo)
-    );
+    const canonicalRegistryRepositoryRoot = resolveCanonicalRegistryRepositoryRoot();
     if (targetRoot !== REPO_ROOT) {
       throw new Error("isolated target root mismatch");
     }
