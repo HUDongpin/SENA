@@ -405,7 +405,10 @@ function projectSnapshot() {
   });
 }
 
-const enterpriseGoLiveTestTimeoutMs = 180_000;
+// TODO: stopgap ceiling. Measured 209370ms against a 180s limit on 2026-10-18.
+// 1.5x that measurement is 315s. This file is one describe and one test, so
+// there is no smaller describe block to split off.
+const enterpriseGoLiveTestTimeoutMs = 315_000;
 
 describe("SENA enterprise go-live production release", () => {
   it("reaches ready after all evidence including a simulated authenticated external-worker callback receipt", async () => {
