@@ -301,25 +301,26 @@ function gitDerivedControlRoot() {
   );
 }
 
-function primaryCheckoutControlRoot() {
+function controlRootFromCheckout(checkout) {
+  // A linked worktree's checkout has a .git pointer file. Git's alternate
+  // object directory is <primary>/.git/objects, so the control root is the
+  // parent of the common git directory. Isolation variables must not redirect
+  // this lookup at the caller's temporary object directory.
   const commonDirectory = realpathSync(resolve(
-    SCRIPT_REPO_ROOT,
+    checkout,
     gitText(
       ["rev-parse", "--path-format=absolute", "--git-common-dir"],
       {
-        cwd: SCRIPT_REPO_ROOT,
-        unsetEnv: [
-          "GIT_DIR",
-          "GIT_WORK_TREE",
-          "GIT_COMMON_DIR",
-          "GIT_INDEX_FILE",
-          "GIT_OBJECT_DIRECTORY",
-          "GIT_ALTERNATE_OBJECT_DIRECTORIES"
-        ]
+        cwd: checkout,
+        unsetEnv: GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT
       }
     ).trim()
   ));
   return realpathSync(dirname(commonDirectory));
+}
+
+function primaryCheckoutControlRoot() {
+  return controlRootFromCheckout(SCRIPT_REPO_ROOT);
 }
 
 function resolveCanonicalRegistryRepositoryRoot() {
@@ -329,16 +330,13 @@ function resolveCanonicalRegistryRepositoryRoot() {
   }
   const override = process.env.SENA_REPO_ROOT;
   if (typeof override === "string" && override.length > 0) {
-    return realpathSync(resolve(override));
+    return controlRootFromCheckout(realpathSync(resolve(override)));
   }
   const recordedResolution = existingPathResolution(recorded);
   if (recordedResolution.ok) return recordedResolution.path;
   if (recordedResolution.errorCode !== "ENOENT") {
     throw new Error("rule=isolated-governance-control-root-context-invalid");
   }
-  // A linked worktree's --show-toplevel has a .git pointer file. Git's
-  // alternate object directory is <primary>/.git/objects, so the control
-  // root is the parent of the common git directory.
   return primaryCheckoutControlRoot();
 }
 

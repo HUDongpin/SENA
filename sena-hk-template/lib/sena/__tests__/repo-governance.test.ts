@@ -82,7 +82,7 @@ function recordedRegistryRepositoryRoot() {
   return registry.repo;
 }
 
-function primaryCheckoutControlRoot() {
+function controlRootFromCheckout(checkout: string) {
   const env = { ...process.env };
   for (const name of [
     "GIT_DIR",
@@ -95,7 +95,7 @@ function primaryCheckoutControlRoot() {
     delete env[name];
   }
   const result = spawnSync("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    cwd: projectRoot,
+    cwd: checkout,
     encoding: "utf8",
     env
   });
@@ -105,10 +105,14 @@ function primaryCheckoutControlRoot() {
   return realpathSync(dirname(result.stdout.trim()));
 }
 
+function primaryCheckoutControlRoot() {
+  return controlRootFromCheckout(projectRoot);
+}
+
 function resolveRecordedRepositoryRoot(recorded = recordedRegistryRepositoryRoot()) {
   const override = process.env.SENA_REPO_ROOT;
   if (typeof override === "string" && override.length > 0) {
-    return realpathSync(resolve(override));
+    return controlRootFromCheckout(realpathSync(resolve(override)));
   }
   try {
     return realpathSync(recorded);
@@ -2509,6 +2513,80 @@ describe("SENA repository governance", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Usage:");
     expect(result.stderr ?? "").not.toContain("rule=isolated-governance-control-root-context-invalid");
+  });
+
+  it("resolves a linked-worktree SENA_REPO_ROOT through the common git directory", () => {
+    const primary = temporaryRoot("linked-override-primary");
+    runGit(primary, ["init", "-q"]);
+    runGit(primary, ["config", "user.name", "SENA linked override"]);
+    runGit(primary, ["config", "user.email", "linked-override@example.invalid"]);
+    writeFileSync(join(primary, "README"), "primary\n");
+    runGit(primary, ["add", "README"]);
+    runGit(primary, ["commit", "-q", "-m", "primary"]);
+    const worktree = join(primary, ".worktrees", "linked");
+    mkdirSync(dirname(worktree), { recursive: true });
+    runGit(primary, ["worktree", "add", "--detach", worktree, "HEAD"]);
+    const worktreeTop = realpathSync(runGit(worktree, ["rev-parse", "--show-toplevel"]));
+    const primaryControl = realpathSync(dirname(runGit(worktree, [
+      "rev-parse",
+      "--path-format=absolute",
+      "--git-common-dir"
+    ])));
+    expect(worktreeTop).not.toBe(primaryControl);
+    expect(lstatSync(join(worktree, ".git")).isFile()).toBe(true);
+
+    mkdirSync(join(worktree, "scripts"), { recursive: true });
+    mkdirSync(join(worktree, "coordination", "repo-governance"), { recursive: true });
+    copyFileSync(
+      governanceScript,
+      join(worktree, "scripts", "verify-sena-repo-governance.mjs")
+    );
+    const missingRecordedRoot = join(primary, "missing-recorded-root");
+    writeFileSync(
+      join(worktree, "coordination", "repo-governance", "active-work.json"),
+      `${JSON.stringify({ repo: missingRecordedRoot })}\n`
+    );
+
+    const isolated = temporaryRoot("linked-override-isolated");
+    const gitDirectory = join(isolated, "git");
+    const indexPath = join(isolated, "index");
+    const objectDirectory = join(isolated, "objects");
+    runGit(isolated, ["init", "--bare", "-q", gitDirectory]);
+    mkdirSync(objectDirectory, { recursive: true });
+    writeFileSync(indexPath, "");
+    const invoke = (repoRoot: string, controlRoot: string) => spawnSync(process.execPath, [
+      join(worktree, "scripts", "verify-sena-repo-governance.mjs"),
+      "help"
+    ], {
+      cwd: worktree,
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        GIT_DIR: realpathSync(gitDirectory),
+        GIT_WORK_TREE: worktreeTop,
+        GIT_INDEX_FILE: realpathSync(indexPath),
+        GIT_OBJECT_DIRECTORY: realpathSync(objectDirectory),
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: realpathSync(join(primaryControl, ".git", "objects")),
+        GIT_OPTIONAL_LOCKS: "0",
+        SENA_REPO_ROOT: repoRoot,
+        SENA_GOVERNANCE_CONTROL_ROOT: controlRoot,
+        SENA_GOVERNANCE_TARGET_ROOT: worktreeTop
+      }
+    });
+
+    const resolved = invoke(worktreeTop, primaryControl);
+    expect(resolved.status, resolved.stderr).toBe(0);
+    expect(resolved.stdout).toContain("Usage:");
+    expect(resolved.stderr ?? "").not.toContain("rule=isolated-governance-control-root-context-invalid");
+
+    const primaryOverride = invoke(primaryControl, primaryControl);
+    expect(primaryOverride.status, primaryOverride.stderr).toBe(0);
+    expect(primaryOverride.stderr ?? "").not.toContain("rule=isolated-governance-control-root-context-invalid");
+
+    const worktreeControlRoot = invoke(worktreeTop, worktreeTop);
+    expect(worktreeControlRoot.status).toBe(1);
+    expect(worktreeControlRoot.stderr ?? "").toContain("rule=isolated-governance-control-root-context-invalid");
   });
 
   it("declares monotonic control-plane observations without weakening feature branches", () => {
