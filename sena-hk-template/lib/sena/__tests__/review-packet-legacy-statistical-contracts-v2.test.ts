@@ -14,6 +14,7 @@ import {
 } from "../statistical-leaf-read";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
 import pilotPackageManifestJson from "../../../public/sena-pilot/sena-pilot-package-manifest.json";
+import sealedV1PilotAssetInventoryJson from "../sealed-v1-pilot-asset-inventory.json";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -185,8 +186,107 @@ describe("review-packet statistical contract compatibility", () => {
 
     expect(importSenaReviewPacket(saved)).toEqual(imported);
     expect(isSenaReviewPacket(saved)).toBe(true);
+  });
 
+  it("accepts a genuine sealed v1 packet after the live pilot manifest inventory drifts", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    expect(source.contents.pilotPackageManifest.assets).toEqual(sealedV1PilotAssetInventoryJson.assets);
+    expect(source.contents.pilotPackageManifest.assetIntegrity).toEqual(
+      sealedV1PilotAssetInventoryJson.assetIntegrity
+    );
+    const live = pilotPackageManifestJson as {
+      assets: { templates: string[] };
+      assetIntegrity: Array<{ href: string; sha256: string }>;
+    };
+    const shared = live.assetIntegrity.find(
+      (asset) => asset.href === source.contents.pilotPackageManifest.assetIntegrity[0]?.href
+    );
+    if (!shared) throw new Error("Live pilot manifest is missing a sealed v1 integrity row.");
+    const originalSha = shared.sha256;
+    const originalTemplates = live.assets.templates.slice();
+    shared.sha256 = "ab".repeat(32);
+    live.assets.templates.push("/sena-pilot/templates/future-drift.csv");
+    try {
+      const driftedCurrent = readyCurrentV2ReviewPacket();
+      expect(driftedCurrent.contents.pilotPackageManifest.assets.templates).toContain(
+        "/sena-pilot/templates/future-drift.csv"
+      );
+      expect(
+        driftedCurrent.contents.pilotPackageManifest.assetIntegrity.find((asset) => asset.href === shared.href)?.sha256
+      ).toBe(shared.sha256);
+      const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(source))) as ReturnType<
+        typeof buildSenaReviewPacket
+      >;
+      expect(imported.contents.pilotPackageManifest.assets).toEqual(source.contents.pilotPackageManifest.assets);
+      expect(imported.contents.pilotPackageManifest.assetIntegrity).toEqual(
+        source.contents.pilotPackageManifest.assetIntegrity
+      );
+      expect(imported.contents.pilotPackageManifest.assets.templates).not.toContain(
+        "/sena-pilot/templates/ai_agent_runs.csv"
+      );
+      expect(imported.contents.pilotPackageManifest.assets.templates).not.toContain(
+        "/sena-pilot/templates/future-drift.csv"
+      );
+    } finally {
+      shared.sha256 = originalSha;
+      live.assets.templates.splice(0, live.assets.templates.length, ...originalTemplates);
+    }
+  });
+
+  it("rejects a malformed sealedPilotAssetOrigin on an otherwise valid current packet", () => {
+    const malformedOrigins: unknown[] = [
+      "sealed-v1",
+      null,
+      { fusionMathAudit: "sena-fusion-math-audit/v1" },
+      {
+        fusionMathAudit: "sena-fusion-math-audit/v1",
+        codingReliabilityGate: "sena-coding-reliability-gate/v1",
+        extra: true
+      }
+    ];
+    const currentTemplate = readyCurrentV2ReviewPacket();
+    for (const origin of malformedOrigins) {
+      const current = JSON.parse(JSON.stringify(currentTemplate)) as ReturnType<typeof buildSenaReviewPacket>;
+      (current.contents.pilotPackageManifest as unknown as JsonRecord).sealedPilotAssetOrigin = origin;
+      expect(() => importSenaReviewPacket(current)).toThrow(
+        "review packet.contents.pilotPackageManifest.sealedPilotAssetOrigin must be absent or the sealed v1 pilot-asset origin."
+      );
+      expect(isSenaReviewPacket(current)).toBe(false);
+    }
+
+    const current = JSON.parse(JSON.stringify(currentTemplate)) as ReturnType<typeof buildSenaReviewPacket>;
+    current.contents.pilotPackageManifest.sealedPilotAssetOrigin = {
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    };
+    const imported = importSenaReviewPacket(current);
+    expect(imported.contents.pilotPackageManifest.sealedPilotAssetOrigin).toEqual({
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    });
+    expect(imported.contents.pilotPackageManifest.assets.templates).toContain(
+      "/sena-pilot/templates/ai_agent_runs.csv"
+    );
+  });
+
+  it("admits a normalized sealed v1 packet saved before sealedPilotAssetOrigin existed", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(source))) as ReturnType<
+      typeof buildSenaReviewPacket
+    >;
+    const saved = JSON.parse(JSON.stringify(imported)) as ReturnType<typeof buildSenaReviewPacket>;
     delete saved.contents.pilotPackageManifest.sealedPilotAssetOrigin;
+
+    const reimported = importSenaReviewPacket(saved);
+    expect(reimported).toEqual(imported);
+    expect(reimported.contents.pilotPackageManifest.sealedPilotAssetOrigin).toEqual({
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    });
+    expect(reimported.contents.pilotPackageManifest.assets).toEqual(source.contents.pilotPackageManifest.assets);
+    expect(isSenaReviewPacket(saved)).toBe(true);
+
+    saved.contents.pilotPackageManifest.assetIntegrity[0].sha256 = "ab".repeat(32);
     expect(() => importSenaReviewPacket(saved)).toThrow(
       "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
     );

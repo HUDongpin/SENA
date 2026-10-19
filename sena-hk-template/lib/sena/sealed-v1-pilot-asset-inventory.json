@@ -1,0 +1,114 @@
+{
+  "assets": {
+    "sample": [
+      "/sena-pilot/sample/lesson-study-sena-contract.json",
+      "/sena-pilot/sample/lesson-study-people.csv",
+      "/sena-pilot/sample/lesson-study-interactions.csv",
+      "/sena-pilot/sample/lesson-study-utterances.csv",
+      "/sena-pilot/sample/lesson-study-coded_segments.csv",
+      "/sena-pilot/sample/lesson-study-codebook.csv"
+    ],
+    "templates": [
+      "/sena-pilot/templates/sena-data-contract-template.json",
+      "/sena-pilot/templates/sena-dataset-metadata-template.json",
+      "/sena-pilot/templates/people.csv",
+      "/sena-pilot/templates/interactions.csv",
+      "/sena-pilot/templates/utterances.csv",
+      "/sena-pilot/templates/coded_segments.csv",
+      "/sena-pilot/templates/codebook.csv"
+    ]
+  },
+  "assetIntegrity": [
+    {
+      "href": "/sena-pilot/sample/lesson-study-sena-contract.json",
+      "kind": "sample",
+      "format": "json",
+      "bytes": 9989,
+      "sha256": "c9eb2197c40b4f86308fce16fc1ff8344f1240da79085159292213e9f677982c"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-people.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 224,
+      "sha256": "b026d078f8d888b25bf2568027978a919e1c0d04dfd7567482acd31c52fc0677"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-interactions.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 807,
+      "sha256": "6d7d1831cb094dfb3629e709e714e74b227a9c9847004e9594e0bc543d0ebe4c"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-utterances.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 1693,
+      "sha256": "529d6c3541400a47286bbd2cff4693eb202388b8474e6a9ac5ebcfacc71b8b0e"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-coded_segments.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 1854,
+      "sha256": "acdd1a865754ae2d920bba1f88562bd0b52fb4f002578e733145ae388cf34121"
+    },
+    {
+      "href": "/sena-pilot/sample/lesson-study-codebook.csv",
+      "kind": "sample",
+      "format": "csv",
+      "bytes": 613,
+      "sha256": "3b0cd89c8a1208499f4a9a547c2c82f7662270842a489bd08980fed9982c7822"
+    },
+    {
+      "href": "/sena-pilot/templates/sena-data-contract-template.json",
+      "kind": "template",
+      "format": "json",
+      "bytes": 503,
+      "sha256": "8824ce585a3145ae4caa35e5ab29fbccdca79e032f5733cac7d45fa334c38774"
+    },
+    {
+      "href": "/sena-pilot/templates/sena-dataset-metadata-template.json",
+      "kind": "template",
+      "format": "json",
+      "bytes": 403,
+      "sha256": "dc63ab7d1efe6652609223c4410f0ae09211079127ffe3e86116a937dc6628d4"
+    },
+    {
+      "href": "/sena-pilot/templates/people.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 47,
+      "sha256": "15178d6e2c46311d0cbcd5fb25b855868eb90b739dd726af563271b08d812fb8"
+    },
+    {
+      "href": "/sena-pilot/templates/interactions.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 55,
+      "sha256": "e13d76e94b60e29ba46177d8db6386214ed3a2bc05cbef4c636e97bc85b7fb54"
+    },
+    {
+      "href": "/sena-pilot/templates/utterances.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 73,
+      "sha256": "c0ef4570e33063abcfe7ad382600911ff3d37d98b594eec3a64b6acfab2bee5f"
+    },
+    {
+      "href": "/sena-pilot/templates/coded_segments.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 109,
+      "sha256": "3f8cfa52abf0cda98aa5c13e220f444f3280b6a9870e32817a69e92a071c9f26"
+    },
+    {
+      "href": "/sena-pilot/templates/codebook.csv",
+      "kind": "template",
+      "format": "csv",
+      "bytes": 39,
+      "sha256": "4a59ad2604989c00d8e491ba186dd64a82eeac9be05741afe46765aa3b92f8e4"
+    }
+  ]
+}
