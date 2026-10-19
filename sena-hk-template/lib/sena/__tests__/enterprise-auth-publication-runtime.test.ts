@@ -2,7 +2,7 @@ import { createHmac, createSign, generateKeyPairSync, type KeyObject } from "nod
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   buildSenaAnalysisRun,
   buildSenaDataContractAudit,
@@ -138,14 +138,112 @@ function sampleSnapshot(title = "Enterprise Test Snapshot") {
   return structuredClone(snapshot);
 }
 
-// TODO: stopgap ceiling. Measured 233788ms against a 180s limit on 2026-10-18.
-// 1.5x that measurement is 351s. The import cases stay in enterprise.test.ts;
-// this file is the one auth, persistence, and publication case.
-const enterpriseAuthPublicationTimeoutMs = 351_000;
+type EnterpriseAuthModule = Awaited<typeof import("../enterprise")>;
+type OrganizationDeployment = ReturnType<EnterpriseAuthModule["getEnterpriseOrganizationDeploymentPackage"]>;
+type PlatformDecisionRegister = {
+  schemaVersion: string;
+  summary: {
+    decisions: number;
+    ready: number;
+    bridgeReady: number;
+    open: number;
+    productionBlocking: number;
+    acceptedBridge: number;
+  };
+  decisions: Array<{
+    id: string;
+    status: string;
+    productionBlocking: boolean;
+    acceptedBridge: boolean;
+    acceptanceCriteria: string[];
+    ownerEvidence: string[];
+  }>;
+  nextActions: string[];
+};
 
-describe("SENA enterprise runtime", () => {
-  it("runs auth, RBAC project persistence, imports, reliability, inference, and publication exports", async () => {
-    const enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-test-"));
+// Sequential cases share one enterprise database. Each case uses the original 180s ceiling.
+const enterpriseAuthPublicationTimeoutMs = 180_000;
+
+describe.sequential("SENA enterprise runtime", () => {
+  let enterpriseDbDir!: string;
+  let enterprise!: EnterpriseAuthModule;
+  let readCurrentGovernanceStatus!: () => ReturnType<EnterpriseAuthModule["getEnterpriseGovernanceStatus"]>;
+  let readCurrentOrganizationDeploymentPackage!: () => ReturnType<EnterpriseAuthModule["getEnterpriseOrganizationDeploymentPackage"]>;
+  let registered!: ReturnType<EnterpriseAuthModule["registerEnterpriseUser"]>;
+  let project!: ReturnType<EnterpriseAuthModule["createEnterpriseProject"]>;
+  let updatedProject!: ReturnType<EnterpriseAuthModule["updateEnterpriseProject"]>;
+  let originalWebhookFetch!: typeof fetch;
+  let activeReviewer!: Extract<ReturnType<EnterpriseAuthModule["loginEnterpriseUser"]>, { context: unknown }>;
+  let opsStatus!: ReturnType<EnterpriseAuthModule["getEnterpriseOpsStatus"]>;
+  let deploymentReadiness!: ReturnType<EnterpriseAuthModule["getEnterpriseDeploymentReadiness"]>;
+  let organizationDeployment!: OrganizationDeployment;
+  let platformDecisionRegister!: PlatformDecisionRegister | undefined;
+  let deploymentSaasOperations!: any;
+  let platformDecisionTools!: any;
+  let acceptedOrganizationDeployment!: OrganizationDeployment & {
+    summary: OrganizationDeployment["summary"] & { acceptedPlatformDecisions: number };
+    platformDecisionRegister: PlatformDecisionRegister | undefined;
+  };
+  let releaseGateReview!: any;
+
+  afterAll(() => {
+
+    delete process.env.SENA_SSO_GOOGLE_CLIENT_ID;
+    delete process.env.SENA_SSO_GOOGLE_CLIENT_SECRET;
+    delete process.env.SENA_SSO_GOOGLE_ISSUER;
+    delete process.env.SENA_SSO_GOOGLE_AUTHORIZATION_URL;
+    delete process.env.SENA_SSO_GOOGLE_TOKEN_URL;
+    delete process.env.SENA_SSO_GOOGLE_USERINFO_URL;
+    delete process.env.SENA_SSO_GOOGLE_JWKS_URL;
+    delete process.env.SENA_APP_URL;
+    delete process.env.SENA_MFA_ENCRYPTION_KEY;
+    delete process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
+    delete process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
+    delete process.env.SENA_AUTH_LOCKOUT_MAX_FAILURES;
+    delete process.env.SENA_AUTH_LOCKOUT_WINDOW_MINUTES;
+    delete process.env.SENA_AUTH_LOCKOUT_MINUTES;
+    delete process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN;
+    delete process.env.SENA_NOTIFICATION_WEBHOOK_URL;
+    delete process.env.SENA_NOTIFICATION_WEBHOOK_SECRET;
+    delete process.env.SENA_NOTIFICATION_WEBHOOK_MAX_ATTEMPTS;
+    delete process.env.SENA_NOTIFICATION_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_EMAIL_WEBHOOK_URL;
+    delete process.env.SENA_EMAIL_WEBHOOK_SECRET;
+    delete process.env.SENA_EMAIL_WEBHOOK_MAX_ATTEMPTS;
+    delete process.env.SENA_EMAIL_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_BACKUP_WEBHOOK_URL;
+    delete process.env.SENA_BACKUP_WEBHOOK_SECRET;
+    delete process.env.SENA_BACKUP_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_DATABASE_SYNC_WEBHOOK_URL;
+    delete process.env.SENA_DATABASE_SYNC_WEBHOOK_SECRET;
+    delete process.env.SENA_DATABASE_SYNC_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_OBJECT_STORAGE_WEBHOOK_URL;
+    delete process.env.SENA_OBJECT_STORAGE_WEBHOOK_SECRET;
+    delete process.env.SENA_OBJECT_STORAGE_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_URL;
+    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_SECRET;
+    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_MAX_ATTEMPTS;
+    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_PROVISIONING_TOKEN;
+    delete process.env.SENA_OPS_TOKEN;
+    delete process.env.SENA_AUDIT_RETENTION_DAYS;
+    delete process.env.SENA_AUDIT_WEBHOOK_URL;
+    delete process.env.SENA_AUDIT_WEBHOOK_SECRET;
+    delete process.env.SENA_AUDIT_WEBHOOK_MAX_ATTEMPTS;
+    delete process.env.SENA_AUDIT_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_ALERTING_OWNER;
+    delete process.env.SENA_ALERTING_CHANNEL;
+    delete process.env.SENA_ALERTING_RUNBOOK_URL;
+    delete process.env.SENA_ALERT_WEBHOOK_URL;
+    delete process.env.SENA_ALERT_WEBHOOK_SECRET;
+    delete process.env.SENA_ALERT_WEBHOOK_TIMEOUT_MS;
+    delete process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED;
+    delete process.env.SENA_ENTERPRISE_DB_DIR;
+    if (enterpriseDbDir) rmSync(enterpriseDbDir, { recursive: true, force: true });
+  });
+
+  it("runs auth, RBAC, provisioning, invitations, MFA, SSO, and collaboration", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-enterprise-test-"));
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
     process.env.SENA_APP_URL = "https://sena.example.test";
     process.env.SENA_MFA_ENCRYPTION_KEY = "sena-test-mfa-encryption-key";
@@ -191,24 +289,24 @@ describe("SENA enterprise runtime", () => {
     process.env.SENA_ALERT_WEBHOOK_SECRET = "sena-alert-webhook-secret";
     process.env.SENA_ALERT_WEBHOOK_TIMEOUT_MS = "1000";
     delete process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED;
-    const enterprise = await import("../enterprise");
+    enterprise = await import("../enterprise");
     const scim = await import("../scim");
     // Resolve one current state image per compound assertion. Do not cache the
     // result across mutations: these helpers only prevent nested convenience
     // APIs from rereading and reprojecting the same persisted snapshots.
-    const readCurrentGovernanceStatus = () => {
+    readCurrentGovernanceStatus = () => {
       const db = enterprise.readEnterpriseDb();
       const opsStatus = enterprise.getEnterpriseOpsStatus({ db });
       return enterprise.getEnterpriseGovernanceStatus({ db, opsStatus });
     };
-    const readCurrentOrganizationDeploymentPackage = () => {
+    readCurrentOrganizationDeploymentPackage = () => {
       const db = enterprise.readEnterpriseDb();
       const opsStatus = enterprise.getEnterpriseOpsStatus({ db });
       const governance = enterprise.getEnterpriseGovernanceStatus({ db, opsStatus });
       return enterprise.getEnterpriseOrganizationDeploymentPackage({ db, opsStatus, governance });
     };
 
-    const registered = enterprise.registerEnterpriseUser({
+    registered = enterprise.registerEnterpriseUser({
       name: "Dr Enterprise",
       email: "enterprise@example.edu",
       password: "sena-secure-123",
@@ -257,7 +355,7 @@ describe("SENA enterprise runtime", () => {
       })
     ]));
 
-    const project = enterprise.createEnterpriseProject(registered.context, {
+    project = enterprise.createEnterpriseProject(registered.context, {
       teamId: registered.context.teams[0].id,
       title: "Saved Enterprise Project",
       snapshot: sampleSnapshot()
@@ -266,7 +364,7 @@ describe("SENA enterprise runtime", () => {
     expect(project.currentVersion).toBe(1);
     expect(enterprise.listEnterpriseProjects(registered.context)).toHaveLength(1);
     expect(enterprise.getEnterpriseProject(registered.context, project.id).snapshot.schemaVersion).toBe("sena-project-snapshot/v1");
-    const updatedProject = enterprise.updateEnterpriseProject(registered.context, project.id, {
+    updatedProject = enterprise.updateEnterpriseProject(registered.context, project.id, {
       snapshot: sampleSnapshot(),
       description: "Updated with a second enterprise test revision."
     });
@@ -410,7 +508,7 @@ describe("SENA enterprise runtime", () => {
     });
     expect(invitation.inviteCode).toHaveLength(12);
     const webhookRequests: Array<{ url: string; body: string; headers: Record<string, string> }> = [];
-    const originalWebhookFetch = globalThis.fetch;
+    originalWebhookFetch = globalThis.fetch;
     globalThis.fetch = (async (url, init) => {
       webhookRequests.push({
         url: String(url),
@@ -864,7 +962,7 @@ describe("SENA enterprise runtime", () => {
       role: "reviewer",
       status: "active"
     }).status).toBe("active");
-    const activeReviewer = requireCompletedLogin(enterprise.loginEnterpriseUser({
+    activeReviewer = requireCompletedLogin(enterprise.loginEnterpriseUser({
       email: "reviewer@example.edu",
       password: "sena-secure-123"
     }));
@@ -1353,6 +1451,9 @@ describe("SENA enterprise runtime", () => {
     expect(securityPosture.controls.find((control: { id: string }) => control.id === "security-response-headers")?.source).toBe("governance");
     expect(securityPosture.controls.find((control: { id: string }) => control.id === "ops-bearer-token")?.source).toBe("readiness");
     expect(securityPosture.runbook.api).toBe("/api/sena/governance/security");
+  }, enterpriseAuthPublicationTimeoutMs);
+
+  it("runs project restore, backup, ops status, and deployment readiness", async () => {
     const concurrentBaseSnapshot = sampleSnapshot("Concurrent Base Snapshot");
     const concurrentNextSnapshot = sampleSnapshot("Concurrent Next Snapshot");
     const concurrentProject = enterprise.createEnterpriseProject(registered.context, {
@@ -1621,7 +1722,7 @@ describe("SENA enterprise runtime", () => {
       .toContain("webhookSchema=sena-enterprise-database-sync-webhook/v1");
     expect(backupGovernance.checks.find((check: { id: string }) => check.id === "database-sync-bridge")?.evidence)
       .toContain("deliverEvents=1");
-    const opsStatus = enterprise.getEnterpriseOpsStatus();
+    opsStatus = enterprise.getEnterpriseOpsStatus();
     expect(opsStatus.schemaVersion).toBe("sena-enterprise-ops-status/v1");
     expect(opsStatus.status).toBe("ready");
     expect(opsStatus.deployment.opsTokenConfigured).toBe(true);
@@ -1678,7 +1779,7 @@ describe("SENA enterprise runtime", () => {
     expect(opsStatus.checks.find((check: { id: string }) => check.id === "ops-backup-webhook")?.status).toBe("pass");
     expect(opsStatus.checks.find((check: { id: string }) => check.id === "ops-alert-webhook")?.status).toBe("pass");
     expect(opsStatus.checks.find((check: { id: string }) => check.id === "ops-audit-webhook-queue")?.status).toBe("pass");
-    const deploymentReadiness = enterprise.getEnterpriseDeploymentReadiness();
+    deploymentReadiness = enterprise.getEnterpriseDeploymentReadiness();
     expect(deploymentReadiness.schemaVersion).toBe("sena-enterprise-deployment-readiness/v1");
     expect(deploymentReadiness.status).toBe("review");
     expect(deploymentReadiness.summary.blockingReview).toBe(0);
@@ -1719,7 +1820,7 @@ describe("SENA enterprise runtime", () => {
       platformDecisionRegister?: string;
     };
     expect(readinessRunbook.platformDecisionRegister).toBe("sena-enterprise-platform-decision-register/v1");
-    const organizationDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage();
+    organizationDeployment = enterprise.getEnterpriseOrganizationDeploymentPackage();
     expect(organizationDeployment.schemaVersion).toBe("sena-enterprise-organization-deployment/v1");
     expect(organizationDeployment.status).toBe("review");
     expect(organizationDeployment.redaction.secretValuesExcluded).toBe(true);
@@ -1773,7 +1874,7 @@ describe("SENA enterprise runtime", () => {
         nextActions: string[];
       };
     };
-    const platformDecisionRegister = organizationDeploymentWithRegister.platformDecisionRegister;
+    platformDecisionRegister = organizationDeploymentWithRegister.platformDecisionRegister;
     expect(platformDecisionRegister?.schemaVersion).toBe("sena-enterprise-platform-decision-register/v1");
     expect(platformDecisionRegister?.summary.decisions).toBe(organizationDeployment.platformDecisions.length);
     expect(platformDecisionRegister?.summary.bridgeReady).toBeGreaterThan(0);
@@ -1895,7 +1996,7 @@ describe("SENA enterprise runtime", () => {
         "endpointHash=present"
       ])
     }));
-    const deploymentSaasOperations = organizationDeployment as typeof organizationDeployment & {
+    deploymentSaasOperations = organizationDeployment as typeof organizationDeployment & {
       saasOperationsReadiness?: {
         schemaVersion: "sena-enterprise-saas-operations-readiness/v1";
         status: "ready" | "review" | "blocked";
@@ -1954,6 +2055,9 @@ describe("SENA enterprise runtime", () => {
         api: "/api/sena/ops/production-evidence"
       })
     }));
+  }, enterpriseAuthPublicationTimeoutMs);
+
+  it("runs go-live rehearsal, capability audit, platform decisions, and release-gate review", async () => {
     const goLiveRehearsal = (enterprise as typeof enterprise & {
       getEnterpriseGoLiveRehearsal: () => {
         schemaVersion: "sena-enterprise-go-live-rehearsal/v1";
@@ -2316,7 +2420,7 @@ describe("SENA enterprise runtime", () => {
     expect(organizationDeployment.governance.keyChecks.map((check: { id: string }) => check.id)).toContain("organization-deployment-package");
     expect(organizationDeployment.governance.keyChecks.find((check: { id: string }) => check.id === "organization-deployment-package")?.evidence)
       .toContain("platformDecisionRegister=sena-enterprise-platform-decision-register/v1");
-    const platformDecisionTools = enterprise as typeof enterprise & {
+    platformDecisionTools = enterprise as typeof enterprise & {
       reviewEnterprisePlatformDecision: (
         context: typeof registered.context,
         input: {
@@ -2423,7 +2527,7 @@ describe("SENA enterprise runtime", () => {
         acceptedBridge: true
       })
     ]);
-    const acceptedOrganizationDeployment = readCurrentOrganizationDeploymentPackage() as typeof organizationDeployment & {
+    acceptedOrganizationDeployment = readCurrentOrganizationDeploymentPackage() as typeof organizationDeployment & {
       summary: typeof organizationDeployment.summary & { acceptedPlatformDecisions: number };
       platformDecisionRegister: typeof platformDecisionRegister;
     };
@@ -2463,7 +2567,7 @@ describe("SENA enterprise runtime", () => {
     delete process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED;
     expect(acceptedOrganizationDeployment.governance.keyChecks.find((check: { id: string }) => check.id === "organization-deployment-package")?.evidence)
       .toContain("platformDecisionAcceptances=1");
-    const releaseGateReview = platformDecisionTools.createEnterpriseReleaseGateReview(registered.context, {
+    releaseGateReview = platformDecisionTools.createEnterpriseReleaseGateReview(registered.context, {
       teamId: registered.context.teams[0].id,
       environment: "pilot-production",
       releaseVersion: "2026.06.13-local-pilot",
@@ -2514,6 +2618,9 @@ describe("SENA enterprise runtime", () => {
       .toContain("verificationEvidence=sena-enterprise-release-verification-evidence/v1");
     expect(releaseGateGovernance.checks.find((check: { id: string }) => check.id === "release-gate-review")?.evidence)
       .toContain("latestVerificationStatus=passed");
+  }, enterpriseAuthPublicationTimeoutMs);
+
+  it("runs release-gate deployment, imports, reliability, validation, and publication exports", async () => {
     const releaseGateDeployment = readCurrentOrganizationDeploymentPackage() as typeof acceptedOrganizationDeployment & {
       releaseGate: {
         schemaVersion: "sena-enterprise-release-gate-reviews/v1";
@@ -3500,58 +3607,5 @@ describe("SENA enterprise runtime", () => {
     expect(publicationManifest.artifacts.every((artifact) => artifact.sha256.length === 64 && artifact.bytes > 0 && artifact.bodyBase64.length > 0)).toBe(true);
     expect(Buffer.from(publicationManifest.artifacts.find((artifact) => artifact.format === "png")?.bodyBase64 ?? "", "base64").subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a");
     expect(sampleSnapshotBuildCount).toBe(3);
-
-    delete process.env.SENA_SSO_GOOGLE_CLIENT_ID;
-    delete process.env.SENA_SSO_GOOGLE_CLIENT_SECRET;
-    delete process.env.SENA_SSO_GOOGLE_ISSUER;
-    delete process.env.SENA_SSO_GOOGLE_AUTHORIZATION_URL;
-    delete process.env.SENA_SSO_GOOGLE_TOKEN_URL;
-    delete process.env.SENA_SSO_GOOGLE_USERINFO_URL;
-    delete process.env.SENA_SSO_GOOGLE_JWKS_URL;
-    delete process.env.SENA_APP_URL;
-    delete process.env.SENA_MFA_ENCRYPTION_KEY;
-    delete process.env.SENA_EXPERT_REVIEW_SIGNING_SECRET;
-    delete process.env.SENA_EXPERT_REVIEW_SIGNING_KEY_ID;
-    delete process.env.SENA_AUTH_LOCKOUT_MAX_FAILURES;
-    delete process.env.SENA_AUTH_LOCKOUT_WINDOW_MINUTES;
-    delete process.env.SENA_AUTH_LOCKOUT_MINUTES;
-    delete process.env.SENA_PASSWORD_RESET_EXPOSE_TOKEN;
-    delete process.env.SENA_NOTIFICATION_WEBHOOK_URL;
-    delete process.env.SENA_NOTIFICATION_WEBHOOK_SECRET;
-    delete process.env.SENA_NOTIFICATION_WEBHOOK_MAX_ATTEMPTS;
-    delete process.env.SENA_NOTIFICATION_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_EMAIL_WEBHOOK_URL;
-    delete process.env.SENA_EMAIL_WEBHOOK_SECRET;
-    delete process.env.SENA_EMAIL_WEBHOOK_MAX_ATTEMPTS;
-    delete process.env.SENA_EMAIL_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_BACKUP_WEBHOOK_URL;
-    delete process.env.SENA_BACKUP_WEBHOOK_SECRET;
-    delete process.env.SENA_BACKUP_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_DATABASE_SYNC_WEBHOOK_URL;
-    delete process.env.SENA_DATABASE_SYNC_WEBHOOK_SECRET;
-    delete process.env.SENA_DATABASE_SYNC_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_OBJECT_STORAGE_WEBHOOK_URL;
-    delete process.env.SENA_OBJECT_STORAGE_WEBHOOK_SECRET;
-    delete process.env.SENA_OBJECT_STORAGE_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_URL;
-    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_SECRET;
-    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_MAX_ATTEMPTS;
-    delete process.env.SENA_COLLABORATION_PUBSUB_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_PROVISIONING_TOKEN;
-    delete process.env.SENA_OPS_TOKEN;
-    delete process.env.SENA_AUDIT_RETENTION_DAYS;
-    delete process.env.SENA_AUDIT_WEBHOOK_URL;
-    delete process.env.SENA_AUDIT_WEBHOOK_SECRET;
-    delete process.env.SENA_AUDIT_WEBHOOK_MAX_ATTEMPTS;
-    delete process.env.SENA_AUDIT_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_ALERTING_OWNER;
-    delete process.env.SENA_ALERTING_CHANNEL;
-    delete process.env.SENA_ALERTING_RUNBOOK_URL;
-    delete process.env.SENA_ALERT_WEBHOOK_URL;
-    delete process.env.SENA_ALERT_WEBHOOK_SECRET;
-    delete process.env.SENA_ALERT_WEBHOOK_TIMEOUT_MS;
-    delete process.env.SENA_PLATFORM_SAAS_OPERATING_MODEL_APPROVED;
-    delete process.env.SENA_ENTERPRISE_DB_DIR;
-    rmSync(enterpriseDbDir, { recursive: true, force: true });
   }, enterpriseAuthPublicationTimeoutMs);
 });
