@@ -1500,7 +1500,7 @@ function printSecurityResult(findings, metadata) {
   return 1;
 }
 
-function runSecurity(flags) {
+function runSecurity(flags, options = {}) {
   const findings = [];
   const scanned = new Set();
   const trees = new Set(flagValues(flags, "tree"));
@@ -1523,7 +1523,7 @@ function runSecurity(flags) {
   }
 
   if (flags.has("pre-push")) {
-    const input = readFileSync(0, "utf8");
+    const input = options.prePushInput ?? readFileSync(0, "utf8");
     const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
     const updates = parsePrePushUpdates(input);
     let deletionRegistry = null;
@@ -1536,6 +1536,21 @@ function runSecurity(flags) {
   }
 
   if (flags.has("push-event")) {
+    if (options.localPushEvent) {
+      const event = options.localPushEvent;
+      for (const [flag, expected] of [
+        ["event-ref", event.ref], ["event-before", event.before], ["event-after", event.head],
+        ["event-forced", "false"], ["event-deleted", "false"]
+      ]) {
+        if (flagValues(flags, flag)[0] !== expected) {
+          throw new Error("rule=local-workspace-ci-security-event-mismatch");
+        }
+      }
+      // Always scan the bound head and its entire task history. Event-only
+      // calls must never accidentally become zero-target security passes.
+      trees.add(event.head);
+      for (const commit of revList([`${event.sourceCommit}..${event.head}`])) commits.add(commit);
+    } else {
     const deleted = flagValues(flags, "event-deleted")[0] === "true";
     const afterSha = flagValues(flags, "event-after")[0] ?? ZERO_SHA;
     const authorizationRegistry =
@@ -1551,6 +1566,7 @@ function runSecurity(flags) {
     addPushEventPolicyFindings(flags, registry, findings, {
       protectedMainAuthorization: Boolean(authorizationRegistry)
     });
+    }
   }
 
   if (flags.has("paths-from-stdin")) {
@@ -26261,8 +26277,57 @@ async function main() {
       // An additive, explicitly authorized local task is not an activation of
       // the preserved Starship lifecycle. Alternate v1 authorization sources
       // must not turn this local-only task into remote/deletion authority.
-      if (["push-policy", "deletion-boundary", "post-pr83-push-draft-readiness"].includes(command) ||
-          (command === "security" && (flags.has("pre-push") || flags.has("push-event")))) {
+      if (["deletion-boundary", "post-pr83-push-draft-readiness"].includes(command) ||
+          flags.has("identity-only") || flags.has("authorization-registry-commit")) {
+        throw new Error("rule=local-workspace-remote-operation-denied");
+      }
+      if (command === "push-policy" || flags.has("pre-push")) {
+        if (!["push-policy", "audit", "security"].includes(command)) {
+          throw new Error("rule=local-workspace-remote-operation-denied");
+        }
+        const { validateLocalPush } = await import("./sena-local-workspace-governance.mjs");
+        if (command === "audit" && (!flags.has("live") ||
+            flagValues(flags, "registry-from-commit")[0] !== gitText(["rev-parse", "HEAD"]).trim())) {
+          throw new Error("rule=local-workspace-alternate-authority-denied");
+        }
+        const updatesText = command === "audit" ? undefined : readFileSync(0, "utf8");
+        const result = validateLocalPush({
+          root: REPO_ROOT, controlRoot: CONTROL_ROOT, updatesText,
+          remoteName: flagValues(flags, "remote-name")[0] ?? "origin",
+          remoteLocation: process.env.SENA_GOVERNANCE_REMOTE_LOCATION ??
+            gitText(["remote", "get-url", "--push", "origin"]).trim()
+        });
+        if (command === "security") return runSecurity(flags, { prePushInput: updatesText });
+        process.stdout.write(`SENA_LOCAL_PUSH ${JSON.stringify(result)}\n`);
+        return;
+      }
+      const portable = process.env.GITHUB_ACTIONS === "true" &&
+        ((command === "registry" && !flags.has("registry-from-index")) ||
+          (command === "audit" && flags.has("ci") && !flags.has("pre-commit")) ||
+          (command === "security" && flags.has("push-event")));
+      if (portable) {
+        if (flags.has("registry") || flags.has("registry-from-commit") || flags.has("registry-from-index")) {
+          throw new Error("rule=local-workspace-alternate-authority-denied");
+        }
+        const { isHistoricalLocalMainEvent, validatePortableLocalWorkspace } =
+          await import("./sena-local-workspace-governance.mjs");
+        const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+        if (isHistoricalLocalMainEvent({ root: REPO_ROOT, event })) {
+          // Once integrated, this feature's registration is historical.
+          // Keep main's existing ledger and read-only CI checks authoritative.
+          if (command === "registry") return runRegistry(flags);
+          if (command === "audit") return runAudit(flags);
+          return runSecurity(flags);
+        }
+        const result = validatePortableLocalWorkspace({ root: REPO_ROOT, event });
+        if (command === "security") {
+          if (result.kind !== "push") throw new Error("rule=local-workspace-ci-security-event-mismatch");
+          return runSecurity(flags, { localPushEvent: result });
+        }
+        process.stdout.write(`SENA_LOCAL_CI ${JSON.stringify(result)}\n`);
+        return;
+      }
+      if (command === "security" && flags.has("push-event")) {
         throw new Error("rule=local-workspace-remote-operation-denied");
       }
       if (["audit", "write-policy", "registry"].includes(command)) {

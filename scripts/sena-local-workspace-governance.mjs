@@ -17,6 +17,12 @@ const VERIFIER_FILES = [
 const sha = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const fail = (rule) => { throw new Error(`rule=local-workspace-${rule}`); };
 const requireFact = (condition, rule) => { if (!condition) fail(rule); };
+function validAllowedPaths(paths) {
+  return Array.isArray(paths) && paths.length > 0 && new Set(paths).size === paths.length &&
+    paths.every(path => typeof path === "string" && path &&
+      !isAbsolute(path) && !path.split("/").includes("..") && !/[*?\\]/.test(path) &&
+      path !== LEGACY_REGISTRY && path !== ".git" && !path.startsWith(".git/"));
+}
 const canonical = (path) => {
   requireFact(typeof path === "string" && isAbsolute(path) && resolve(path) === path, "path-invalid");
   requireFact(realpathSync(path) === path && !lstatSync(path).isSymbolicLink(), "path-not-physical");
@@ -231,14 +237,14 @@ function checkExecutingCode(root, sourceCommit) {
   }
 }
 
-function receiptFor(root, context, registry) {
+function receiptFor(root, context, registry, kind = "commit") {
   requireFact(/^[A-Za-z0-9_-]{1,100}$/.test(registry.task.taskId), "task-id");
   const receiptDirectory = join(context.common, "sena-local-authorizations");
   canonical(receiptDirectory);
   const directoryStat = lstatSync(receiptDirectory);
   requireFact(directoryStat.isDirectory() && directoryStat.uid === process.getuid() &&
     (directoryStat.mode & 0o077) === 0, "authorization-directory");
-  const receiptPath = join(receiptDirectory, `${registry.task.taskId}.json`);
+  const receiptPath = join(receiptDirectory, `${registry.task.taskId}${kind === "push" ? ".push" : ""}.json`);
   canonical(receiptPath);
   const stat = lstatSync(receiptPath);
   requireFact(stat.isFile() && stat.nlink === 1 && stat.uid === process.getuid() &&
@@ -246,9 +252,10 @@ function receiptFor(root, context, registry) {
   const raw = readFileSync(receiptPath);
   const receipt = JSON.parse(raw);
   requireFact(isDeepStrictEqual(Object.keys(receipt).sort(),
-    ["schemaVersion", "taskId", "ownerKey", "authorization", "createdAt", "expiresAt", "candidate"].sort()),
+    ["schemaVersion", "taskId", "ownerKey", "authorization", "createdAt", "expiresAt", "candidate",
+      ...(kind === "push" ? ["remote"] : [])].sort()),
   "authorization-fields");
-  requireFact(receipt.schemaVersion === "sena-local-commit-authorization/v1" &&
+  requireFact(receipt.schemaVersion === `sena-local-${kind}-authorization/v1` &&
     receipt.taskId === registry.task.taskId && receipt.ownerKey === registry.task.ownerKey &&
     isDeepStrictEqual(receipt.authorization, registry.authorization), "authorization-identity");
   const now = Date.now();
@@ -262,7 +269,8 @@ function receiptFor(root, context, registry) {
 export function validateLocalWorkspace({ root, controlRoot, registryBytes, requireStaged = false }) {
   const registry = JSON.parse(registryBytes);
   requireFact(registry.schemaVersion === LOCAL_WORKSPACE_SCHEMA && registry.repo === controlRoot, "registry");
-  requireFact(registry.scope === "local-commit-only" && registry.historicalAuthority === "non-authorizing",
+  requireFact(["local-commit-only", "local-commit-and-pr"].includes(registry.scope) &&
+    registry.historicalAuthority === "non-authorizing",
     "scope");
   const context = nativeContext(root, controlRoot);
   const task = registry.task;
@@ -271,12 +279,16 @@ export function validateLocalWorkspace({ root, controlRoot, registryBytes, requi
     typeof task.ownerKey === "string" && task.ownerKey.length > 0 &&
     task.disposition === "active" && typeof task.noPrReason === "string" && task.noPrReason.length > 0,
   "task-identity");
-  requireFact(registry.authorization.operations.join(",") === "relocate,register,branch,commit" &&
+  requireFact(registry.authorization.operations.join(",") ===
+    (registry.scope === "local-commit-and-pr" ? "commit,push,pr" : "relocate,register,branch,commit") &&
     typeof registry.authorization.userInstruction === "string" &&
     registry.authorization.userInstruction.length > 0, "authorization-scope");
   const source = registry.historicalSource;
+  const commitBase = task.commitBaseSha ?? source?.commit;
   requireFact(/^[a-f0-9]{40}$/.test(source?.commit) && source.registryPath === LEGACY_REGISTRY &&
-    task.baseSha === source.commit, "historical-source");
+    task.baseSha === source.commit && /^[a-f0-9]{40}$/.test(commitBase), "historical-source");
+  requireFact(git(root, ["merge-base", "--is-ancestor", source.commit, commitBase], true).status === 0,
+    "commit-base-ancestry");
   requireFact(text(root, ["rev-parse", `${source.commit}^{tree}`]) === source.tree &&
     text(root, ["rev-parse", `${source.commit}:${LEGACY_REGISTRY}`]) === source.registryBlob,
   "historical-source-identity");
@@ -291,19 +303,15 @@ export function validateLocalWorkspace({ root, controlRoot, registryBytes, requi
     "remote-identity");
   requireFact(git(root, ["merge-base", "--is-ancestor", source.commit, context.head], true).status === 0,
     "base-ancestry");
-  requireFact(task.allowedPaths.length > 0 && new Set(task.allowedPaths).size === task.allowedPaths.length &&
-    task.allowedPaths.every(path => typeof path === "string" && path &&
-      !isAbsolute(path) && !path.split("/").includes("..") && !/[*?\\]/.test(path) &&
-      path !== LEGACY_REGISTRY && !path.startsWith(".git")), "allowed-paths");
-  const changedSinceBase = text(root, ["diff", "--name-only", "--no-renames", source.commit, context.head])
-    .split("\n").filter(Boolean);
+  requireFact(validAllowedPaths(task.allowedPaths), "allowed-paths");
+  const changedSinceBase = changedHistoryPaths(root, source.commit, context.head);
   requireFact(changedSinceBase.every(path => task.allowedPaths.includes(path)), "committed-path-scope");
   requireFact(bytes(root, ["ls-files", "--unmerged"]).length === 0, "unmerged-index");
   checkExecutingCode(root, source.commit);
   const initialCandidate = candidateIdentity(root, controlRoot, registryBytes);
   const authorization = receiptFor(root, context, registry);
   if (requireStaged) {
-    requireFact(context.head === source.commit, "single-commit-base");
+    requireFact(context.head === commitBase, "single-commit-base");
     requireFact(isDeepStrictEqual(authorization.receipt.candidate, initialCandidate), "candidate-not-authorized");
     const stagedPaths = text(root, ["diff", "--cached", "--name-only", "--no-renames"]).split("\n").filter(Boolean);
     requireFact(stagedPaths.length > 0 && stagedPaths.every(path => task.allowedPaths.includes(path)),
@@ -319,13 +327,25 @@ export function validateLocalWorkspace({ root, controlRoot, registryBytes, requi
           text(root, ["rev-parse", "HEAD^{tree}"]) === authorization.receipt.candidate.indexTree &&
           text(root, ["rev-list", "--parents", "-n", "1", "HEAD"]) ===
             `${context.head} ${authorization.receipt.candidate.head}` &&
-          authorization.receipt.candidate.head === source.commit)),
+          authorization.receipt.candidate.head === commitBase)),
     "inspection-not-authorized");
   }
   checkDurableCustody(root, historical);
   const orphanPaths = (historical.orphanWorktrees ?? []).map(item =>
     mapHistoricalWorkspacePath(item.path, source.repo, registry.repo));
-  requireFact(isDeepStrictEqual(captureLocalPreservation(root, task.branch, orphanPaths), registry.preservation),
+  const preservation = captureLocalPreservation(root, task.branch, orphanPaths);
+  const ownRemoteRef = `refs/remotes/origin/${task.branch} ${context.head}`;
+  if (registry.scope === "local-commit-and-pr" && preservation.refs.includes(ownRemoteRef) &&
+      !registry.preservation.refs.includes(ownRemoteRef)) {
+    const pushAuthorization = receiptFor(root, context, registry, "push");
+    requireFact(isDeepStrictEqual(pushAuthorization.receipt.candidate, initialCandidate) &&
+      pushAuthorization.receipt.remote?.ref === `refs/heads/${task.branch}` &&
+      pushAuthorization.receipt.remote?.name === "origin" &&
+      pushAuthorization.receipt.remote?.url === "https://github.com/HUDongpin/SENA.git",
+    "published-ref-not-authorized");
+    preservation.refs = preservation.refs.filter(line => line !== ownRemoteRef);
+  }
+  requireFact(isDeepStrictEqual(preservation, registry.preservation),
     "preservation-changed");
   // Resample after slow bundle/file checks. Equal filenames do not imply equal bytes.
   requireFact(isDeepStrictEqual(initialCandidate,
@@ -339,6 +359,140 @@ export function validateLocalWorkspace({ root, controlRoot, registryBytes, requi
     durableCustody: "verified",
     historicalLiveCustody: "not-recertified",
     remoteOperationsAuthorized: false
+  };
+}
+
+function changedHistoryPaths(root, base, head) {
+  const commits = text(root, ["rev-list", `${base}..${head}`]).split("\n").filter(Boolean);
+  const paths = new Set();
+  for (const commit of commits) {
+    requireFact(text(root, ["rev-list", "--parents", "-n", "1", commit]).split(" ").length === 2,
+      "nonlinear-task-history");
+    for (const path of text(root, ["diff-tree", "--no-commit-id", "--name-only", "--no-renames", "-r", commit])
+      .split("\n").filter(Boolean)) paths.add(path);
+  }
+  return [...paths];
+}
+
+export function validateLocalPush({ root, controlRoot, updatesText, remoteName, remoteLocation }) {
+  const context = nativeContext(root, controlRoot);
+  const registryBytes = bytes(root, ["show", `HEAD:${LOCAL_WORKSPACE_PATH}`]);
+  const registry = JSON.parse(registryBytes);
+  requireFact(registry.scope === "local-commit-and-pr", "remote-operation-denied");
+  const authorization = receiptFor(root, context, registry, "push");
+  const candidate = candidateIdentity(root, controlRoot, registryBytes);
+  const remote = authorization.receipt.remote;
+  const ref = `refs/heads/${registry.task.branch}`;
+  requireFact(remoteName === "origin" && remoteLocation === "https://github.com/HUDongpin/SENA.git" &&
+    isDeepStrictEqual(Object.keys(remote).sort(), ["name", "url", "ref", "expectedOldSha"].sort()) &&
+    remote.name === remoteName && remote.url === remoteLocation && remote.ref === ref &&
+    /^[a-f0-9]{40}$/.test(remote.expectedOldSha), "push-remote-identity");
+  requireFact(isDeepStrictEqual(authorization.receipt.candidate, candidate) &&
+    candidate.indexTree === text(root, ["rev-parse", "HEAD^{tree}"]) &&
+    bytes(root, ["status", "--porcelain=v1"]).length === 0, "push-candidate");
+  const lines = (updatesText ?? `${ref} ${context.head} ${ref} ${remote.expectedOldSha}`)
+    .trim().split("\n");
+  requireFact(lines.length === 1, "push-update-count");
+  const update = lines[0].trim().split(/\s+/);
+  requireFact(isDeepStrictEqual(update, [ref, context.head, ref, remote.expectedOldSha]), "push-update");
+  if (remote.expectedOldSha !== "0".repeat(40)) {
+    requireFact(git(root, ["merge-base", "--is-ancestor", remote.expectedOldSha, context.head], true).status === 0,
+      "push-not-fast-forward");
+  }
+  validateLocalWorkspace({ root, controlRoot, registryBytes });
+  const live = text(root, ["ls-remote", "--refs", remote.url, ref]);
+  requireFact(live === (remote.expectedOldSha === "0".repeat(40) ? "" : `${remote.expectedOldSha}\t${ref}`),
+    "push-remote-changed");
+  requireFact(isDeepStrictEqual(candidate, candidateIdentity(root, controlRoot,
+    bytes(root, ["show", `HEAD:${LOCAL_WORKSPACE_PATH}`]))) &&
+    receiptFor(root, context, registry, "push").sha256 === authorization.sha256 &&
+    bytes(root, ["status", "--porcelain=v1"]).length === 0,
+  "push-final-observation-changed");
+  checkExecutingCode(root, registry.historicalSource.commit);
+  return { taskId: registry.task.taskId, head: context.head, ref, expectedOldSha: remote.expectedOldSha };
+}
+
+// CI verifies committed provenance only. It neither loads private host receipts
+// nor enables any native write/push command.
+export function isHistoricalLocalMainEvent({ root, event, environment = process.env }) {
+  if (environment.GITHUB_EVENT_NAME !== "push" || environment.GITHUB_REF !== "refs/heads/main") return false;
+  requireFact(environment.GITHUB_ACTIONS === "true" &&
+    environment.GITHUB_REPOSITORY === "HUDongpin/SENA" &&
+    event.repository?.full_name === "HUDongpin/SENA" && event.ref === "refs/heads/main" &&
+    event.forced === false && event.deleted === false &&
+    /^[a-f0-9]{40}$/.test(event.before) && event.before !== "0".repeat(40) &&
+    /^[a-f0-9]{40}$/.test(event.after) &&
+    environment.GITHUB_SHA === event.after && text(root, ["rev-parse", "HEAD"]) === event.after,
+  "ci-main-event");
+  requireFact(git(root, ["merge-base", "--is-ancestor", event.before, event.after], true).status === 0,
+    "ci-main-ancestry");
+  const registry = JSON.parse(bytes(root, ["show", `${event.after}:${LOCAL_WORKSPACE_PATH}`]));
+  const source = registry.historicalSource;
+  requireFact(registry.schemaVersion === LOCAL_WORKSPACE_SCHEMA &&
+    registry.historicalAuthority === "non-authorizing" &&
+    /^[a-f0-9]{40}$/.test(source?.commit) && source.registryPath === LEGACY_REGISTRY &&
+    git(root, ["merge-base", "--is-ancestor", source.commit, event.after], true).status === 0 &&
+    text(root, ["rev-parse", `${source.commit}^{tree}`]) === source.tree &&
+    text(root, ["rev-parse", `${source.commit}:${LEGACY_REGISTRY}`]) === source.registryBlob &&
+    sha(bytes(root, ["show", `${source.commit}:${LEGACY_REGISTRY}`])) === source.registrySha256,
+  "ci-main-historical-source");
+  return true;
+}
+
+export function validatePortableLocalWorkspace({ root, event, environment = process.env }) {
+  requireFact(environment.GITHUB_ACTIONS === "true" &&
+    environment.GITHUB_REPOSITORY === "HUDongpin/SENA" &&
+    event.repository?.full_name === "HUDongpin/SENA", "ci-repository");
+  const kind = environment.GITHUB_EVENT_NAME;
+  let head, ref, before;
+  const checkout = text(root, ["rev-parse", "HEAD"]);
+  requireFact(environment.GITHUB_SHA === checkout, "ci-checkout");
+  if (kind === "push") {
+    ({ after: head, ref, before } = event);
+    requireFact(event.deleted === false && event.forced === false &&
+      environment.GITHUB_REF === ref && checkout === head, "ci-push-event");
+  } else {
+    requireFact(kind === "pull_request" && event.pull_request?.base?.repo?.full_name === "HUDongpin/SENA" &&
+      event.pull_request?.head?.repo?.full_name === "HUDongpin/SENA" &&
+      event.pull_request.base.ref === "main", "ci-pr-event");
+    head = event.pull_request.head.sha;
+    before = event.pull_request.base.sha;
+    ref = `refs/heads/${event.pull_request.head.ref}`;
+    requireFact(environment.GITHUB_REF === `refs/pull/${event.number}/merge` ||
+      environment.GITHUB_REF === ref, "ci-pr-ref");
+    requireFact(checkout === head ||
+      text(root, ["rev-list", "--parents", "-n", "1", checkout]) === `${checkout} ${before} ${head}`,
+    "ci-pr-checkout");
+  }
+  requireFact(/^[a-f0-9]{40}$/.test(head) && /^[a-f0-9]{40}$/.test(before), "ci-event-sha");
+  const registry = JSON.parse(bytes(root, ["show", `${head}:${LOCAL_WORKSPACE_PATH}`]));
+  requireFact(registry.schemaVersion === LOCAL_WORKSPACE_SCHEMA && registry.scope === "local-commit-and-pr" &&
+    registry.historicalAuthority === "non-authorizing" &&
+    registry.authorization?.operations?.join(",") === "commit,push,pr" &&
+    registry.authorization.threadId === registry.task.threadId &&
+    registry.task.branch.startsWith("codex/") && ref === `refs/heads/${registry.task.branch}`, "ci-task");
+  const source = registry.historicalSource;
+  requireFact(validAllowedPaths(registry.task.allowedPaths), "ci-allowed-paths");
+  requireFact(/^[a-f0-9]{40}$/.test(source.commit) && source.registryPath === LEGACY_REGISTRY &&
+    registry.task.baseSha === source.commit, "ci-source");
+  requireFact(text(root, ["rev-parse", `${source.commit}^{tree}`]) === source.tree &&
+    text(root, ["rev-parse", `${source.commit}:${LEGACY_REGISTRY}`]) === source.registryBlob &&
+    sha(bytes(root, ["show", `${source.commit}:${LEGACY_REGISTRY}`])) === source.registrySha256 &&
+    sha(bytes(root, ["show", `${head}:${LEGACY_REGISTRY}`])) === source.registrySha256, "ci-source-identity");
+  requireFact(git(root, ["merge-base", "--is-ancestor", source.commit, head], true).status === 0 &&
+    changedHistoryPaths(root, source.commit, head).every(path => registry.task.allowedPaths.includes(path)),
+  "ci-history-scope");
+  const commitBase = registry.task.commitBaseSha ?? source.commit;
+  requireFact(/^[a-f0-9]{40}$/.test(commitBase) &&
+    git(root, ["merge-base", "--is-ancestor", source.commit, commitBase], true).status === 0 &&
+    text(root, ["rev-list", "--parents", "-n", "1", head]) === `${head} ${commitBase}`,
+  "ci-commit-base");
+  if (kind === "push" && before !== "0".repeat(40)) {
+    requireFact(git(root, ["merge-base", "--is-ancestor", before, head], true).status === 0, "ci-push-ancestry");
+  }
+  return {
+    head, ref, before, kind, sourceCommit: source.commit, portableProvenance: "verified",
+    historicalLiveCustody: "not-recertified", localCommitAuthorized: false, remoteOperationsAuthorized: false
   };
 }
 

@@ -1,7 +1,7 @@
 {
   "schemaVersion": "sena-local-workspace/v1",
   "repo": "/Volumes/Mars/SENA",
-  "scope": "local-commit-only",
+  "scope": "local-commit-and-pr",
   "historicalAuthority": "non-authorizing",
   "historicalSource": {
     "repo": "/Volumes/Starship/SENA",
@@ -17,14 +17,13 @@
   },
   "authorization": {
     "threadId": "01a1583f-655e-7441-ae38-88c2a4bc2abf",
-    "userInstruction": "授权我继续处理 Mars 工作区的治理迁移与本次任务登记，再建立独立分支完成提交",
+    "userInstruction": "commit and make a pr",
     "operations": [
-      "relocate",
-      "register",
-      "branch",
-      "commit"
+      "commit",
+      "push",
+      "pr"
     ],
-    "authorizedAt": "2026-10-20T08:26:15.368Z"
+    "authorizedAt": "2026-10-20T08:57:55.699Z"
   },
   "task": {
     "taskId": "SENA-CODING-SCOPE-MARS-20261020",
@@ -34,6 +33,7 @@
     "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-coding-scope-mars/SENA",
     "baseSha": "c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
     "allowedPaths": [
+      ".github/workflows/repo-security-gate.yml",
       "CONTEXT.md",
       "coordination/repo-governance/README.md",
       "coordination/repo-governance/local-workspace.json",
@@ -46,12 +46,13 @@
       "sena-hk-template/components/WorkspacePreview.tsx"
     ],
     "disposition": "active",
-    "noPrReason": "Owner authorized local migration, task registration, branch creation and one scoped commit only. No push, PR, merge, ref deletion, worktree cleanup or deployment is authorized."
+    "noPrReason": "Owner authorized committing the scoped delivery update, pushing this exact task branch and opening its pull request. Merge, deployment, deletion and unrelated remote changes remain unauthorized.",
+    "commitBaseSha": "e6d9e2b356eacc09b9c6dbc247091c63a7aed21b"
   },
   "preservation": {
     "refs": [
-      "refs/codex/turn-diffs/captures/1792483637665/4c485c7e-0003-4706-a0e5-2d82f9e7f55d/base 535947d3ff72ffb27b9f838e31c81dad41abc133",
-      "refs/codex/turn-diffs/checkpoints/0cc11f04086606f3ad18f489d52a9ea3/3d53bd89cbe09d0388405c8841d66f4d/1792482764376/a67ffd51-2799-4e45-9a4f-81584f04f2e7 de6184c4e5685a0566f332a61a4305e002d8ae51",
+      "refs/codex/turn-diffs/captures/1792485625387/aa23a9be-dd51-4716-bde7-52f881365c65/base 535947d3ff72ffb27b9f838e31c81dad41abc133",
+      "refs/codex/turn-diffs/checkpoints/0cc11f04086606f3ad18f489d52a9ea3/5d3910771cb17dd4e5a0f91a9504a72b/1792485411325/73a4c0a6-a168-48f6-bc06-88bdea5e2293 535947d3ff72ffb27b9f838e31c81dad41abc133",
       "refs/codex/turn-diffs/checkpoints/4511ca097b869f78cf4ed5886738adc4/dd67bf48927da2e30f5704c6045d7bff/1792481886925/a20f3e83-c407-4840-9f18-04c5213e9530 8ca245a5fb72938307cda26c55545a5ec1221dfa",
       "refs/heads/claude/quirky-merkle-da02fa 1248ec261711e1ed544b9bda4c04aa17034072d6",
       "refs/heads/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",

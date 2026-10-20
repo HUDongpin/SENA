@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import {
-  chmodSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, readFileSync,
+  chmodSync, copyFileSync, existsSync as prExistsSync, linkSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, renameSync, rmSync, symlinkSync, writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +11,8 @@ import { dirname, join } from "node:path";
 import {
   LOCAL_WORKSPACE_PATH, LOCAL_WORKSPACE_SCHEMA,
   captureLocalPreservation, hasLocalWorkspaceIdentity,
-  localCandidateIdentity, mapHistoricalWorkspacePath, validateLocalWorkspace
+  localCandidateIdentity, mapHistoricalWorkspacePath, validateLocalWorkspace,
+  validateLocalPush, validatePortableLocalWorkspace, isHistoricalLocalMainEvent
 } from "../sena-local-workspace-governance.mjs";
 
 const LEGACY_PATH = "coordination/repo-governance/active-work.json";
@@ -324,9 +325,9 @@ test("a symlink at the native index path is rejected even when its bytes match",
   const moved = join(fx.temp, "moved-index");
   renameSync(index, moved);
   symlinkSync(moved, index);
-  // Git resolves this symlink when reporting --git-path, so the native-path
-  // equality guard rejects it before the later regular-file check.
-  rejectsRule(() => fx.validate(), "native-context");
+  // Git versions may report the lexical or resolved index path; either
+  // custody guard must reject the symlink.
+  assert.throws(() => fx.validate(), /rule=local-workspace-(native-context|path-not-physical)/);
 });
 
 test("root relocation respects path-segment boundaries and preserves sibling custody paths", () => {
@@ -337,4 +338,323 @@ test("root relocation respects path-segment boundaries and preserves sibling cus
   for (const sibling of [`${from}的衍生文件`, `${from}-backups`]) {
     assert.equal(mapHistoricalWorkspacePath(sibling, from, to), sibling);
   }
+});
+
+const PR_REMOTE_URL = "https://github.com/HUDongpin/SENA.git";
+const PR_ZERO_SHA = "0".repeat(40);
+
+function publishingFixture(t) {
+  const fx = fixture(t);
+  fx.validate();
+  runGit(fx.root, ["commit", "-m", "Commit original local coding scope"]);
+  const firstCommit = gitText(fx.root, ["rev-parse", "HEAD"]);
+  fx.registry.scope = "local-commit-and-pr";
+  fx.registry.authorization.operations = ["commit", "push", "pr"];
+  fx.registry.authorization.userInstruction = "Commit these changes and create a pull request.";
+  fx.registry.task.commitBaseSha = firstCommit;
+  fx.registry.task.noPrReason = "A PR is authorized after this exact branch is published.";
+  fx.writeRegistry();
+  fx.seal();
+  fx.validate();
+  runGit(fx.root, ["commit", "-m", "Bind explicit commit and PR authorization"]);
+  const head = gitText(fx.root, ["rev-parse", "HEAD"]);
+  const ref = `refs/heads/${fx.branch}`;
+  const pushReceiptPath = join(fx.authorizationDirectory, `${fx.registry.task.taskId}.push.json`);
+  const now = Date.now();
+  const pushReceipt = {
+    schemaVersion: "sena-local-push-authorization/v1",
+    taskId: fx.registry.task.taskId, ownerKey: fx.registry.task.ownerKey,
+    authorization: fx.registry.authorization,
+    createdAt: new Date(now - 1000).toISOString(),
+    expiresAt: new Date(now + 60 * 60 * 1000).toISOString(),
+    candidate: localCandidateIdentity(fx.root, fx.controlRoot),
+    remote: { name: "origin", url: PR_REMOTE_URL, ref, expectedOldSha: PR_ZERO_SHA }
+  };
+  put(pushReceiptPath, encode(pushReceipt), 0o600);
+  const updatesText = `${ref} ${head} ${ref} ${PR_ZERO_SHA}\n`;
+  return { ...fx, head, firstCommit, ref, pushReceipt, pushReceiptPath, updatesText };
+}
+
+// All native Git operations remain real. The only intercepted command is the
+// exact public remote-ref observation. Unexpected external operations fail
+// closed, and the sentinel proves validation actually made the observation.
+function withRemoteObservation(fx, observed, action, addUntrackedDuringObservation = false) {
+  const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+  const bin = join(fx.temp, "remote-observation-bin");
+  const sentinel = join(fx.temp, "remote-observation.log");
+  put(join(bin, "git"), `#!${process.execPath}
+import { appendFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+const args = process.argv.slice(2);
+const commandIndex = args.indexOf("ls-remote");
+if (commandIndex >= 0) {
+  const expected = ["--no-replace-objects", "-C", ${JSON.stringify(fx.root)},
+    "ls-remote", "--refs", ${JSON.stringify(PR_REMOTE_URL)}, ${JSON.stringify(fx.ref)}];
+  if (JSON.stringify(args) !== JSON.stringify(expected)) process.exit(97);
+  appendFileSync(${JSON.stringify(sentinel)}, JSON.stringify(args) + "\\n");
+  if (${addUntrackedDuringObservation}) writeFileSync(${JSON.stringify(join(fx.root, "unexpected.txt"))}, "concurrent file\\n");
+  process.stdout.write(${JSON.stringify(observed)});
+  process.exit(0);
+}
+if (args.some(arg => ["push", "fetch", "pull", "clone"].includes(arg))) process.exit(98);
+const result = spawnSync(${JSON.stringify(realGit)}, args, { stdio: "inherit", env: process.env });
+process.exit(result.status ?? 99);
+`, 0o755);
+  const oldPath = process.env.PATH;
+  process.env.PATH = `${bin}:${oldPath}`;
+  try {
+    return action(() => prExistsSync(sentinel)
+      ? readFileSync(sentinel, "utf8").trim().split("\n").filter(Boolean).length : 0);
+  } finally {
+    process.env.PATH = oldPath;
+  }
+}
+
+function pushValidation(fx, overrides = {}) {
+  return validateLocalPush({
+    root: fx.root, controlRoot: fx.controlRoot, updatesText: fx.updatesText,
+    remoteName: "origin", remoteLocation: PR_REMOTE_URL, ...overrides
+  });
+}
+
+function portableFixture(t, kind) {
+  const fx = publishingFixture(t);
+  const root = join(fx.temp, "portable-clone");
+  runGit(fx.temp, ["clone", "--no-local", "--no-hardlinks", fx.controlRoot, root]);
+  runGit(root, ["remote", "set-url", "origin", PR_REMOTE_URL]);
+  runGit(root, ["config", "user.name", "SENA Portable Test"]);
+  runGit(root, ["config", "user.email", "sena-portable@example.invalid"]);
+  runGit(root, ["config", "commit.gpgsign", "false"]);
+  runGit(root, ["config", "core.hooksPath", ".githooks"]);
+  runGit(root, ["checkout", "--detach", fx.head]);
+  let checkout = fx.head;
+  let event;
+  let githubRef;
+  if (kind === "pull_request") {
+    checkout = gitText(root, ["commit-tree", `${fx.head}^{tree}`,
+      "-p", fx.base, "-p", fx.head, "-m", "Synthetic PR merge"]);
+    runGit(root, ["checkout", "--detach", checkout]);
+    githubRef = "refs/pull/17/merge";
+    event = {
+      repository: { full_name: "HUDongpin/SENA" }, number: 17,
+      pull_request: {
+        base: { sha: fx.base, ref: "main", repo: { full_name: "HUDongpin/SENA" } },
+        head: { sha: fx.head, ref: fx.branch, repo: { full_name: "HUDongpin/SENA" } }
+      }
+    };
+  } else {
+    githubRef = fx.ref;
+    event = {
+      repository: { full_name: "HUDongpin/SENA" }, ref: fx.ref,
+      before: PR_ZERO_SHA, after: fx.head, deleted: false, forced: false
+    };
+  }
+  const environment = {
+    GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "HUDongpin/SENA",
+    GITHUB_EVENT_NAME: kind, GITHUB_SHA: checkout, GITHUB_REF: githubRef
+  };
+  // The source fixture still has its original absolute paths in the committed
+  // registry, but neither private receipt nor rescue evidence is reachable.
+  renameSync(fx.authorizationDirectory, `${fx.authorizationDirectory}-offline`);
+  renameSync(dirname(fx.bundlePath), `${dirname(fx.bundlePath)}-offline`);
+  assert.equal(prExistsSync(join(root, ".git/sena-local-authorizations")), false);
+  assert.equal(prExistsSync(fx.receiptPath), false);
+  assert.equal(prExistsSync(fx.bundlePath), false);
+  return { ...fx, root, event, environment, checkout };
+}
+
+test("PR delivery: exact branch push requires a real bounded remote observation", t => {
+  const fx = publishingFixture(t);
+  withRemoteObservation(fx, "", count => {
+    assert.deepEqual(pushValidation(fx), {
+      taskId: fx.registry.task.taskId, head: fx.head, ref: fx.ref, expectedOldSha: PR_ZERO_SHA
+    });
+    assert.equal(count(), 1);
+  });
+});
+
+test("PR delivery: main, tags, deletion, wrong head and multiple refs cannot borrow push approval", t => {
+  const fx = publishingFixture(t);
+  const invalid = [
+    `${fx.ref} ${fx.head} refs/heads/main ${PR_ZERO_SHA}\n`,
+    `${fx.ref} ${fx.head} refs/tags/release ${PR_ZERO_SHA}\n`,
+    `(delete) ${PR_ZERO_SHA} ${fx.ref} ${fx.head}\n`,
+    `${fx.ref} ${fx.base} ${fx.ref} ${PR_ZERO_SHA}\n`,
+    `${fx.ref} ${fx.head} ${fx.ref} ${fx.base}\n`
+  ];
+  withRemoteObservation(fx, "", count => {
+    for (const updatesText of invalid) {
+      rejectsRule(() => pushValidation(fx, { updatesText }), "push-update");
+    }
+    rejectsRule(() => pushValidation(fx, { updatesText: fx.updatesText.repeat(2) }), "push-update-count");
+    assert.equal(count(), 0);
+  });
+});
+
+test("PR delivery: wrong remote and stale receipt are rejected before external observation", t => {
+  const fx = publishingFixture(t);
+  withRemoteObservation(fx, "", count => {
+    rejectsRule(() => pushValidation(fx, { remoteName: "another-origin" }), "push-remote-identity");
+    rejectsRule(() => pushValidation(fx, { remoteLocation: "https://github.com/another/repository.git" }), "push-remote-identity");
+    const receipt = structuredClone(fx.pushReceipt);
+    receipt.candidate.head = fx.base;
+    put(fx.pushReceiptPath, encode(receipt), 0o600);
+    rejectsRule(() => pushValidation(fx), "push-candidate");
+    receipt.candidate = fx.pushReceipt.candidate;
+    receipt.createdAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    receipt.expiresAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    put(fx.pushReceiptPath, encode(receipt), 0o600);
+    rejectsRule(() => pushValidation(fx), "authorization-expired");
+    assert.equal(count(), 0);
+  });
+});
+
+test("PR delivery: a changed live remote ref invalidates the exact new-branch approval", t => {
+  const fx = publishingFixture(t);
+  withRemoteObservation(fx, `${fx.base}\t${fx.ref}\n`, count => {
+    rejectsRule(() => pushValidation(fx), "push-remote-changed");
+    assert.equal(count(), 1);
+  });
+});
+
+test("PR delivery: portable push provenance works without host custody and grants no authority", t => {
+  const fx = portableFixture(t, "push");
+  const result = validatePortableLocalWorkspace(fx);
+  assert.equal(result.head, fx.head);
+  assert.equal(result.sourceCommit, fx.base);
+  assert.equal(result.portableProvenance, "verified");
+  assert.equal(result.historicalLiveCustody, "not-recertified");
+  assert.equal(result.localCommitAuthorized, false);
+  assert.equal(result.remoteOperationsAuthorized, false);
+});
+
+test("PR delivery: detached PR merge validates its exact ordered base and head parents", t => {
+  const fx = portableFixture(t, "pull_request");
+  assert.equal(gitText(fx.root, ["rev-list", "--parents", "-n", "1", "HEAD"]),
+    `${fx.checkout} ${fx.base} ${fx.head}`);
+  const result = validatePortableLocalWorkspace(fx);
+  assert.equal(result.kind, "pull_request");
+  assert.equal(result.head, fx.head);
+  assert.equal(result.localCommitAuthorized, false);
+  assert.equal(result.remoteOperationsAuthorized, false);
+});
+
+test("PR delivery: portable push rejects wrong repository, checkout, ref and forced or deleted events", t => {
+  const fx = portableFixture(t, "push");
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, environment: { ...fx.environment, GITHUB_ACTIONS: "false" }
+  }), "ci-repository");
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, environment: { ...fx.environment, GITHUB_REPOSITORY: "another/repository" }
+  }), "ci-repository");
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, environment: { ...fx.environment, GITHUB_SHA: fx.base }
+  }), "ci-checkout");
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, environment: { ...fx.environment, GITHUB_REF: "refs/heads/main" }
+  }), "ci-push-event");
+  for (const patch of [{ forced: true }, { deleted: true }, { after: fx.base }]) {
+    rejectsRule(() => validatePortableLocalWorkspace({
+      ...fx, event: { ...fx.event, ...patch }
+    }), "ci-push-event");
+  }
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, event: { ...fx.event, ref: "refs/heads/codex/unregistered" },
+    environment: { ...fx.environment, GITHUB_REF: "refs/heads/codex/unregistered" }
+  }), "ci-task");
+});
+
+test("PR delivery: portable PR rejects fork identity and incorrect synthetic merge parents", t => {
+  const fx = portableFixture(t, "pull_request");
+  const event = structuredClone(fx.event);
+  event.pull_request.head.repo.full_name = "another/SENA";
+  rejectsRule(() => validatePortableLocalWorkspace({ ...fx, event }), "ci-pr-event");
+  const wrongMerge = gitText(fx.root, ["commit-tree", `${fx.head}^{tree}`,
+    "-p", fx.head, "-p", fx.base, "-m", "Wrong parent order"]);
+  runGit(fx.root, ["checkout", "--detach", wrongMerge]);
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, environment: { ...fx.environment, GITHUB_SHA: wrongMerge }
+  }), "ci-pr-checkout");
+});
+
+test("PR delivery: portable source identity cannot be rewritten by the candidate commit", t => {
+  const fx = portableFixture(t, "push");
+  const registry = JSON.parse(readFileSync(join(fx.root, LOCAL_WORKSPACE_PATH)));
+  registry.historicalSource.registrySha256 = "0".repeat(64);
+  put(join(fx.root, LOCAL_WORKSPACE_PATH), encode(registry));
+  runGit(fx.root, ["add", "--", LOCAL_WORKSPACE_PATH]);
+  runGit(fx.root, ["commit", "-m", "Tamper historical source hash"]);
+  const tampered = gitText(fx.root, ["rev-parse", "HEAD"]);
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, event: { ...fx.event, after: tampered },
+    environment: { ...fx.environment, GITHUB_SHA: tampered }
+  }), "ci-source-identity");
+});
+
+test("PR delivery: intermediate out-of-scope changes remain rejected after their final-tree removal", t => {
+  const fx = portableFixture(t, "push");
+  put(join(fx.root, "outside-scope.ts"), "export const unauthorized = true;\n");
+  runGit(fx.root, ["add", "--", "outside-scope.ts"]);
+  runGit(fx.root, ["commit", "-m", "Add out-of-scope source"]);
+  runGit(fx.root, ["rm", "--", "outside-scope.ts"]);
+  runGit(fx.root, ["commit", "-m", "Remove out-of-scope source"]);
+  const changed = gitText(fx.root, ["rev-parse", "HEAD"]);
+  assert.equal(gitText(fx.root, ["diff", "--name-only", fx.head, changed]), "");
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, event: { ...fx.event, after: changed },
+    environment: { ...fx.environment, GITHUB_SHA: changed }
+  }), "ci-history-scope");
+});
+
+test("PR delivery: portable allowlists require exact relative-path arrays", t => {
+  const fx = portableFixture(t, "push");
+  for (const paths of ["app/page.tsx coordination/repo-governance/local-workspace.json", ["**"], ["../outside"]]) {
+    const registry = JSON.parse(readFileSync(join(fx.root, LOCAL_WORKSPACE_PATH)));
+    registry.task.allowedPaths = paths;
+    put(join(fx.root, LOCAL_WORKSPACE_PATH), encode(registry));
+    runGit(fx.root, ["add", "--", LOCAL_WORKSPACE_PATH]);
+    runGit(fx.root, ["commit", "-m", "Malformed portable allowlist"]);
+    const head = gitText(fx.root, ["rev-parse", "HEAD"]);
+    rejectsRule(() => validatePortableLocalWorkspace({
+      ...fx, event: { ...fx.event, after: head },
+      environment: { ...fx.environment, GITHUB_SHA: head }
+    }), "ci-allowed-paths");
+  }
+});
+
+test("PR delivery: an extra in-scope descendant still needs its own commit-base registration", t => {
+  const fx = portableFixture(t, "push");
+  put(join(fx.root, TARGET_PATH), "export const anotherChange = true;\n");
+  runGit(fx.root, ["add", "--", TARGET_PATH]);
+  runGit(fx.root, ["commit", "-m", "Unregistered next commit"]);
+  const head = gitText(fx.root, ["rev-parse", "HEAD"]);
+  rejectsRule(() => validatePortableLocalWorkspace({
+    ...fx, event: { ...fx.event, after: head },
+    environment: { ...fx.environment, GITHUB_SHA: head }
+  }), "ci-commit-base");
+});
+
+test("PR delivery: a new untracked file during remote read fails the final clean barrier", t => {
+  const fx = publishingFixture(t);
+  withRemoteObservation(fx, "", () => {
+    rejectsRule(() => pushValidation(fx), "push-final-observation-changed");
+  }, true);
+});
+
+test("PR delivery: integrated main retires task authority without pinning future ledger bytes", t => {
+  const fx = portableFixture(t, "push");
+  const integrated = gitText(fx.root, ["commit-tree", `${fx.head}^{tree}`,
+    "-p", fx.base, "-p", fx.head, "-m", "Integrate reviewed feature"]);
+  runGit(fx.root, ["checkout", "--detach", integrated]);
+  put(join(fx.root, LEGACY_PATH), Buffer.concat([readFileSync(join(fx.root, LEGACY_PATH)), Buffer.from("\n")]));
+  runGit(fx.root, ["add", LEGACY_PATH]);
+  runGit(fx.root, ["commit", "-m", "Later legitimate ledger update"]);
+  const after = gitText(fx.root, ["rev-parse", "HEAD"]);
+  const event = { ...fx.event, ref: "refs/heads/main", before: integrated, after };
+  const environment = { ...fx.environment, GITHUB_REF: event.ref, GITHUB_SHA: after };
+  assert.equal(isHistoricalLocalMainEvent({ root: fx.root, event, environment }), true);
+  rejectsRule(() => isHistoricalLocalMainEvent({
+    root: fx.root, event: { ...event, forced: true }, environment
+  }), "ci-main-event");
+  assert.equal(isHistoricalLocalMainEvent(fx), false);
 });
