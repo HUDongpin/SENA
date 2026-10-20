@@ -1,0 +1,361 @@
+{
+  "schemaVersion": "sena-local-workspace/v1",
+  "repo": "/Volumes/Mars/SENA",
+  "scope": "local-commit-only",
+  "historicalAuthority": "non-authorizing",
+  "historicalSource": {
+    "repo": "/Volumes/Starship/SENA",
+    "commit": "c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+    "tree": "92eb6fefc6127ad3120c8d05a9b61b2cf3ae8799",
+    "registryPath": "coordination/repo-governance/active-work.json",
+    "registryBlob": "5225f6787f772b5dc6ae49edf6fd539e18246ac0",
+    "registrySha256": "333016fa31ed1244f82f876670e3943588c82d92e57a7ab39bf0f94569714f19"
+  },
+  "pathMapping": {
+    "from": "/Volumes/Starship/SENA",
+    "to": "/Volumes/Mars/SENA"
+  },
+  "authorization": {
+    "threadId": "01a1583f-655e-7441-ae38-88c2a4bc2abf",
+    "userInstruction": "授权我继续处理 Mars 工作区的治理迁移与本次任务登记，再建立独立分支完成提交",
+    "operations": [
+      "relocate",
+      "register",
+      "branch",
+      "commit"
+    ],
+    "authorizedAt": "2026-10-20T08:26:15.368Z"
+  },
+  "task": {
+    "taskId": "SENA-CODING-SCOPE-MARS-20261020",
+    "threadId": "01a1583f-655e-7441-ae38-88c2a4bc2abf",
+    "ownerKey": "Codex-task-01a1583f-655e-7441-ae38-88c2a4bc2abf",
+    "branch": "codex/sena-coding-scope-mars-20261020",
+    "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-coding-scope-mars/SENA",
+    "baseSha": "c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+    "allowedPaths": [
+      "CONTEXT.md",
+      "coordination/repo-governance/README.md",
+      "coordination/repo-governance/local-workspace.json",
+      "scripts/__tests__/sena-local-workspace-governance.test.mjs",
+      "scripts/sena-local-workspace-governance.mjs",
+      "scripts/verify-sena-repo-governance.mjs",
+      "sena-hk-template/README.md",
+      "sena-hk-template/components/LanguageProvider.tsx",
+      "sena-hk-template/components/Workflow.tsx",
+      "sena-hk-template/components/WorkspacePreview.tsx"
+    ],
+    "disposition": "active",
+    "noPrReason": "Owner authorized local migration, task registration, branch creation and one scoped commit only. No push, PR, merge, ref deletion, worktree cleanup or deployment is authorized."
+  },
+  "preservation": {
+    "refs": [
+      "refs/codex/turn-diffs/captures/1792483637665/4c485c7e-0003-4706-a0e5-2d82f9e7f55d/base 535947d3ff72ffb27b9f838e31c81dad41abc133",
+      "refs/codex/turn-diffs/checkpoints/0cc11f04086606f3ad18f489d52a9ea3/3d53bd89cbe09d0388405c8841d66f4d/1792482764376/a67ffd51-2799-4e45-9a4f-81584f04f2e7 de6184c4e5685a0566f332a61a4305e002d8ae51",
+      "refs/codex/turn-diffs/checkpoints/4511ca097b869f78cf4ed5886738adc4/dd67bf48927da2e30f5704c6045d7bff/1792481886925/a20f3e83-c407-4840-9f18-04c5213e9530 8ca245a5fb72938307cda26c55545a5ec1221dfa",
+      "refs/heads/claude/quirky-merkle-da02fa 1248ec261711e1ed544b9bda4c04aa17034072d6",
+      "refs/heads/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",
+      "refs/heads/codex/sena-a01-post-g-governance-20260924 37fc70188c31737f2f6424d0dc9384fe52164df7",
+      "refs/heads/codex/sena-a01-repo-governance-20260827 1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+      "refs/heads/codex/sena-branch-retirement-20260829 e24c635d1f53fccb2264c6be002aec2775de127c",
+      "refs/heads/codex/sena-convergence-currentness-20260907 b9c25385453ee4da26e261c945dd125b0cd856ab",
+      "refs/heads/codex/sena-convergence-integration-20260906 c782aa03940028a2c19db18dfddec55370c797b1",
+      "refs/heads/codex/sena-convergence-q-currentness-20260908 e366df35d8304ddc0c2b5d963301b8a9324e2975",
+      "refs/heads/codex/sena-evidenceflow-v1-20260828 434a1aac542e60e793afef77fb35104cdb470d53",
+      "refs/heads/codex/sena-g-local-integration-20260923 7b993b4f7acd5c4a9d0ee417438a12afc4277dcb",
+      "refs/heads/codex/sena-h-governance-intake-20260908 23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+      "refs/heads/codex/sena-human-ai-research-docs 5537582fbf820951777f88ef5bc5c63e23feada3",
+      "refs/heads/codex/sena-main-gap-mobile-release-20260904 59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+      "refs/heads/codex/sena-mobile-research-pilot-20260905 b9c25385453ee4da26e261c945dd125b0cd856ab",
+      "refs/heads/codex/sena-post-pr83-currentness-correction-20260903 03e24b66ff7ab2792762d073cd7ea675c181fd89",
+      "refs/heads/codex/sena-pr80-post-main-closeout-20260901 0444b59968f6699f0ace6f4cb6eda4d6f8f44695",
+      "refs/heads/codex/sena-pr82-clean-final-forward-fix-20260902 0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+      "refs/heads/codex/sena-pr86-delivery-closeout-20260907 e366df35d8304ddc0c2b5d963301b8a9324e2975",
+      "refs/heads/codex/sena-protected-currentness-activation-repair-20260901 e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
+      "refs/heads/codex/sena-q-currentness-port-20260919 6ac9b9552b0b08f5b13aa80f592d743350069dce",
+      "refs/heads/codex/sena-statistical-integrity-v2 c81e6b337f7dc4fcac8baca49517b2f42c3eb774",
+      "refs/heads/docs/ledger-reconciliation-2026-08-19 18d542f707e56aa9d043dd497e0efe48b540db20",
+      "refs/heads/fix/ops-metrics-configured-gauge-pins b2d07177c23192cb6d9b730b330ae79cc2165525",
+      "refs/heads/grok/governance-currentness-heartbeat-20261011 20e1ffb32b78118ae57b4bd59627df4e406f57f0",
+      "refs/heads/grok/governance-currentness-heartbeat-20261013 f283e82a4d1a533f01d88faf82547c91b1311646",
+      "refs/heads/grok/governance-currentness-heartbeat-20261015 0d75b892716fba6904b24134c245d4631264468b",
+      "refs/heads/main 00d480e1584a417b48275d699bb18f31cf8f80f3",
+      "refs/keep-around/sena-pr46-final-handshake-autostash-index-20260901 08942f55d3ccc045b4bf6cc7643dfa138a0baf0b",
+      "refs/keep-around/sena-pr46-final-handshake-autostash-wip-20260901 65e60921138615ee3fb63f21d7f250cfb574eff7",
+      "refs/preserve/sena-evidenceflow-autostash-20260828T211255 ea2ef23babd57c4f0cbf5cfe8b9cf6fd290bf972",
+      "refs/preserve/sena-evidenceflow-autostash-20260828T233440 20337a8d9286d09ed3ff42f4c67f1b103e221fb8",
+      "refs/quarantine/sena-branch-retirement-20260829/ledger-reconciliation-2026-08-19 18d542f707e56aa9d043dd497e0efe48b540db20",
+      "refs/remotes/origin/HEAD c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+      "refs/remotes/origin/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",
+      "refs/remotes/origin/codex/sena-a01-repo-governance-20260827 1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+      "refs/remotes/origin/codex/sena-branch-retirement-20260829 ba85b0f66f80669197a2181e9dfab0e0044c9246",
+      "refs/remotes/origin/codex/sena-evidenceflow-v1-20260828 a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
+      "refs/remotes/origin/codex/sena-h-governance-intake-20260908 23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+      "refs/remotes/origin/codex/sena-main-gap-mobile-release-20260904 59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+      "refs/remotes/origin/codex/sena-mobile-research-pilot-20260905 2d4226cd81e05c2175732513972fdaf2d3f1efb2",
+      "refs/remotes/origin/codex/sena-post-pr83-currentness-correction-20260903 03e24b66ff7ab2792762d073cd7ea675c181fd89",
+      "refs/remotes/origin/codex/sena-pr80-post-main-closeout-20260901 0444b59968f6699f0ace6f4cb6eda4d6f8f44695",
+      "refs/remotes/origin/codex/sena-pr86-delivery-closeout-20260907 7fd9e29c34ee7c1573dc81f4824124faadbae279",
+      "refs/remotes/origin/codex/sena-protected-currentness-activation-repair-20260901 e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
+      "refs/remotes/origin/codex/sena-q-currentness-port-20260919 6ac9b9552b0b08f5b13aa80f592d743350069dce",
+      "refs/remotes/origin/cursor/a4-usability-empty-import-inspector-9f0f 81633f22f95666026dec59257271f31ea37b9884",
+      "refs/remotes/origin/cursor/ai-agent-cleaning-manifest-adr-0013-1658 d9a7004ac71e176801cc535390aaaa98b9ebb0aa",
+      "refs/remotes/origin/cursor/ai-agent-runs-provenance-adr-d9a4 89ae63d18b52bbd60d7fc0e8b0a5187826e368fc",
+      "refs/remotes/origin/cursor/currentness-heartbeat-20261002-8548 fcab2d77dbe7cdd3e9288f4d34098cd69831754c",
+      "refs/remotes/origin/cursor/currentness-heartbeat-e16c b5ff8823c4ab1f127a3b55a6f9fdb3a7f078499a",
+      "refs/remotes/origin/cursor/fix-canonical-snapshot-drift-85b6 93e8fa37d698897d2e5d6a0b7dff3756ad07fdda",
+      "refs/remotes/origin/cursor/governance-currentness-heartbeat-1f5e 634734b8c69c482992ed12450ec9a5ab923ad833",
+      "refs/remotes/origin/cursor/h-gov-seven-day-currentness-ecfd d189581f3dcce27af3617dd93252797acb5f0ce3",
+      "refs/remotes/origin/cursor/human-ai-deletion-execution-prep-b7ec 01ab0cf95128caf9065752d4a0930d5d55b10f78",
+      "refs/remotes/origin/cursor/human-ai-local-ref-retirement-f16c d08843664bd07bd42b72786d2341ce56e01a8e76",
+      "refs/remotes/origin/cursor/pin-frozen-governance-snapshot-clock-9c30 38803f67bdff1177f6436b26efc2dad02b27ad7f",
+      "refs/remotes/origin/cursor/researcher-walkthrough-handoff-949c 4b8d50f463aee73c94a847cb6c79372abdf4170c",
+      "refs/remotes/origin/cursor/sena-currentness-heartbeat-383e 7448f4443b2482771bbadfe0a0550256f9a89304",
+      "refs/remotes/origin/cursor/sena-governance-currentness-heartbeat-10ee 4b9e755ea99aa35335c494b83b760f6f8a7c4408",
+      "refs/remotes/origin/cursor/sena-governance-currentness-heartbeat-3d46 d90b864a0c384218f288ae2d7a51783b873ce035",
+      "refs/remotes/origin/cursor/sena-governance-currentness-heartbeat-6bed bc3f03efb533263a9ec5045ba2a4cbae4d63f756",
+      "refs/remotes/origin/cursor/sena-mobile-gih-currentness-heartbeat-0ea4 3ea7d3527104416fd28fda59a6f6ee8c87a6883a",
+      "refs/remotes/origin/cursor/sena-mobile-gih-currentness-heartbeat-d64f 38a26531d513e93d3eb9839a747a165b480f37e6",
+      "refs/remotes/origin/cursor/sena-registry-heartbeat-currentness-d2fa 955e9fb1dc9c13f1552909857a5ca284cb8b2bc5",
+      "refs/remotes/origin/cursor/test-processenv-typing-21a3 74f112675293710ed37ab2c1f84f6c3b30fe2572",
+      "refs/remotes/origin/grok/governance-currentness-heartbeat-20261011 20e1ffb32b78118ae57b4bd59627df4e406f57f0",
+      "refs/remotes/origin/grok/governance-currentness-heartbeat-20261013 f283e82a4d1a533f01d88faf82547c91b1311646",
+      "refs/remotes/origin/grok/governance-currentness-heartbeat-20261015 0d75b892716fba6904b24134c245d4631264468b",
+      "refs/remotes/origin/main c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+      "refs/rescue/sena-20260827/reflog-only-0190acc 0190acc272f12b037cf7b85443e6e8114668589a",
+      "refs/rescue/sena-20260827/unreachable-005f997236ad 005f997236ad2e67701badba6da4131247453a0f",
+      "refs/rescue/sena-20260827/unreachable-145c56698300 145c56698300649d31530ed3bb2755b6743ce35b",
+      "refs/rescue/sena-20260827/unreachable-165b180e3bfe 165b180e3bfea700597d66298072608a19c3c1e3",
+      "refs/rescue/sena-20260827/unreachable-18fb188c2ba5 18fb188c2ba58878ee6768c1117cc644851e4d13",
+      "refs/rescue/sena-20260827/unreachable-1da30b6340cf 1da30b6340cfd92697cee8d2322c21947198f236",
+      "refs/rescue/sena-20260827/unreachable-1f3b20e6ff65 1f3b20e6ff65e220d73d1ce9b2671d37a71c9183",
+      "refs/rescue/sena-20260827/unreachable-2a3437e91637 2a3437e91637a66e2e654a5bf942f952180c0316",
+      "refs/rescue/sena-20260827/unreachable-35f531fddba9 35f531fddba9293fb682378bda55a900fac16581",
+      "refs/rescue/sena-20260827/unreachable-6614e0cef2b7 6614e0cef2b75d36d1b62a18b9894a61a3bca208",
+      "refs/rescue/sena-20260827/unreachable-6654112 6654112296aeb78daa8e747b8c118f67b1dd9adb",
+      "refs/rescue/sena-20260827/unreachable-7dc4665cbdbf 7dc4665cbdbf1e842f0038728fd74bbb9728f9a8",
+      "refs/rescue/sena-20260827/unreachable-891f3dbbb996 891f3dbbb996e34fa9f04e4f9065adec1c8b83e0",
+      "refs/rescue/sena-20260827/unreachable-90b9e7adb11a 90b9e7adb11ab5d3aaea2dcd3afa4bd1feda61f8",
+      "refs/rescue/sena-20260827/unreachable-91ec7611b60c 91ec7611b60c2dbd2e16739221b51ca4d7fe1379",
+      "refs/rescue/sena-20260827/unreachable-98f4cfef4ac2 98f4cfef4ac2399faa2d4b3a43d74238955c7d95",
+      "refs/rescue/sena-20260827/unreachable-9e3c5ea731a8 9e3c5ea731a8385ee15610a92d92f90e142a0277",
+      "refs/rescue/sena-20260827/unreachable-b0ee35167452 b0ee35167452e4a7005ebfbd2604b8bee813033f",
+      "refs/rescue/sena-20260827/unreachable-bcde0f114de5 bcde0f114de5afb0a37728a25e8c0a9b91752c37",
+      "refs/rescue/sena-20260827/unreachable-c0638c160af1 c0638c160af1dd864569f2db3e751854ad205223",
+      "refs/rescue/sena-20260827/unreachable-d1e302fdf796 d1e302fdf7967f23f910fe3bfa491eab5b4422c9",
+      "refs/rescue/sena-20260827/unreachable-e630d58ae937 e630d58ae937ad2cde71c43d0a67d4a16872b355",
+      "refs/rescue/sena-20260827/unreachable-e695a7e7da3d e695a7e7da3dce5ab53858a1071744518d429d4e",
+      "refs/rescue/sena-20260827/unreachable-ed16f1b4ed2e ed16f1b4ed2e98ff5d1d14d5f9e4afdc6b8e7b05",
+      "refs/rescue/sena-20260827/unreachable-ee13637bf978 ee13637bf978e7373271f5575030f6b3e73fef4e",
+      "refs/rescue/sena-20260827/unreachable-ee59f1a13482 ee59f1a13482484010f93c4fbb161d1cecad5220",
+      "refs/rescue/sena-evidenceflow-v1-20260829/codex-baseline-merge-index-641b9048c11f 641b9048c11f1fcdebfb48ec2b563b37150e1f9b",
+      "refs/rescue/sena-evidenceflow-v1-20260829/codex-baseline-merge-wip-5ece94dfc9f2 5ece94dfc9f2b648ef18484c6e5eef9cdd01adcf",
+      "refs/rescue/sena-evidenceflow-v1-20260829/pr61-1fed-intake-index-4fcf0a8734e1 4fcf0a8734e17f3102eec3ce1e1231a26a0d3bfe",
+      "refs/rescue/sena-evidenceflow-v1-20260829/pr61-1fed-intake-wip-890c99a82014 890c99a820148da56ae8a796df399755f3a6849c",
+      "refs/rescue/sena-evidenceflow-v1-20260829/pr61-c9d-intake-index-f66f147794e2 f66f147794e260cc80c656ecbdb6b1d677cb5273",
+      "refs/rescue/sena-evidenceflow-v1-20260829/pr61-c9d-intake-wip-0472e497ed66 0472e497ed6680759dfd0723403c68be0af3737a",
+      "refs/rescue/sena-evidenceflow-v1-20260829/protected-main-be0-intake-index-447d5f89f3cd 447d5f89f3cd6ee939cc2ddceb9ed2a5638cbdbb",
+      "refs/rescue/sena-evidenceflow-v1-20260829/protected-main-be0-intake-wip-5687e40d443e8 5687e40d443e8dd9f5b58beb89ad8f5fac2f3dbc",
+      "refs/rescue/sena-evidenceflow-v1-20260829/protected-main-ff507-intake-index-da5d2e80f2e3 da5d2e80e2f34232932089cdaf870f1081fd98fb",
+      "refs/rescue/sena-evidenceflow-v1-20260829/protected-main-ff507-intake-wip-c890dbc39013 c890dbc39013ec979ce5de65e9e6cfc3ed96a16c",
+      "refs/rescue/sena-evidenceflow-v1-20260829/protected-main-intake-index-e47931e3be2f e47931e3be2fc5e47f690a06956e4ab21ee18270",
+      "refs/rescue/sena-evidenceflow-v1-20260829/protected-main-intake-wip-ebfde5bb485a ebfde5bb485a76f4ee20cb4bdcc4f1e7ce41ff59",
+      "refs/tags/archive/claude-quirky-merkle-da02fa-20260823 9d737c5f1520d87fc63afc9ab52057d34555510f",
+      "refs/tags/archive/codex-sena-human-ai-research-docs-20260823 d69d06072483904b0ba3eb3bb264721b7d5c4c43",
+      "refs/tags/archive/codex-sena-statistical-integrity-v2-20260829 4e887ce8d8fca31f3cef3313ab25ea4b570eaf42",
+      "refs/tags/archive/sena-recovery-integration-20260710 fecceea188903c259d15d2a201c8f55b96a16176"
+    ],
+    "worktrees": [
+      {
+        "path": "/private/tmp/claude-501/-Volumes-Starship-SENA-sena-hk-template/d261c5ea-5399-422c-a583-66a8d0f9bb47/scratchpad/mutwt2",
+        "head": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+        "branch": null,
+        "present": false,
+        "dirtyFingerprint": null
+      },
+      {
+        "path": "/private/tmp/claude-501/-Volumes-Starship-SENA-sena-hk-template/d261c5ea-5399-422c-a583-66a8d0f9bb47/scratchpad/wt",
+        "head": "b2d07177c23192cb6d9b730b330ae79cc2165525",
+        "branch": "refs/heads/fix/ops-metrics-configured-gauge-pins",
+        "present": false,
+        "dirtyFingerprint": null
+      },
+      {
+        "path": "/Volumes/Mars/SENA",
+        "head": "00d480e1584a417b48275d699bb18f31cf8f80f3",
+        "branch": "refs/heads/main",
+        "present": true,
+        "dirtyFingerprint": "34dca5c9ecc9218464d248ef5061bafe57e07ed528d2dd5f854db8d46280d155"
+      },
+      {
+        "path": "/Volumes/Mars/SENA-custody-proposal",
+        "head": "b8d6ca69da027127b01060326eba9d5afb0c095c",
+        "branch": null,
+        "present": true,
+        "dirtyFingerprint": "5482e0b1ba7a65e3d80104fbb5315d62913ed6401347f87e308f20623169381d"
+      },
+      {
+        "path": "/Volumes/Mars/SENA-hb-20261011",
+        "head": "20e1ffb32b78118ae57b4bd59627df4e406f57f0",
+        "branch": "refs/heads/grok/governance-currentness-heartbeat-20261011",
+        "present": true,
+        "dirtyFingerprint": "5482e0b1ba7a65e3d80104fbb5315d62913ed6401347f87e308f20623169381d"
+      },
+      {
+        "path": "/Volumes/Mars/SENA-hb-20261013",
+        "head": "f283e82a4d1a533f01d88faf82547c91b1311646",
+        "branch": "refs/heads/grok/governance-currentness-heartbeat-20261013",
+        "present": true,
+        "dirtyFingerprint": "37986826c56a49ce5547c6e0ecae15249d4072f1671accfd3ca16421935fee71"
+      },
+      {
+        "path": "/Volumes/Mars/SENA-hb-20261015",
+        "head": "0d75b892716fba6904b24134c245d4631264468b",
+        "branch": "refs/heads/grok/governance-currentness-heartbeat-20261015",
+        "present": true,
+        "dirtyFingerprint": "ee0653d9c0a48192251aeceb07f331ff48db2af1a37a80b1eabe0e05aab1f8c6"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-a01-g-governance-successor-20260923",
+        "head": "bdb168636f4d10f8764c8236344d08fe062326da",
+        "branch": "refs/heads/codex/sena-a01-g-governance-successor-20260923",
+        "present": true,
+        "dirtyFingerprint": "cf53abd05635160269b763fe466b4048e4118173ba14fc003fb8012dd3143a17"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-a01-post-g-governance-20260924",
+        "head": "37fc70188c31737f2f6424d0dc9384fe52164df7",
+        "branch": "refs/heads/codex/sena-a01-post-g-governance-20260924",
+        "present": true,
+        "dirtyFingerprint": "4c77b13d4c98edd3b5ad3bbd6e15b5c205f59b81e1162f22164aabb4c7b17a23"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-a01-repo-governance-20260827",
+        "head": "1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
+        "branch": "refs/heads/codex/sena-a01-repo-governance-20260827",
+        "present": true,
+        "dirtyFingerprint": "362cb6fbb60591cfbf26a5ed7db328b78def412a5f05ed57d848ad5b2f3f94dd"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-branch-retirement-20260829",
+        "head": "e24c635d1f53fccb2264c6be002aec2775de127c",
+        "branch": "refs/heads/codex/sena-branch-retirement-20260829",
+        "present": true,
+        "dirtyFingerprint": "836160e24ea571ca982b5ef2b226aaed2ad9d2730cf8f17f3de8bce5845ed544"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-convergence-currentness-20260907",
+        "head": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+        "branch": "refs/heads/codex/sena-convergence-currentness-20260907",
+        "present": true,
+        "dirtyFingerprint": "4d80ae057605772ec0e7e3c7c6ef8876ab693426add403926b4aa8c36e36234a"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-convergence-integration-20260906",
+        "head": "c782aa03940028a2c19db18dfddec55370c797b1",
+        "branch": "refs/heads/codex/sena-convergence-integration-20260906",
+        "present": true,
+        "dirtyFingerprint": "18b7d64ffc3040fa2d3ea420ad2155005b144026b60a51d1088638d789d198bc"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-convergence-q-currentness-20260908",
+        "head": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
+        "branch": "refs/heads/codex/sena-convergence-q-currentness-20260908",
+        "present": true,
+        "dirtyFingerprint": "d9831a70aeb39d99286e97fc431dc18fdb1c20e59bbf4af430f9fa58652ceb44"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-evidenceflow-v1-20260828",
+        "head": "434a1aac542e60e793afef77fb35104cdb470d53",
+        "branch": "refs/heads/codex/sena-evidenceflow-v1-20260828",
+        "present": true,
+        "dirtyFingerprint": "d094e1351139a02f7e52b182ef25d8c66485d3e0384f9027cea1a6e690f425bb"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-g-local-integration-20260923",
+        "head": "7b993b4f7acd5c4a9d0ee417438a12afc4277dcb",
+        "branch": "refs/heads/codex/sena-g-local-integration-20260923",
+        "present": true,
+        "dirtyFingerprint": "275c035c202b879919ea6ebcd2b667d9f9b04784e2ce152202c116765b878c98"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-h-governance-intake-20260908",
+        "head": "23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
+        "branch": "refs/heads/codex/sena-h-governance-intake-20260908",
+        "present": true,
+        "dirtyFingerprint": "9a794f3898501e67fb406b98dbf444809d94fd319a8df67ab560a77714c52e82"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-main-gap-mobile-release-20260904",
+        "head": "59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
+        "branch": "refs/heads/codex/sena-main-gap-mobile-release-20260904",
+        "present": true,
+        "dirtyFingerprint": "b2eafaad9f6a46f90856049d2b0ccee782078bd765ed273cc6a868d5c98f8dc3"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-mobile-research-pilot-20260905",
+        "head": "b9c25385453ee4da26e261c945dd125b0cd856ab",
+        "branch": "refs/heads/codex/sena-mobile-research-pilot-20260905",
+        "present": true,
+        "dirtyFingerprint": "bffc6df026590a2fc5d5aa21b51f88fe3ec688850701f4061374adfcb7462cf0"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-post-pr83-currentness-correction-20260903",
+        "head": "03e24b66ff7ab2792762d073cd7ea675c181fd89",
+        "branch": "refs/heads/codex/sena-post-pr83-currentness-correction-20260903",
+        "present": true,
+        "dirtyFingerprint": "bdedadcf5348d144ca212c64b3f24f0056344a09d1b32ffde7c499f40d026274"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-pr80-post-main-closeout-20260901",
+        "head": "0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
+        "branch": "refs/heads/codex/sena-pr82-clean-final-forward-fix-20260902",
+        "present": true,
+        "dirtyFingerprint": "aa5154c0ab324b9ab48e302cd3560e5a58417bf6cd523b54d12201ed610e78af"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-pr80-post-main-closeout-20260901-pr82-integrated",
+        "head": "e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
+        "branch": "refs/heads/codex/sena-protected-currentness-activation-repair-20260901",
+        "present": true,
+        "dirtyFingerprint": "16da06d595d49b2a9a699d9868029fb2b19944567796ddd7457cd8f43b545bd3"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-pr86-delivery-closeout-20260907",
+        "head": "e366df35d8304ddc0c2b5d963301b8a9324e2975",
+        "branch": "refs/heads/codex/sena-pr86-delivery-closeout-20260907",
+        "present": true,
+        "dirtyFingerprint": "52693446a6a01f53298e5582635e4d7f57dda1c7dfc88e6599ae710694a7c80d"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-q-currentness-port-20260919",
+        "head": "6ac9b9552b0b08f5b13aa80f592d743350069dce",
+        "branch": "refs/heads/codex/sena-q-currentness-port-20260919",
+        "present": true,
+        "dirtyFingerprint": "a0ba48639b37320dae2025dd284ea237d36eb4c211d2f9c08ba8f0ed16b5adb5"
+      }
+    ],
+    "orphans": [
+      {
+        "path": "/Volumes/Mars/SENA/.claude/worktrees/competent-sinoussi-2ddeb3",
+        "present": true,
+        "fingerprint": "ca259e04c2ba56a445748ec89a24ed443b3c289e823ef9296b130bc775b327df"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/.worktrees/sena-human-ai-research-docs",
+        "present": true,
+        "fingerprint": "7ba1b9fb65e7f5e0f87dd783815ca4f81f4a278dd6e899e2d256ceff677d31fd"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/sena-hk-template/.claude/worktrees/awesome-albattani-6f76b2",
+        "present": true,
+        "fingerprint": "30a46de1e80c83bc90228f76b599e63339b5810567d7d34af20ec82bd7a56183"
+      },
+      {
+        "path": "/Volumes/Mars/SENA/sena-hk-template/.claude/worktrees/gifted-meitner-dcc806",
+        "present": true,
+        "fingerprint": "1ddb4e99deb80b136cb5bdb2ba9373a0b250bfdc3e22d47d4c1eaefc45bbdeb4"
+      }
+    ]
+  }
+}

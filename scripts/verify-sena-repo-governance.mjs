@@ -26250,9 +26250,41 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs inventory --output PATH\n`);
 }
 
-function main() {
+async function main() {
   const { command, flags } = parseArguments(process.argv.slice(2));
   try {
+    const localWorkspacePath = "coordination/repo-governance/local-workspace.json";
+    const hasLocalWorkspace = existsSync(join(REPO_ROOT, localWorkspacePath)) ||
+      [":", "HEAD:"].some(prefix => git(["cat-file", "-e", `${prefix}${localWorkspacePath}`],
+        { allowFailure: true }).status === 0);
+    if (hasLocalWorkspace) {
+      // An additive, explicitly authorized local task is not an activation of
+      // the preserved Starship lifecycle. Alternate v1 authorization sources
+      // must not turn this local-only task into remote/deletion authority.
+      if (["push-policy", "deletion-boundary", "post-pr83-push-draft-readiness"].includes(command) ||
+          (command === "security" && (flags.has("pre-push") || flags.has("push-event")))) {
+        throw new Error("rule=local-workspace-remote-operation-denied");
+      }
+      if (["audit", "write-policy", "registry"].includes(command)) {
+        const { validateLocalWorkspace } = await import("./sena-local-workspace-governance.mjs");
+        if (flags.has("live") || flags.has("registry") || flags.has("registry-from-commit")) {
+          throw new Error("rule=local-workspace-alternate-authority-denied");
+        }
+        const requireStaged = command === "write-policy" || flags.has("pre-commit");
+        if (requireStaged && (!flags.has("registry-from-index") ||
+            (command === "write-policy" && !flags.has("staged")))) {
+          throw new Error("rule=local-workspace-stage-zero-required");
+        }
+        const registryBytes = flags.has("registry-from-index")
+          ? git(["show", `:${localWorkspacePath}`]).stdout
+          : readFileSync(join(REPO_ROOT, localWorkspacePath));
+        const result = validateLocalWorkspace({
+          root: REPO_ROOT, controlRoot: CONTROL_ROOT, registryBytes, requireStaged
+        });
+        process.stdout.write(`SENA_LOCAL_WORKSPACE ${JSON.stringify(result)}\n`);
+        return;
+      }
+    }
     if (command === "security") return runSecurity(flags);
     if (command === "post-pr83-push-draft-readiness") {
       return runPostPr83PushDraftReadiness();

@@ -5,6 +5,30 @@ worktrees, rescue refs, incident boundaries, and evidence maturity. It does not
 contain credential values, provider tokens, runtime databases, or copies of
 sensitive documents.
 
+## Mars local operation
+
+`local-workspace.json`, when present, registers a separately authorized local
+task after the Starship-to-Mars move. It binds the exact source commit, tree,
+and SHA-256 of the historical `active-work.json`; that file remains unchanged.
+Only exact repository-root paths are mapped. Sibling backup and quarantine
+paths retain their original locations.
+
+The local task runs in a Git-registered linked worktree. Its record binds the
+owner, branch, base, allowed paths, retained refs and worktree content
+fingerprints. A private owner-authorization record under the common Git
+directory's `sena-local-authorizations/` binds the exact staged tree and expires
+within 24 hours. It records the user's authorization; it is not an independent
+review or a replacement for historical signatures.
+
+Normal pre-commit runs the local audit and stage-0 write policy, followed by
+the unchanged credential scanner. The local audit verifies the original rescue
+refs/bundle/inventory/source copies and durable reconstruction packages.
+Historical temporary host environments are not recertified. The full legacy
+audit and release evidence are not claimed by a local commit. Push, deletion,
+and alternate protected-main authorization remain denied for this local task.
+Root `main`, other worktrees, historical registry bytes and retained source
+contents are preserved. This registration does not activate historical lanes.
+
 ## Current operating boundary
 
 The credential incident in `active-work.json` is closed by this final governance

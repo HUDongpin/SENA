@@ -4,6 +4,8 @@ SENA — Social-Epistemic Nexus Analytics — is a local research-pilot delivery
 
 Current status: local research pilot delivery candidate with a runnable enterprise readiness loop, not a completed production SaaS cutover. The intended handoff is still a stable researcher walkthrough and reproducibility-review package, while the local enterprise runtime makes auth, RBAC teams, server-side project persistence, import adapters, reliability workflows, group-comparison validation suites, notification outbox plus webhook delivery, signed collaboration pub/sub bridge delivery, signed managed-database sync bridge delivery, signed audit/SIEM, backup/object-storage, alerting, email, IdP/provisioning bridge evidence, native adapter certification, SaaS operations readiness records, release-gate review records, and go-live rehearsal records runnable before institution cutover. A clean handoff requires the full local verification gate to pass after any local `next dev` or `next start` server has been stopped.
 
+Coding workflow scope: prepare the codebook and code assignments in an external coding tool, then import the codebook and already-coded segments through **Sets → Data Import** in `/workspace/sena`. Close the Sets panel and open **Research Details → Exports → Report Generator**. Use **Upload coder annotations** to calculate agreement metrics, then **Export reliability dashboard** to inspect item-level disagreements in the exported JSON for reliability review. The homepage calls this **Coded Data & Reliability Review**. In-app codebook authoring, manual discourse coding, and AI coding suggestions are not implemented.
+
 The core demo route is `/workspace/sena`. It builds:
 
 - `S`: person-person social interaction matrix
