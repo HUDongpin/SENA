@@ -8,7 +8,6 @@ import { useLanguage } from "./LanguageProvider";
 import { Card, SectionHeading } from "./Primitives";
 import { NetworkVisualization } from "./NetworkVisualization";
 
-const sidebar = ["Data", "Codebook", "ENA", "SNA", "SENA Fusion", "Compare", "Timeline", "Report"];
 const status = [
   { label: "Rows", value: "2,217" },
   { label: "Actors", value: "15" },
@@ -62,6 +61,7 @@ function DashboardCard({ icon: Icon, title, children }: { icon: React.ElementTyp
 
 export function WorkspacePreview() {
   const { copy } = useLanguage();
+  const sidebar = ["Data", copy.codingReview.importedCodebook, "ENA", "SNA", "SENA Fusion", "Compare", "Timeline", "Report"];
 
   return (
     <section id="workspace" className="relative px-4 py-20 sm:px-6 lg:px-8">
@@ -106,12 +106,12 @@ export function WorkspacePreview() {
               </div>
               <div className="grid gap-2">
                 {sidebar.map((item, idx) => (
-                  <button
+                  <div
                     key={item}
-                    className={`rounded-2xl px-4 py-3 text-left text-sm font-bold transition ${idx === 4 ? "bg-cyanGlow text-slate-950 shadow-glow" : "text-foreground/74 hover:bg-card/55"}`}
+                    className={`rounded-2xl px-4 py-3 text-left text-sm font-bold ${idx === 4 ? "bg-cyanGlow text-slate-950 shadow-glow" : "text-foreground/74"}`}
                   >
                     {item}
-                  </button>
+                  </div>
                 ))}
               </div>
             </aside>
@@ -123,7 +123,7 @@ export function WorkspacePreview() {
                 </div>
               </DashboardCard>
 
-              <DashboardCard icon={FileText} title="Coding scheme">
+              <DashboardCard icon={FileText} title={copy.codingReview.importedCodingScheme}>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   {["PoP", "GO", "SC", "MV", "MR", "RoP", "PR"].map((code) => (
                     <span key={code} className="rounded-full border border-cardBorder/40 bg-card/45 px-3 py-2 font-black text-foreground/78">
