@@ -311,6 +311,45 @@ function gitDerivedControlRoot() {
   );
 }
 
+function controlRootFromCheckout(checkout) {
+  // A linked worktree's checkout has a .git pointer file. Git's alternate
+  // object directory is <primary>/.git/objects, so the control root is the
+  // parent of the common git directory. Isolation variables must not redirect
+  // this lookup at the caller's temporary object directory.
+  const commonDirectory = realpathSync(resolve(
+    checkout,
+    gitText(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        cwd: checkout,
+        unsetEnv: GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT
+      }
+    ).trim()
+  ));
+  return realpathSync(dirname(commonDirectory));
+}
+
+function primaryCheckoutControlRoot() {
+  return controlRootFromCheckout(SCRIPT_REPO_ROOT);
+}
+
+function resolveCanonicalRegistryRepositoryRoot() {
+  const recorded = JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo;
+  if (typeof recorded !== "string" || recorded.length === 0) {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  }
+  const override = process.env.SENA_REPO_ROOT;
+  if (typeof override === "string" && override.length > 0) {
+    return controlRootFromCheckout(realpathSync(resolve(override)));
+  }
+  const recordedResolution = existingPathResolution(recorded);
+  if (recordedResolution.ok) return recordedResolution.path;
+  if (recordedResolution.errorCode !== "ENOENT") {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  }
+  return primaryCheckoutControlRoot();
+}
+
 export function validateIsolatedGovernanceControlRootContext(context) {
   const fail = () => {
     throw new Error("rule=isolated-governance-control-root-context-invalid");
@@ -592,9 +631,7 @@ function isolatedGovernanceControlRootFromEnvironment() {
         ]).trim()
       )
     );
-    const canonicalRegistryRepositoryRoot = realpathSync(
-      resolve(JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo)
-    );
+    const canonicalRegistryRepositoryRoot = resolveCanonicalRegistryRepositoryRoot();
     if (targetRoot !== REPO_ROOT) {
       throw new Error("isolated target root mismatch");
     }
@@ -14276,6 +14313,9 @@ function jHEvidenceCustodyPhysicalAllowed(
 }
 
 let iHSourceCache = null;
+function noteIHDedicatedLandingSourceResolution(mode) {
+  process.stderr.write(`SENA_REPO_REGISTRY h-source=${mode}\n`);
+}
 function iHDedicatedLandingPortableSourceReconstructionAllowed() {
   try {
     if (
@@ -14332,6 +14372,7 @@ function iHDedicatedLandingSource() {
         throw new Error("rule=i-h-dedicated-landing-source-invalid");
       }
       iHSourceCache = expected;
+      noteIHDedicatedLandingSourceResolution("reconstructed");
       return protectedActivationNativeStructuredClone(iHSourceCache);
     }
     for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
@@ -14355,6 +14396,7 @@ function iHDedicatedLandingSource() {
       throw new Error("rule=i-h-dedicated-landing-source-invalid");
     }
     iHSourceCache = source;
+    noteIHDedicatedLandingSourceResolution("physical");
   }
   return protectedActivationNativeStructuredClone(iHSourceCache);
 }
@@ -14555,6 +14597,16 @@ export function jHEvidenceCustodyReconstructionAllowed(
 }
 
 export function iHDedicatedLandingHistoricalProjection(registry) {
+  // Resolve the H source before a later projection throw. An expired heartbeat
+  // fails the Q snapshot first, and that used to skip the branch CI actually
+  // takes when the local-only tree is absent.
+  if (
+    protectedMainAdvanceObjectSha(`${I_H_SOURCE_STAGED_TREE}^{tree}`) ===
+      I_H_SOURCE_STAGED_TREE ||
+    iHDedicatedLandingPortableSourceReconstructionAllowed()
+  ) {
+    iHDedicatedLandingSource();
+  }
   const latestMainQProjection = Boolean(
     registry?.qLatestMainConvergenceRemediation &&
       latestMainQConvergenceRemediationStructurallyAllowed(
