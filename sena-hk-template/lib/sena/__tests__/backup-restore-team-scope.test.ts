@@ -397,6 +397,76 @@ describe("SENA backup restore team scope", () => {
     });
   });
 
+  it("restores audit and notification history that cites a deleted project", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-deleted-project-", async ({ enterprise, dbPath }) => {
+      const owner = enterprise.registerEnterpriseUser({
+        name: "Deleted Project Owner",
+        email: "deleted-project-owner@example.edu",
+        password: "sena-secure-123",
+        organization: "Deleted Project Lab",
+        plan: "enterprise"
+      });
+      const teamId = owner.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(owner.context, {
+        teamId,
+        title: "Deleted before backup",
+        snapshot: projectSnapshot()
+      });
+      enterprise.deleteEnterpriseProject(owner.context, project.id);
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      expect(backup.payload.projects.some((saved) => saved.id === project.id)).toBe(false);
+      expect(backup.payload.auditLog.some((entry) => entry.event === "project.delete" && entry.projectId === project.id)).toBe(true);
+      backup.payload.notifications.push({
+        id: "note_deleted_project",
+        kind: "team.invite",
+        status: "delivered",
+        channel: "in-app",
+        teamId,
+        userId: owner.context.user.id,
+        projectId: project.id,
+        title: "Deleted project",
+        body: "Historical notice",
+        createdAt: stamp,
+        detail: {}
+      });
+      syncBackupIntegrity(backup);
+
+      const restore = enterprise.restoreEnterpriseBackup(owner.context, backup, { mode: "merge" });
+      const restored = readDb(dbPath);
+
+      expect(restore.status).toBe("completed");
+      expect(restored.projects.some((saved) => saved.id === project.id)).toBe(false);
+      expect(restored.auditLog.some((entry) => entry.event === "project.delete" && entry.projectId === project.id)).toBe(true);
+      expect(restored.notifications.some((notification) => notification.id === "note_deleted_project" && notification.projectId === project.id)).toBe(true);
+    });
+  });
+
+  it("rejects an audit event whose projectId points at another team's project", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-audit-project-", async ({ enterprise, dbPath }) => {
+      const { owner, outsider } = registerPair(enterprise);
+      const teamId = owner.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(outsider.context, {
+        teamId: outsider.context.teams[0].id,
+        title: "Outside audit project",
+        snapshot: projectSnapshot()
+      });
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      backup.payload.auditLog.push({
+        id: "audit_outside_project",
+        event: "project.delete",
+        teamId,
+        userId: owner.context.user.id,
+        projectId: project.id,
+        createdAt: stamp,
+        detail: { title: "outside project" }
+      });
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      expect(readDb(dbPath).auditLog.some((entry) => entry.id === "audit_outside_project")).toBe(false);
+      expect(readDb(dbPath).projects.find((candidate) => candidate.id === project.id)?.teamId).toBe(outsider.context.teams[0].id);
+    });
+  });
+
   it("rejects a membership whose userId is outside the authorized teams", async () => {
     await withIsolatedEnterprise("sena-backup-restore-member-user-", async ({ enterprise, dbPath }) => {
       const { owner, outsider } = registerPair(enterprise);
