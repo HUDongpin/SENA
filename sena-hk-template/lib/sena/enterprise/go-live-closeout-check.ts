@@ -35,6 +35,7 @@ export type SenaGoLiveCloseoutCheck = {
   generatedAt: string;
   status: GoLiveCloseoutCheckStatus;
   environment: {
+    deploymentTarget: string;
     nodeEnv: string;
     storageEngine: string;
     configuredDirectory: string;
@@ -142,6 +143,7 @@ export async function buildSenaGoLiveCloseoutCheck(): Promise<SenaGoLiveCloseout
     generatedAt: new Date().toISOString(),
     status: checks.every((check) => check.pass) ? "ready" : "blocked",
     environment: {
+      deploymentTarget: readiness.environment.deploymentTarget,
       nodeEnv: process.env.NODE_ENV || "development",
       storageEngine: readiness.environment.storageEngine,
       configuredDirectory: readiness.environment.configuredDirectory,

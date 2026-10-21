@@ -139,6 +139,11 @@ export function isSelfManagedEnterpriseMode() {
   return enterpriseDeploymentMode() === "self-managed";
 }
 
+export function isSelfManagedVercelPreview() {
+  return isSelfManagedEnterpriseMode() && envValue("VERCEL") === "1" &&
+    envValue("VERCEL_ENV") === "preview";
+}
+
 const selfManagedIdentityDecisionIds = new Set([
   "institution-idp-approval",
   "institution-provisioning-owner"

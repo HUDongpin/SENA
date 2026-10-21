@@ -84,6 +84,7 @@ function goLiveCloseoutFixture(status: "ready" | "blocked"): SenaGoLiveCloseoutC
       envValuesExcluded: true
     },
     environment: {
+      deploymentTarget: "production",
       nodeEnv: "production",
       storageEngine: status === "ready" ? "neon-postgres" : "file-backed-json",
       configuredDirectory: status === "ready" ? "env-configured" : "default-local",
@@ -128,6 +129,20 @@ function goLiveCloseoutFixture(status: "ready" | "blocked"): SenaGoLiveCloseoutC
 }
 
 describe("SENA production go-live gate", () => {
+  it("refuses a completed preview rehearsal as production closeout", () => {
+    const closeout = goLiveCloseoutFixture("ready");
+    closeout.environment.deploymentTarget = "preview";
+    const gate = buildSenaEnterpriseProductionGoLiveGate({
+      manifest: manifestFixture("ready"),
+      runtimeEnvPacket: runtimeEnvPacketFixture("ready"),
+      goLiveCloseout: closeout,
+      generatedAt
+    });
+    expect(gate.status).toBe("blocked");
+    expect(gate.summary.productionReadyClaimAllowed).toBe(false);
+    expect(gate.summary.blockers).toContain("go-live-closeout:preview-rehearsal-is-not-production-closeout");
+  });
+
   it("blocks production-ready claims until evidence, runtime packet, and go-live closeout are all ready", () => {
     const gate = buildSenaEnterpriseProductionGoLiveGate({
       manifest: manifestFixture("review"),

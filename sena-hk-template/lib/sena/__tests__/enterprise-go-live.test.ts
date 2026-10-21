@@ -16,6 +16,9 @@ import {
 import { RouteMemoryPostgres } from "./postgres-primary-route-fixture";
 
 const goLiveEnvNames = [
+  "VERCEL",
+  "VERCEL_ENV",
+  "SENA_ENTERPRISE_DEPLOYMENT_MODE",
   "NODE_ENV",
   "SENA_ENTERPRISE_DB_DIR",
   "SENA_APP_URL",
@@ -1345,6 +1348,55 @@ describe("SENA enterprise go-live production release", () => {
           platformOwnerDecisionReviewed: true
         }
       })).rejects.toThrow(/current rehearsal has blockers/i);
+      // Reuse the healthy operational fixture to verify the actual preview
+      // rehearsal chain. This remains simulated test evidence, never a live
+      // observation or a real institution approval.
+      process.env.SENA_ENTERPRISE_DEPLOYMENT_MODE = "self-managed";
+      process.env.VERCEL = "";
+      process.env.VERCEL_ENV = "";
+      await enterprise.createEnterpriseReleaseGateReviewWithPostgresEvidence(registered.context, {
+        teamId,
+        environment: "preview-test-fixture",
+        releaseVersion: "2026.10.21-preview-rehearsal-fixture",
+        decision: "approved",
+        approverName: "Simulated test operator",
+        approverRole: "Test fixture",
+        notes: "Simulated operational scope regression only.",
+        verificationCommand: "npm run sena:pilot:verify",
+        verificationEvidence: {
+          status: "passed",
+          summary: verifierOutput,
+          outputSha256: createHash("sha256").update(verifierOutput).digest("hex")
+        }
+      });
+      const localReadiness = await enterprise.getEnterpriseDeploymentReadinessWithPostgresEvidence();
+      expect(localReadiness.status).toBe("ready");
+      expect(localReadiness.environment.deploymentTarget).toBe("local");
+      expect(localReadiness.productionAcceptanceAllowed).toBe(false);
+
+      process.env.VERCEL = "1";
+      process.env.VERCEL_ENV = "preview";
+      delete process.env.SENA_VERCEL_PRODUCTION_PREFLIGHT_CONFIRMED;
+      const previewReadiness = await enterprise.getEnterpriseDeploymentReadinessWithPostgresEvidence();
+      expect(previewReadiness.status).toBe("ready");
+      expect(previewReadiness.productionAcceptanceAllowed).toBe(false);
+      expect(previewReadiness.productionPerformancePath.status).toBe("review");
+      const previewDeployment = await enterprise.getEnterpriseOrganizationDeploymentPackageWithPostgresEvidence({ teamId });
+      expect(previewDeployment.status).toBe("ready");
+      expect(previewDeployment.productionEvidenceManifest.status).toBe("blocked");
+      const previewRehearsal = await enterprise.getEnterpriseGoLiveRehearsalWithPostgresEvidence({ teamId });
+      expect(previewRehearsal.status).toBe("ready");
+      expect(previewRehearsal.rollbackDrill.status).toBe("ready");
+      const previewObservation = await enterprise.startEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
+        teamId,
+        environment: "preview-test-fixture",
+        releaseVersion: "2026.10.21-preview-rehearsal-fixture"
+      });
+      expect(previewObservation.status).toBe("active");
+      expect(Date.parse(previewObservation.requiredUntil) - Date.parse(previewObservation.startedAt)).toBe(60 * 60 * 1000);
+      await expect(enterprise.completeEnterprisePostCutoverObservationWithPostgresEvidence(registered.context, {
+        teamId, observationId: previewObservation.id
+      })).rejects.toMatchObject({ code: "post_cutover_observation_window_incomplete" });
     } finally {
       vi.useRealTimers();
       restoreEnv(envSnapshot);

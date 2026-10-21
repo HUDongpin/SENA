@@ -716,7 +716,53 @@ describe("SENA production evidence binding script", () => {
     }
   });
 
-  it("refuses to bind production evidence to non-production Vercel environments", () => {
+  it("binds operational evidence only to an inspected preview in the linked project", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-preview-evidence-bind-"));
+    try {
+      const binDir = path.join(root, "bin");
+      mkdirSync(binDir);
+      mkdirSync(path.join(root, ".vercel"));
+      writeFileSync(path.join(root, ".vercel", "project.json"), JSON.stringify({ projectId: "prj_preview_test" }));
+      const sourceCommit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: projectRoot, encoding: "utf8" }).stdout.trim();
+      const inspection = { id: "dpl_PreviewTest", projectId: "prj_preview_test", target: null, readyState: "READY", meta: { gitCommitSha: sourceCommit } };
+      const cli = path.join(binDir, "vercel");
+      const inspectSummary = { id: inspection.id, name: "sena-hk", target: "preview", readyState: "READY" };
+      writeFileSync(cli, `#!/bin/sh\nif [ "$1" = "inspect" ]; then\n  printf '%s\\n' '${JSON.stringify(inspectSummary)}'\n  exit 0\nfi\nif [ "$1" = "api" ]; then\n  printf '%s\\n' '${JSON.stringify(inspection)}'\n  exit 0\nfi\nexit 1\n`);
+      chmodSync(cli, 0o755);
+      const artifact = writeArtifact(root, "cdn-probe.json", cdnProbeFixture("https://preview.sena.hk"));
+      const args = ["--artifact", artifact.artifactPath, "--env", "preview", "--target-url", "https://preview.sena.hk"];
+      const options = { cwd: root, env: { ...process.env, PATH: `${binDir}:${process.env.PATH ?? ""}` } };
+      const result = runBind(args, options);
+      expect(result.status, outputOf(result)).toBe(0);
+      expect(outputOf(result)).toContain("vercelEnvironment=preview");
+      expect(outputOf(result)).toContain("SENA_CDN_LIVE_PROBE_CONFIRMED=configured(redacted)");
+
+      const contradictory = { ...inspection, gitSource: { sha: "f".repeat(40) } };
+      writeFileSync(cli, `#!/bin/sh\nif [ "$1" = "inspect" ]; then\n  printf '%s\\n' '${JSON.stringify(inspectSummary)}'\nelse\n  printf '%s\\n' '${JSON.stringify(contradictory)}'\nfi\n`);
+      const conflict = runBind(args, options);
+      expect(conflict.status).toBe(1);
+      expect(outputOf(conflict)).toContain("preview-source-commit-mismatch");
+
+      writeFileSync(cli, `#!/bin/sh\nprintf '%s\\n' '${JSON.stringify({ ...inspection, target: "production" })}'\n`);
+      const production = runBind(args, options);
+      expect(production.status).toBe(1);
+      expect(outputOf(production)).toContain("preview-deployment-required");
+      expect(outputOf(production)).not.toContain("configured(redacted)");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses production claim schemas in preview binding plans", () => {
+    const result = planSenaProductionEvidenceArtifactBinding({
+      artifact: { schemaVersion: "sena-enterprise-vercel-production-preflight/v1", generatedAt, status: "pass" },
+      artifactSha256: digestA, shaFilePresent: true, shaFileMatches: true
+    }, { environment: "preview", productionTargetUrl: "https://preview.sena.hk" });
+    expect(result.bindable).toBe(false);
+    expect(result.reason).toBe("preview-schema-not-allowed");
+  });
+
+  it("refuses unsupported Vercel environments", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-env-"));
 
     try {
@@ -725,11 +771,11 @@ describe("SENA production evidence binding script", () => {
         generatedAt,
         status: "pass"
       });
-      const result = runBind(["--artifact", path.join(root, "cdn-probe.json"), "--env", "preview", "--scope", "test-team"]);
+      const result = runBind(["--artifact", path.join(root, "cdn-probe.json"), "--env", "staging", "--scope", "test-team"]);
       const output = outputOf(result);
 
       expect(result.status).toBe(1);
-      expect(output).toContain("SENA production evidence binding only writes to the Vercel production environment. Refusing --env preview.");
+      expect(output).toContain("Refusing unsupported Vercel environment: staging");
       expect(output).not.toContain("SENA_CDN_LIVE_PROBE_CONFIRMED=configured(redacted)");
       expect(output).not.toContain("SENA production evidence binding plan");
     } finally {

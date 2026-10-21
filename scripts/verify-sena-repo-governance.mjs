@@ -350,6 +350,28 @@ function resolveCanonicalRegistryRepositoryRoot() {
   return primaryCheckoutControlRoot();
 }
 
+function isRegisteredExternalGovernanceWorktree(controlRoot, targetRoot) {
+  try {
+    if (realpathSync(controlRoot) !== controlRoot || realpathSync(targetRoot) !== targetRoot) return false;
+    const marker = join(targetRoot, ".git");
+    const markerStat = lstatSync(marker);
+    if (!markerStat.isFile() || markerStat.isSymbolicLink()) return false;
+    const commonDirectory = realpathSync(join(controlRoot, ".git"));
+    const gitDirectory = realpathSync(resolve(targetRoot, exactNativeGitPathFile(marker, "gitdir: ")));
+    // An external directory must be registered by this repository, not merely
+    // contain a copied .git pointer into another worktree's control directory.
+    if (dirname(gitDirectory) !== join(commonDirectory, "worktrees")) return false;
+    for (const name of ["commondir", "gitdir"]) {
+      const stat = lstatSync(join(gitDirectory, name));
+      if (!stat.isFile() || stat.isSymbolicLink()) return false;
+    }
+    return realpathSync(resolve(gitDirectory, exactNativeGitPathFile(join(gitDirectory, "commondir")))) === commonDirectory &&
+      realpathSync(resolve(gitDirectory, exactNativeGitPathFile(join(gitDirectory, "gitdir")))) === realpathSync(marker);
+  } catch {
+    return false;
+  }
+}
+
 export function validateIsolatedGovernanceControlRootContext(context) {
   const fail = () => {
     throw new Error("rule=isolated-governance-control-root-context-invalid");
@@ -401,7 +423,8 @@ export function validateIsolatedGovernanceControlRootContext(context) {
   if (
     requestedControlRoot !== canonicalRegistryRepositoryRoot ||
     targetRoot !== gitWorkTree ||
-    !pathIsWithin(canonicalRegistryRepositoryRoot, targetRoot) ||
+    (!pathIsWithin(canonicalRegistryRepositoryRoot, targetRoot) &&
+      !isRegisteredExternalGovernanceWorktree(canonicalRegistryRepositoryRoot, targetRoot)) ||
     gitCommonDirectory !== gitDirectory ||
     dirname(gitIndex) !== isolatedParent ||
     dirname(gitObjectDirectory) !== isolatedParent ||

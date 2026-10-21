@@ -42,6 +42,37 @@ const projectRoot = checkoutRepositoryRoot();
 const governanceScript = join(projectRoot, "scripts", "verify-sena-repo-governance.mjs");
 const tempRoots: string[] = [];
 
+function copyCurrentGovernanceVerifier(destination: string) {
+  copyFileSync(governanceScript, destination);
+  copyFileSync(
+    join(projectRoot, "scripts", "sena-local-workspace-governance.mjs"),
+    join(dirname(destination), "sena-local-workspace-governance.mjs")
+  );
+}
+
+function portableHistoricalVerifierForTest() {
+  const root = temporaryRoot("portable-historical-verifier");
+  cloneSingleCheckoutBranch(root, I_H_BRANCH_FOR_TEST, { noTags: false });
+  copyCurrentGovernanceVerifier(join(root, "scripts", "verify-sena-repo-governance.mjs"));
+  const loader = join(root, "historical-verifier-test.mjs");
+  writeFileSync(loader, `import { readFileSync } from 'node:fs';
+import * as governance from './scripts/verify-sena-repo-governance.mjs';
+const { method, args } = JSON.parse(readFileSync(0, 'utf8'));
+if (!['validateHistoricalConvergenceLifecycleRegistry', 'validateIHDedicatedLandingCandidateTransition', 'iHDedicatedLandingHistoricalProjection'].includes(method)) throw new Error('Unexpected historical test method');
+console.log(JSON.stringify(governance[method](...args)));\n`);
+  return (method: string, args: unknown[]) => {
+    const result = runNode(loader, [], { cwd: root, input: JSON.stringify({ method, args }), env: {
+      CI: "true", GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "HUDongpin/SENA", GITHUB_EVENT_NAME: "pull_request"
+    } });
+    if (result.status !== 0) throw new Error(result.stderr || "Historical verifier failed");
+    return JSON.parse(result.stdout);
+  };
+}
+
+function portableHistoricalRegistryForTest(registry: unknown) {
+  return portableHistoricalVerifierForTest()("validateHistoricalConvergenceLifecycleRegistry", [registry]);
+}
+
 function gitRevisionPresent(revision: string) {
   const result = spawnSync("git", ["rev-parse", "--verify", "--end-of-options", revision], {
     cwd: projectRoot,
@@ -160,6 +191,14 @@ const ihSourceTreePresent = checkoutObjectPresent(`${IH_SOURCE_STAGED_TREE_OBJEC
 const qCurrentnessObservationPresent = checkoutObjectPresent(`${Q_CURRENTNESS_OBSERVATION_TREE}^{tree}`);
 const ihSourceAbsentReason = `commit ${IH_SOURCE_STAGED_TREE_OBJECT} is absent from this checkout`;
 const qObservationAbsentReason = `tree ${Q_CURRENTNESS_OBSERVATION_TREE} is absent from this checkout`;
+const recordedJ = JSON.parse(readFileSync(join(projectRoot, "coordination/repo-governance/active-work.json"), "utf8"))
+  .jHEvidenceCustodyReconstruction;
+const physicalJPathsPresent = [
+  recordedJ?.newPackage?.packageRoot,
+  recordedJ?.supersededAttempt?.packageRoot,
+  recordedJ?.retainedSources?.verificationRoot?.path
+].every((path) => typeof path === "string" && existsSync(path));
+const physicalJAbsentReason = "owner-only J package or retained restore checkout is absent; physical custody is not verified";
 
 // This file exercises real Git graphs, full-object fsck, fresh clones, native
 // hooks, and provider readback on a shared research host. Keep a finite uniform
@@ -431,14 +470,14 @@ function createGovernedFixture(label: string, allowedPaths = ["README.md", "coor
   const root = temporaryRoot(label);
   const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
   mkdirSync(dirname(script), { recursive: true });
-  copyFileSync(governanceScript, script);
+  copyCurrentGovernanceVerifier(script);
   runGit(root, ["init", "-q"]);
   runGit(root, ["config", "user.name", "SENA governance test"]);
   runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
   runGit(root, ["branch", "-M", "topic"]);
   runGit(root, ["remote", "add", "origin", "https://github.com/HUDongpin/SENA.git"]);
   writeFileSync(join(root, "README.md"), "safe base\n");
-  runGit(root, ["add", "README.md"]);
+  runGit(root, ["add", "README.md", "scripts/sena-local-workspace-governance.mjs"]);
   runGit(root, ["commit", "-q", "-m", "safe base"]);
   const base = runGit(root, ["rev-parse", "HEAD"]);
   runGit(root, ["update-ref", "refs/remotes/origin/main", base]);
@@ -602,7 +641,7 @@ function createNativeHookPositiveFixture(label: string) {
   runGit(fixture.root, [
     "add",
     "coordination/repo-governance/active-work.json",
-    "scripts/verify-sena-repo-governance.mjs",
+    "scripts/verify-sena-repo-governance.mjs", "scripts/sena-local-workspace-governance.mjs",
     ".githooks/pre-commit",
     ".githooks/pre-push"
   ]);
@@ -643,7 +682,7 @@ function createIntegratedMonotonicBehindFixture(label: string) {
   }
   runGit(fixture.root, [
     "add",
-    "scripts/verify-sena-repo-governance.mjs",
+    "scripts/verify-sena-repo-governance.mjs", "scripts/sena-local-workspace-governance.mjs",
     ".githooks/pre-commit",
     ".githooks/pre-push"
   ]);
@@ -1537,7 +1576,7 @@ async function createSyntheticProtectedMainPr81Fixture(
   const registryPath = join(root, "coordination", "repo-governance", "active-work.json");
   mkdirSync(dirname(script), { recursive: true });
   mkdirSync(dirname(registryPath), { recursive: true });
-  copyFileSync(governanceScript, script);
+  copyCurrentGovernanceVerifier(script);
   runGit(root, ["init", "-q"]);
   runGit(root, ["config", "user.name", "SENA protected-main chain test"]);
   runGit(root, ["config", "user.email", "sena-chain@example.invalid"]);
@@ -1834,7 +1873,7 @@ function extendSyntheticProtectedMainFixtureWithPr46(fixture: any) {
   runGit(fixture.root, ["checkout", "-q", "-b", "pr46-lane", fixture.initialHead]);
   mkdirSync(join(fixture.root, "scripts"), { recursive: true });
   writeFileSync(join(fixture.root, "scripts", "verify-sena-repo-governance.mjs"), "pr46 lane\n");
-  runGit(fixture.root, ["add", "scripts/verify-sena-repo-governance.mjs"]);
+  runGit(fixture.root, ["add", "scripts/verify-sena-repo-governance.mjs", "scripts/sena-local-workspace-governance.mjs"]);
   runGit(fixture.root, ["commit", "-q", "-m", "synthetic pr46 lane"]);
   const laneHead = runGit(fixture.root, ["rev-parse", "HEAD"]);
   runGit(fixture.root, ["checkout", "-q", "main"]);
@@ -2352,9 +2391,20 @@ describe("SENA repository governance", () => {
   });
 
   it("accepts the machine-readable active-work registry", () => {
-    const registry = JSON.parse(
-      readFileSync(join(projectRoot, "coordination", "repo-governance", "active-work.json"), "utf8")
-    );
+    const root = temporaryRoot("active-registry-ci-checkout");
+    runGit(projectRoot, ["clone", "--no-local", "--single-branch", "--no-tags", projectRoot, root]);
+    const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
+    copyCurrentGovernanceVerifier(script);
+    const head = runGit(root, ["rev-parse", "HEAD"]);
+    const eventPath = join(temporaryRoot("active-registry-ci-event"), "event.json");
+    const repo = { full_name: "HUDongpin/SENA" };
+    writeFileSync(eventPath, JSON.stringify({ number: 1, repository: repo, pull_request: {
+      base: { ref: "main", sha: head, repo }, head: { ref: "fixture", sha: head, repo }
+    } }));
+    const registryRelativePath = join("coordination", "repo-governance", "active-work.json");
+    const registrySource = readFileSync(join(projectRoot, registryRelativePath), "utf8");
+    writeFileSync(join(root, registryRelativePath), registrySource);
+    const registry = JSON.parse(registrySource);
     const protectedCurrentnessRepair = registry.workItems.find(
       (item: { taskId?: string }) =>
         item.taskId === PROTECTED_CURRENTNESS_REPAIR_TASK_FOR_TEST
@@ -2365,14 +2415,19 @@ describe("SENA repository governance", () => {
     // The repository-security workflow always runs this command. Fresh clones
     // lack the local-only H tree, and the verifier test process does not
     // inherit GITHUB_*, so the direct check supplies that portable CI identity.
-    const result = runNode(governanceScript, ["registry"], {
+    const options = {
+      cwd: root,
       env: {
         CI: "true",
         GITHUB_ACTIONS: "true",
         GITHUB_REPOSITORY: "HUDongpin/SENA",
-        GITHUB_EVENT_NAME: "pull_request"
+        GITHUB_EVENT_NAME: "pull_request",
+        GITHUB_REF: "refs/heads/fixture",
+        GITHUB_SHA: head,
+        GITHUB_EVENT_PATH: eventPath
       }
-    });
+    };
+    const result = runNode(script, ["registry"], options);
     expect(protectedCurrentnessRepair).toMatchObject({
       disposition: "integrated",
       aheadBehindObservationMode: "integrated-monotonic-behind"
@@ -2380,6 +2435,15 @@ describe("SENA repository governance", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("SENA_REPO_REGISTRY pass");
     expect(result.stdout).toContain(`activeWriters=${activeWriterCount}`);
+
+    // Preserve the summaries while corrupting a field that the full registry
+    // validation must still reject in the current candidate bytes.
+    const invalid = structuredClone(registry);
+    invalid.policy.remoteIdentity.owner = "untrusted-fixture-owner";
+    writeFileSync(join(root, registryRelativePath), JSON.stringify(invalid));
+    const rejected = runNode(script, ["registry"], options);
+    expect(rejected.status).not.toBe(0);
+    expect(rejected.stderr).toContain("policy.remoteIdentity must match");
   });
 
   it("rejects an expired active heartbeat identically on reconstruction and the physical path", () => {
@@ -2406,6 +2470,12 @@ describe("SENA repository governance", () => {
       projectRoot, stripped
     ]);
     const strippedRoot = realpathSync(stripped);
+    // Exercise the v1 registry override on a pre-overlay checkout. The current
+    // local-workspace contract correctly refuses alternate CI authorities.
+    const historicalSource = JSON.parse(readFileSync(
+      join(projectRoot, "coordination/repo-governance/local-workspace.json"), "utf8"
+    )).historicalSource.commit;
+    runGit(strippedRoot, ["checkout", "--detach", historicalSource]);
     const missingTree = spawnSync("git", ["cat-file", "-e", `${stagedTree}^{tree}`], {
       cwd: strippedRoot,
       encoding: "utf8",
@@ -2442,7 +2512,9 @@ describe("SENA repository governance", () => {
     } else {
       expect(physical.stderr ?? "").not.toContain("SENA_REPO_REGISTRY h-source=");
     }
-    expect(registryErrorLines(reconstructed.stderr)).toEqual(registryErrorLines(physical.stderr));
+    const heartbeatErrors = (stderr: string | null | undefined) => registryErrorLines(stderr)
+      .filter((line) => /active workItem .* has no heartbeat for more than 72 hours/.test(line));
+    expect(heartbeatErrors(reconstructed.stderr)).toEqual(heartbeatErrors(physical.stderr));
     expect(reconstructed.stdout).toBe(physical.stdout);
     expect(reconstructed.stdout).not.toContain("SENA_REPO_REGISTRY pass");
     for (const item of activeWriters) {
@@ -2474,8 +2546,7 @@ describe("SENA repository governance", () => {
 
     mkdirSync(join(worktree, "scripts"), { recursive: true });
     mkdirSync(join(worktree, "coordination", "repo-governance"), { recursive: true });
-    copyFileSync(
-      governanceScript,
+    copyCurrentGovernanceVerifier(
       join(worktree, "scripts", "verify-sena-repo-governance.mjs")
     );
     const missingRecordedRoot = join(primary, "missing-recorded-root");
@@ -2515,6 +2586,45 @@ describe("SENA repository governance", () => {
     expect(result.stderr ?? "").not.toContain("rule=isolated-governance-control-root-context-invalid");
   });
 
+  it("admits an external registered worktree without admitting a copied Git pointer", async () => {
+    const primary = temporaryRoot("external-control-primary");
+    runGit(primary, ["init", "-q"]);
+    runGit(primary, ["config", "user.name", "SENA external control"]);
+    runGit(primary, ["config", "user.email", "external-control@example.invalid"]);
+    writeFileSync(join(primary, "README"), "primary\n");
+    runGit(primary, ["add", "README"]);
+    runGit(primary, ["commit", "-q", "-m", "primary"]);
+    const worktree = join(temporaryRoot("external-control-target"), "checkout");
+    runGit(primary, ["worktree", "add", "--detach", worktree, "HEAD"]);
+    const control = realpathSync(primary);
+    const target = realpathSync(worktree);
+    const isolated = realpathSync(temporaryRoot("external-control-isolated"));
+    const governance = await import(pathToFileURL(governanceScript).href);
+    const context = {
+      canonicalRegistryRepositoryRoot: control,
+      requestedControlRoot: control,
+      targetRoot: target,
+      gitWorkTree: target,
+      gitDirectory: join(isolated, "git"),
+      gitCommonDirectory: join(isolated, "git"),
+      gitIndex: join(isolated, "index"),
+      gitObjectDirectory: join(isolated, "objects"),
+      alternateObjectDirectories: [join(control, ".git", "objects")]
+    };
+    expect(governance.validateIsolatedGovernanceControlRootContext(context)).toBe(true);
+
+    const copied = realpathSync(temporaryRoot("external-control-copied-pointer"));
+    copyFileSync(join(target, ".git"), join(copied, ".git"));
+    expect(() => governance.validateIsolatedGovernanceControlRootContext({
+      ...context, targetRoot: copied, gitWorkTree: copied
+    })).toThrow("rule=isolated-governance-control-root-context-invalid");
+
+    const nativeGitDir = runGit(target, ["rev-parse", "--absolute-git-dir"]);
+    writeFileSync(join(nativeGitDir, "gitdir"), `${join(copied, ".git")}\n`);
+    expect(() => governance.validateIsolatedGovernanceControlRootContext(context))
+      .toThrow("rule=isolated-governance-control-root-context-invalid");
+  });
+
   it("resolves a linked-worktree SENA_REPO_ROOT through the common git directory", () => {
     const primary = temporaryRoot("linked-override-primary");
     runGit(primary, ["init", "-q"]);
@@ -2537,8 +2647,7 @@ describe("SENA repository governance", () => {
 
     mkdirSync(join(worktree, "scripts"), { recursive: true });
     mkdirSync(join(worktree, "coordination", "repo-governance"), { recursive: true });
-    copyFileSync(
-      governanceScript,
+    copyCurrentGovernanceVerifier(
       join(worktree, "scripts", "verify-sena-repo-governance.mjs")
     );
     const missingRecordedRoot = join(primary, "missing-recorded-root");
@@ -4687,7 +4796,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("staged-index");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     writeFileSync(join(root, "All API Keys.docx"), "TEST-FIXTURE-NOT-REAL\n");
     runGit(root, ["add", "All API Keys.docx"]);
@@ -4702,7 +4811,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("staged-type-change");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     runGit(root, ["config", "user.name", "SENA governance test"]);
     runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
@@ -4735,7 +4844,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("known-blob");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     runGit(root, ["config", "user.name", "SENA governance test"]);
     runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
@@ -4809,7 +4918,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("outgoing-range");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     runGit(root, ["config", "user.name", "SENA governance test"]);
     runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
@@ -4839,7 +4948,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("merge-range");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     runGit(root, ["config", "user.name", "SENA governance test"]);
     runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
@@ -4878,7 +4987,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("new-branch-ancestor");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     runGit(root, ["config", "user.name", "SENA governance test"]);
     runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
@@ -4914,7 +5023,7 @@ describe("SENA repository governance", () => {
     const root = temporaryRoot("ref-mutation");
     const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
     mkdirSync(dirname(script), { recursive: true });
-    copyFileSync(governanceScript, script);
+    copyCurrentGovernanceVerifier(script);
     runGit(root, ["init", "-q"]);
     runGit(root, ["config", "user.name", "SENA governance test"]);
     runGit(root, ["config", "user.email", "sena-governance@example.invalid"]);
@@ -6289,11 +6398,19 @@ describe("SENA repository governance", () => {
         entry.name === "codex/sena-q-currentness-port-20260919"
     );
     expect(branch).toBeDefined();
+    const fixtureRoot = temporaryRoot("historical-push-event");
+    cloneSingleCheckoutBranch(fixtureRoot, branch.name, { noTags: false });
+    const script = join(fixtureRoot, "scripts", "verify-sena-repo-governance.mjs");
+    copyCurrentGovernanceVerifier(script);
     const ref = `refs/heads/${branch.name}`;
     const head = runGit(projectRoot, ["rev-parse", ref]);
     const before = branch.remotePresent ? branch.remoteHeadSha : "0".repeat(40);
+    const environment = withHistoricalDateNow(temporaryRoot("historical-push-clock"), {
+      ...process.env, CI: "true", GITHUB_ACTIONS: "true",
+      GITHUB_REPOSITORY: "HUDongpin/SENA", GITHUB_EVENT_NAME: "push"
+    }, runGit(fixtureRoot, ["show", "-s", "--format=%cI", head]), true);
     const valid = runNode(
-      governanceScript,
+      script,
       [
         "security",
         "--push-event",
@@ -6308,9 +6425,9 @@ describe("SENA repository governance", () => {
         "--event-deleted",
         "false"
       ],
-      { cwd: projectRoot }
+      { cwd: fixtureRoot, env: environment }
     );
-    expect(valid.status).toBe(0);
+    expect(valid.status, `${valid.stdout}\n${valid.stderr}`).toBe(0);
 
     for (const [eventRef, forced, rule] of [
       ["refs/heads/unregistered", "false", "push-event-branch-unregistered"],
@@ -6318,7 +6435,7 @@ describe("SENA repository governance", () => {
       ["refs/rescue/leak", "false", "rescue-ref-remote-push-not-authorized"]
     ]) {
       const result = runNode(
-        governanceScript,
+        script,
         [
           "security",
           "--push-event",
@@ -6333,7 +6450,7 @@ describe("SENA repository governance", () => {
           "--event-deleted",
           "false"
         ],
-        { cwd: projectRoot }
+        { cwd: fixtureRoot, env: environment }
       );
       expect(result.status).toBe(1);
       expect(result.stderr).toContain(`rule=${rule}`);
@@ -6724,7 +6841,7 @@ require("node:module").syncBuiltinESMExports();
     // A checkout already admitted to a read-only post-merge role is denied
     // before inspecting its copied index. Still require exactly that denial,
     // bound to the actual branch/Git merge, and no attempted provider access.
-    const checkoutBranch = runGit(projectRoot, ["symbolic-ref", "--short", "HEAD"]);
+    const checkoutBranch = runGit(projectRoot, ["branch", "--show-current"]);
     let expectedDenial = "rule=empty-staged-index-not-authorized";
     if (checkoutBranch === MOBILE_BRANCH_FOR_TEST && spawnSync("git", ["merge-base", "--is-ancestor", PR86_PROTECTED_FOR_TEST, "HEAD"],
       { cwd: projectRoot, encoding: "utf8" }).status === 0) {
@@ -10607,7 +10724,7 @@ process.stdout.write(JSON.stringify(value));
     );
     mkdirSync(dirname(verifierPath), { recursive: true });
     mkdirSync(dirname(governanceTestPath), { recursive: true });
-    copyFileSync(governanceScript, verifierPath);
+    copyCurrentGovernanceVerifier(verifierPath);
     copyFileSync(
       join(
         projectRoot,
@@ -10622,7 +10739,7 @@ process.stdout.write(JSON.stringify(value));
     runGit(tempRepo, [
       "add",
       "coordination/repo-governance/active-work.json",
-      "scripts/verify-sena-repo-governance.mjs",
+      "scripts/verify-sena-repo-governance.mjs", "scripts/sena-local-workspace-governance.mjs",
       "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"
     ]);
     runGit(tempRepo, ["commit", "-q", "-m", "legal correction lifecycle source"]);
@@ -12331,7 +12448,7 @@ async function createProtectedActivationCompletionFixture(label: string) {
   const registryPath = join(root, "coordination", "repo-governance", "active-work.json");
   mkdirSync(dirname(script), { recursive: true });
   mkdirSync(dirname(registryPath), { recursive: true });
-  copyFileSync(governanceScript, script);
+  copyCurrentGovernanceVerifier(script);
   runGit(root, ["init", "-q"]);
   runGit(root, ["config", "user.name", "SENA activation completion test"]);
   runGit(root, ["config", "user.email", "sena-activation@example.invalid"]);
@@ -17833,7 +17950,7 @@ async function pr86DeliveryIsolatedHostForTest() {
 describe("PR86 delivery closeout observation successor", () => {
   it("rechecks outgoing ref custody after the new writer's final live-main read", () => {
     const source = readFileSync(governanceScript, "utf8");
-    const start = source.indexOf("function runPushPolicy(flags) {");
+    const start = source.indexOf("function runPushPolicy(");
     const end = source.indexOf("\nfunction loadRegistry(", start);
     const head = "a".repeat(40); let actualHead = head; let mainReadCalls = 0;
     const update = { localRef: `refs/heads/${PR86_CLOSEOUT_BRANCH_FOR_TEST}`, localSha: head,
@@ -18462,7 +18579,7 @@ describe("H-G governance intake successor", () => {
     ]);
   });
 
-  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("rejects the superseded H package after its exact owner-only path disappears", async () => {
+  itUnless(ihSourceTreePresent && physicalJPathsPresent, physicalJAbsentReason)("rejects the superseded H package after its exact owner-only path disappears", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     const candidate = hGovernanceCandidateForTest();
     expect(typeof governance.hGovernanceIntakeRecoveryPackageAllowed).toBe(
@@ -18485,7 +18602,7 @@ describe("H-G governance intake successor", () => {
     ).toBe(true);
   });
 
-  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("denies the exact H index after evidence loss while the PR86 push policy remains denied", async () => {
+  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("denies the exact H index after evidence loss", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     const candidate = hGovernanceCandidateForTest();
     const facts = {
@@ -18532,6 +18649,9 @@ describe("H-G governance intake successor", () => {
         })
       ).toBe(false);
     }
+  });
+
+  itUnless(physicalJPathsPresent, physicalJAbsentReason)("denies the historical PR86 push after evidence loss", () => {
     const push = runNode(
       governanceScript,
       ["push-policy", "--remote-name", "origin"],
@@ -18850,7 +18970,9 @@ describe("I-H dedicated landing candidate", () => {
     ).toBe("function");
     const source = iHSourceForTest();
     const candidate = iHCandidateForTest();
-    const proof = governance.validateIHDedicatedLandingCandidateTransition(
+    const portable = portableHistoricalVerifierForTest();
+    const transition = (...args: unknown[]) => portable("validateIHDedicatedLandingCandidateTransition", args);
+    const proof = transition(
       source,
       candidate
     );
@@ -18872,7 +18994,7 @@ describe("I-H dedicated landing candidate", () => {
       cleanupAuthorized: false
     });
     expect(
-      governance.iHDedicatedLandingHistoricalProjection(candidate)
+      portable("iHDedicatedLandingHistoricalProjection", [candidate])
     ).toEqual(source);
     expect(() =>
       governance.validateHGovernanceIntakeTransition(
@@ -18966,7 +19088,7 @@ describe("I-H dedicated landing candidate", () => {
       }
     });
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
     // Historical replay cannot silently become an ordinary registry grant.
@@ -18977,7 +19099,7 @@ describe("I-H dedicated landing candidate", () => {
       .toContain("rule=historical-convergence-lifecycle-snapshot-not-exact");
   });
 
-  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("requires the exact owner-only J package, fresh restore proof, and retained BENPrB manifest", async () => {
+  itUnless(ihSourceTreePresent && physicalJPathsPresent, physicalJAbsentReason)("requires the exact owner-only J package, fresh restore proof, and retained BENPrB manifest", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     expect(
       typeof governance.jHEvidenceCustodyReconstructionAllowed
@@ -19337,6 +19459,17 @@ describe("I-H dedicated landing candidate", () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     const source = iHSourceForTest();
     const candidate = iHCandidateForTest();
+    const portable = portableHistoricalVerifierForTest();
+    const transition = (...args: unknown[]) => portable("validateIHDedicatedLandingCandidateTransition", args);
+    expect(transition(source, candidate)).toMatchObject({
+      candidateCommitAuthorized: false,
+      candidatePushAuthorized: false,
+      deploymentAuthorized: false
+    });
+    if (!physicalJPathsPresent) {
+      expect(() => governance.validateIHDedicatedLandingCandidateTransition(source, candidate))
+        .toThrow("rule=i-h-dedicated-landing-transition-invalid");
+    }
     for (const mutate of [
       (value: any) => (value.updatedAt = candidate.updatedAt),
       (value: any) => value.releaseReceipts.pop(),
@@ -19345,7 +19478,7 @@ describe("I-H dedicated landing candidate", () => {
       const changed = structuredClone(source);
       mutate(changed);
       expect(() =>
-        governance.validateIHDedicatedLandingCandidateTransition(
+        transition(
           changed,
           candidate
         )
@@ -19398,7 +19531,7 @@ describe("I-H dedicated landing candidate", () => {
       const changed = structuredClone(candidate);
       mutate(changed);
       expect(() =>
-        governance.validateIHDedicatedLandingCandidateTransition(
+        transition(
           source,
           changed
         )
@@ -19406,7 +19539,7 @@ describe("I-H dedicated landing candidate", () => {
     }
   });
 
-  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("permits only the exact I three-path stage-0 identity and unconditionally denies an I push", async () => {
+  itUnless(ihSourceTreePresent && physicalJPathsPresent, physicalJAbsentReason)("permits only the exact I three-path stage-0 identity", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     const candidate = iHCandidateForTest();
     const facts = {
@@ -19449,18 +19582,25 @@ describe("I-H dedicated landing candidate", () => {
         })
       ).toBe(false);
     }
+  });
+
+  it("denies replaying the prior H commit as an I-lane push", () => {
+    const root = temporaryRoot("i-lane-push-denial");
+    cloneSingleCheckoutBranch(root, I_H_BRANCH_FOR_TEST, { noTags: false });
+    const script = join(root, "scripts", "verify-sena-repo-governance.mjs");
+    copyCurrentGovernanceVerifier(script);
     const push = runNode(
-      governanceScript,
+      script,
       ["push-policy", "--remote-name", "origin"],
       {
-        cwd: projectRoot,
+        cwd: root,
         input: `refs/heads/${I_H_BRANCH_FOR_TEST} ${H_GOVERNANCE_SOURCE_FOR_TEST} refs/heads/${I_H_BRANCH_FOR_TEST} ${"0".repeat(40)}\n`,
-        env: { SENA_GOVERNANCE_TARGET_ROOT: projectRoot }
+        env: { SENA_GOVERNANCE_TARGET_ROOT: root }
       }
     );
     expect(push.status).not.toBe(0);
     expect(push.stderr).toContain(
-      "rule=latest-main-q-create-push-denied"
+      "rule=i-h-dedicated-landing-push-denied"
     );
   });
 
@@ -19600,7 +19740,7 @@ describe("I-H dedicated landing candidate", () => {
     );
   });
 
-  itUnless(ihSourceTreePresent, ihSourceAbsentReason)("accepts only the exact H-bound orphan instruction and J-bound BENPrB marker after backup evidence loss", async () => {
+  itUnless(ihSourceTreePresent && physicalJPathsPresent, physicalJAbsentReason)("accepts only the exact H-bound orphan instruction and J-bound BENPrB marker after backup evidence loss", async () => {
     const governance: any = await import(pathToFileURL(governanceScript).href);
     const candidate = iHCandidateForTest();
     const binding = candidate.pr86DeliveryCloseout.orphanInstructionObservation;
@@ -19870,7 +20010,7 @@ describe("K-I owner-authorized landing lifecycle", () => {
       source
     );
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
     for (const mutate of [
@@ -19957,7 +20097,7 @@ describe("K-I owner-authorized landing lifecycle", () => {
       "verify-sena-repo-governance.mjs"
     );
     const fixtureVerifierBytes = readFileSync(fixtureVerifierPath);
-    copyFileSync(governanceScript, fixtureVerifierPath);
+    copyCurrentGovernanceVerifier(fixtureVerifierPath);
     const registry = runNode(
       join(root, "scripts", "verify-sena-repo-governance.mjs"),
       ["historical-registry"],
@@ -20200,7 +20340,7 @@ describe("L-K Draft PR and CI portability remediation", () => {
       governance.lKDraftPrCiRemediationHistoricalProjection(candidate)
     ).toEqual(source);
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
     for (const mutate of [
@@ -20269,10 +20409,7 @@ describe("L-K Draft PR and CI portability remediation", () => {
     expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
       "6a1127db0ab9bed48ed3f882f4a9ef39928b5a2d"
     );
-    copyFileSync(
-      governanceScript,
-      join(root, "scripts", "verify-sena-repo-governance.mjs")
-    );
+    copyCurrentGovernanceVerifier(join(root, "scripts", "verify-sena-repo-governance.mjs"));
     const localOnlyTree = spawnSync(
       "git",
       ["cat-file", "-e", `${I_H_SOURCE_STAGED_TREE_FOR_TEST}^{tree}`],
@@ -20485,7 +20622,7 @@ describe("M-L portable J evidence CI remediation", () => {
       governance.mLPortableJEvidenceCiHistoricalProjection(candidate)
     ).toEqual(source);
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
     for (const mutate of [
@@ -20522,10 +20659,7 @@ describe("M-L portable J evidence CI remediation", () => {
     expect(runGit(root, ["rev-parse", "HEAD"])).toBe(
       "26a13f040c5b3834e6fda6a9c004d511d8c572fb"
     );
-    copyFileSync(
-      governanceScript,
-      join(root, "scripts", "verify-sena-repo-governance.mjs")
-    );
+    copyCurrentGovernanceVerifier(join(root, "scripts", "verify-sena-repo-governance.mjs"));
     expect(
       spawnSync(
         "git",
@@ -20601,7 +20735,7 @@ describe("N-M PR 88 final authorization", () => {
       governance.nMPr88FinalAuthorizationHistoricalProjection(candidate)
     ).toEqual(source);
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
     for (const mutate of [
@@ -20877,7 +21011,7 @@ describe("N-M PR 88 final authorization", () => {
       "verify-sena-repo-governance.mjs"
     );
     const fixtureVerifierBytes = readFileSync(fixtureVerifierPath);
-    copyFileSync(governanceScript, fixtureVerifierPath);
+    copyCurrentGovernanceVerifier(fixtureVerifierPath);
     const portable = runNode(
       join(root, "scripts", "verify-sena-repo-governance.mjs"),
       ["historical-registry"],
@@ -21411,7 +21545,7 @@ describe("O-N PR 88 post-main currentness repair", () => {
       governance.oNPr88PostMainCurrentnessRepairHistoricalProjection(candidate)
     ).toEqual(source);
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
     const evidenceFlow = candidate.workItems.find(
@@ -22173,7 +22307,7 @@ describe("P-O PR 89 pre-push custody remediation", () => {
       )
     ).toEqual(source);
     expect(
-      governance.validateHistoricalConvergenceLifecycleRegistry(candidate)
+      portableHistoricalRegistryForTest(candidate)
         .errors
     ).toEqual([]);
 
@@ -23320,7 +23454,7 @@ describe("PR100 exact self-landing descriptor", () => {
 
 describe("PR100 actual Git post-landing proof", () => {
   it("mints only an opaque proof from real matching trees and fresh provider gates, then rejects late drift and failed checks", () => {
-    const controlRoot = temporaryRoot("pr100-post-landing");
+    const controlRoot = realpathSync(temporaryRoot("pr100-post-landing"));
     const root = join(controlRoot, "q-checkout");
     runGit(controlRoot, ["init", "-b", "main"]); runGit(controlRoot, ["config", "user.name", "Fixture"]); runGit(controlRoot, ["config", "user.email", "fixture@example.invalid"]);
     const paths = ["coordination/repo-governance/active-work.json", "scripts/verify-sena-repo-governance.mjs", "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts"];
