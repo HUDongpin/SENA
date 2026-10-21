@@ -22,6 +22,16 @@ import { dirname, basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual, types } from "node:util";
+import {
+  LOCAL_WORKSPACE_PATH,
+  isHistoricalLocalMainEvent,
+  isHistoricalUntouchedLocalWorkspaceEvent,
+  localWorkspacePushRequiresTaskGate,
+  localWorkspaceReviewRequiresTaskGate,
+  validateLocalPush,
+  validateLocalWorkspace,
+  validatePortableLocalWorkspace
+} from "./sena-local-workspace-governance.mjs";
 
 const GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST = new Set([
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -1658,7 +1668,7 @@ function runPostPr83PushDraftReadiness() {
   );
 }
 
-function runPushPolicy(flags) {
+function runPushPolicy(flags, preReadInput = undefined) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-push-denied");
   if (pr86DeliveryCurrentCheckoutMerged()) throw new Error("rule=pr86-delivery-closeout-push-denied");
   const currentBranch = git(
@@ -1666,7 +1676,7 @@ function runPushPolicy(flags) {
     { allowFailure: true }
   );
   const findings = [];
-  const input = readFileSync(0, "utf8");
+  const input = preReadInput ?? readFileSync(0, "utf8");
   const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
   const remoteLocation = process.env.SENA_GOVERNANCE_REMOTE_LOCATION ?? "";
   const updates = parsePrePushUpdates(input);
@@ -17125,8 +17135,8 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-10-18T20:17:41Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-20T20:17:41Z";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-10-20T01:59:02Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-22T01:59:02Z";
 const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-08T02:29:37+08:00";
 const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-09T11:46:37+08:00";
 const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-07T16:28:51+08:00";
@@ -17210,6 +17220,13 @@ const P_O_CURRENTNESS_HEARTBEAT_20261014 = Object.freeze({
 const P_O_CURRENTNESS_HEARTBEAT_20261015 = Object.freeze({
   recordedAt: "2026-10-15T01:25:16Z",
   nextReviewAt: "2026-10-17T01:25:16Z",
+  gLastCommitAt: "2026-09-08T02:29:37+08:00",
+  ihLastCommitAt: "2026-09-09T11:46:37+08:00",
+  mobileLastCommitAt: "2026-09-07T16:28:51+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20261018 = Object.freeze({
+  recordedAt: "2026-10-18T20:17:41Z",
+  nextReviewAt: "2026-10-20T20:17:41Z",
   gLastCommitAt: "2026-09-08T02:29:37+08:00",
   ihLastCommitAt: "2026-09-09T11:46:37+08:00",
   mobileLastCommitAt: "2026-09-07T16:28:51+08:00"
@@ -18584,6 +18601,10 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20261015
     );
+    const admittedOn20261018 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20261018
+    );
     return [
       historical,
       historicalRepair,
@@ -18599,6 +18620,7 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       admittedOn20261013,
       admittedOn20261014,
       admittedOn20261015,
+      admittedOn20261018,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
@@ -26268,8 +26290,9 @@ function printUsage() {
 
 async function main() {
   const { command, flags } = parseArguments(process.argv.slice(2));
+  let pushInput;
   try {
-    const localWorkspacePath = "coordination/repo-governance/local-workspace.json";
+    const localWorkspacePath = LOCAL_WORKSPACE_PATH;
     const hasLocalWorkspace = existsSync(join(REPO_ROOT, localWorkspacePath)) ||
       [":", "HEAD:"].some(prefix => git(["cat-file", "-e", `${prefix}${localWorkspacePath}`],
         { allowFailure: true }).status === 0);
@@ -26281,16 +26304,23 @@ async function main() {
           flags.has("identity-only") || flags.has("authorization-registry-commit")) {
         throw new Error("rule=local-workspace-remote-operation-denied");
       }
-      if (command === "push-policy" || flags.has("pre-push")) {
+      const reviewedHead = flagValues(flags, "registry-from-commit")[0] ??
+        gitText(["rev-parse", "HEAD"]).trim();
+      if (command === "push-policy" || (flags.has("pre-push") && command !== "audit")) {
+        pushInput = readFileSync(0, "utf8");
+      }
+      if ((command === "push-policy" || flags.has("pre-push")) &&
+          localWorkspacePushRequiresTaskGate({
+            root: REPO_ROOT, head: reviewedHead, updatesText: pushInput
+          })) {
         if (!["push-policy", "audit", "security"].includes(command)) {
           throw new Error("rule=local-workspace-remote-operation-denied");
         }
-        const { validateLocalPush } = await import("./sena-local-workspace-governance.mjs");
         if (command === "audit" && (!flags.has("live") ||
             flagValues(flags, "registry-from-commit")[0] !== gitText(["rev-parse", "HEAD"]).trim())) {
           throw new Error("rule=local-workspace-alternate-authority-denied");
         }
-        const updatesText = command === "audit" ? undefined : readFileSync(0, "utf8");
+        const updatesText = command === "audit" ? undefined : pushInput;
         const result = validateLocalPush({
           root: REPO_ROOT, controlRoot: CONTROL_ROOT, updatesText,
           remoteName: flagValues(flags, "remote-name")[0] ?? "origin",
@@ -26309,12 +26339,9 @@ async function main() {
         if (flags.has("registry") || flags.has("registry-from-commit") || flags.has("registry-from-index")) {
           throw new Error("rule=local-workspace-alternate-authority-denied");
         }
-        const { isHistoricalLocalMainEvent, validatePortableLocalWorkspace } =
-          await import("./sena-local-workspace-governance.mjs");
         const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-        if (isHistoricalLocalMainEvent({ root: REPO_ROOT, event })) {
-          // Once integrated, this feature's registration is historical.
-          // Keep main's existing ledger and read-only CI checks authoritative.
+        if (isHistoricalLocalMainEvent({ root: REPO_ROOT, event }) ||
+            isHistoricalUntouchedLocalWorkspaceEvent({ root: REPO_ROOT, event })) {
           if (command === "registry") return runRegistry(flags);
           if (command === "audit") return runAudit(flags);
           return runSecurity(flags);
@@ -26330,8 +26357,8 @@ async function main() {
       if (command === "security" && flags.has("push-event")) {
         throw new Error("rule=local-workspace-remote-operation-denied");
       }
-      if (["audit", "write-policy", "registry"].includes(command)) {
-        const { validateLocalWorkspace } = await import("./sena-local-workspace-governance.mjs");
+      if (["audit", "write-policy", "registry"].includes(command) &&
+          localWorkspaceReviewRequiresTaskGate({ root: REPO_ROOT })) {
         if (flags.has("live") || flags.has("registry") || flags.has("registry-from-commit")) {
           throw new Error("rule=local-workspace-alternate-authority-denied");
         }
@@ -26350,12 +26377,14 @@ async function main() {
         return;
       }
     }
-    if (command === "security") return runSecurity(flags);
+    if (command === "security") {
+      return runSecurity(flags, pushInput !== undefined ? { prePushInput: pushInput } : {});
+    }
     if (command === "post-pr83-push-draft-readiness") {
       return runPostPr83PushDraftReadiness();
     }
     if (command === "write-policy") return runWritePolicy(flags);
-    if (command === "push-policy") return runPushPolicy(flags);
+    if (command === "push-policy") return runPushPolicy(flags, pushInput);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);
     if (command === "registry") return runRegistry(flags);
     if (command === "historical-registry") return runHistoricalRegistry(flags);
