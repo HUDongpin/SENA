@@ -17,8 +17,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * every deployment-wide ops read and to the alert-delivery webhook.
  *
  * These tests pin the split the two halves force:
- *   - a request that NAMES a team keeps per-team team:manage;
- *   - the team-less, deployment-wide surface requires a designated ops operator
+ *   - a team-scoped ops route that names a team keeps per-team team:manage;
+ *   - a teamId query on any other ops route does not select that path;
+ *   - the deployment-wide surface requires a designated ops operator
  *     (SENA_OPS_SESSION_OPERATOR_EMAILS), a signal registration cannot mint;
  *   - deployment-wide actions that dispatch outward stay bearer-only while ops
  *     tokens are configured;
@@ -154,6 +155,11 @@ describe("SENA ops API session access", () => {
         .resolves.toEqual({ mode: "session" });
     }
 
+    // A teamId query on a deployment-wide read does not remove the operator.
+    await expect(requireOpsAccess(new Request(
+      `https://sena.example.test/api/sena/ops/status?teamId=${encodeURIComponent(teamId)}`
+    ))).resolves.toEqual({ mode: "session" });
+
     // A team-scoped ops read names the team the caller is acting for.
     await expect(requireOpsAccess(new Request(
       `https://sena.example.test/api/sena/ops/native-adapters?teamId=${encodeURIComponent(teamId)}`
@@ -211,11 +217,10 @@ describe("SENA ops API session access", () => {
       ).rejects.toMatchObject({ status: 401, code: "ops_token_required" });
     }
 
-    // Naming a team they do own does not buy the deployment-wide surface either:
-    // that request is judged against *that* team, and the ops panels are not it.
+    // A teamId query does not make /ops/status team-scoped.
     await expect(requireOpsAccess(new Request(
       `https://sena.example.test/api/sena/ops/status?teamId=${encodeURIComponent(outsider.context.teams[0].id)}`
-    ))).resolves.toEqual({ mode: "session" });
+    ))).rejects.toMatchObject({ status: 403, code: "ops_operator_required" });
 
     // Administering a team is likewise not an operator claim in itself: the
     // deployment's own team owner is refused too while somebody else is the
@@ -251,6 +256,65 @@ describe("SENA ops API session access", () => {
     expect(body.access).toBeUndefined();
   });
 
+  it("ignores teamId on ops routes outside the team-scoped allowlist", async () => {
+    enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-ops-access-decoy-team-"));
+    process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
+    process.env.SENA_OPS_TOKEN = opsToken;
+    process.env.SENA_OPS_AUTOMATION_TOKEN = automationToken;
+
+    vi.resetModules();
+    mockSessionCookie();
+
+    const { enterprise, outsider, outsiderTeamId } = await seedOpsCallers("decoy-team");
+    designate("someone-else@example.edu");
+    sessionToken = outsider.token;
+    const csrf = enterprise.createEnterpriseCsrfToken(outsider.context);
+    const teamQuery = `teamId=${encodeURIComponent(outsiderTeamId)}`;
+
+    const { requireOpsAccess, requireOpsMutationAccess } = await import("../ops-api");
+
+    for (const route of [
+      "status",
+      "metrics",
+      "readiness",
+      "observability",
+      "production-evidence",
+      "alerts",
+      "jobs/worker-contract"
+    ]) {
+      await expect(
+        requireOpsAccess(new Request(`https://sena.example.test/api/sena/ops/${route}?${teamQuery}`)),
+        `GET /${route} must stay on the operator allowlist`
+      ).rejects.toMatchObject({ status: 403, code: "ops_operator_required" });
+    }
+
+    for (const route of [
+      "jobs/probe",
+      "observability/probe",
+      "cdn",
+      "postgres",
+      "object-storage"
+    ]) {
+      await expect(
+        requireOpsAccess(new Request(`https://sena.example.test/api/sena/ops/${route}?${teamQuery}`)),
+        `GET /${route} must stay bearer-only`
+      ).rejects.toMatchObject({ status: 401, code: "ops_token_required" });
+    }
+
+    for (const route of ["alerts", "jobs/worker-heartbeat"]) {
+      await expect(
+        requireOpsMutationAccess(new Request(`https://sena.example.test/api/sena/ops/${route}?${teamQuery}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-sena-csrf-token": csrf.token
+          }
+        })),
+        `POST /${route} must stay bearer-only`
+      ).rejects.toMatchObject({ status: 401, code: "ops_token_required" });
+    }
+  });
+
   it("keeps team-scoped ops reads on per-team team:manage", async () => {
     enterpriseDbDir = mkdtempSync(path.join(tmpdir(), "sena-ops-access-team-"));
     process.env.SENA_ENTERPRISE_DB_DIR = enterpriseDbDir;
@@ -283,9 +347,22 @@ describe("SENA ops API session access", () => {
       .rejects.toMatchObject({ status: 403, code: "permission_denied" });
 
     // The team's own administrator passes without any operator designation.
+    // Exact paths only: /ops/jobs is team-scoped, and /ops/jobs/probe is not.
     process.env[operatorEnvName] = "";
     sessionToken = owner.token;
-    await expect(requireOpsAccess(new Request(teamUrl))).resolves.toEqual({ mode: "session" });
+    for (const route of [
+      "native-adapters",
+      "jobs",
+      "go-live-rehearsal",
+      "capability-audit",
+      "deployment",
+      "saas-operations",
+      "identity-production-evidence"
+    ]) {
+      await expect(requireOpsAccess(new Request(
+        `https://sena.example.test/api/sena/ops/${route}?teamId=${encodeURIComponent(teamId)}`
+      )), route).resolves.toEqual({ mode: "session" });
+    }
 
     const route = await import("../../../app/api/sena/ops/native-adapters/route");
     sessionToken = member.token;
