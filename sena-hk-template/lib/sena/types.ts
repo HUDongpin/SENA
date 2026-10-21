@@ -1731,6 +1731,15 @@ export type SenaPilotPackageManifest = {
     expectedEvidence: string[];
   }>;
   reviewGuardrails: string[];
+  // Recorded when a sealed v1 packet is normalized. Re-import trusts it only
+  // together with the statistical leaves' sealed source schema versions.
+  // A missing field is still admitted when those leaves and the pinned
+  // 14bb306 asset inventory identify a save from before this marker existed.
+  // Any present value must be this exact object.
+  sealedPilotAssetOrigin?: {
+    fusionMathAudit: typeof SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
+    codingReliabilityGate: typeof SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate;
+  };
 };
 
 export type SenaReviewPacketAuditItem = {

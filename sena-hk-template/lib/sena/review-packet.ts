@@ -53,6 +53,7 @@ import {
   type SenaStatisticalLeafReadState
 } from "./statistical-leaf-read";
 import pilotPackageManifestJson from "../../public/sena-pilot/sena-pilot-package-manifest.json";
+import sealedV1PilotAssetInventoryJson from "./sealed-v1-pilot-asset-inventory.json";
 import { jenaRuntimeExpectedDependencySpec, snaRuntimeExpectedDependencySpec } from "./runtime-constants";
 import {
   hasCompatibleSenaSchemaVersion,
@@ -84,6 +85,18 @@ export type SenaReviewPacketImportOptions = {
 };
 
 const pilotPackageManifest = pilotPackageManifestJson as SenaPilotPackageManifest;
+// Asset rows from the sealed v1 pilot manifest at 14bb3067adc7df6c985785d57d62a54761839555.
+// Stored here so historical review-packet import does not follow later live-manifest edits.
+const sealedV1PilotAssetInventory = sealedV1PilotAssetInventoryJson as Pick<
+  SenaPilotPackageManifest,
+  "assets" | "assetIntegrity"
+>;
+const sealedV1PilotAssetOrigin = {
+  fusionMathAudit: SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit,
+  codingReliabilityGate: SENA_LEGACY_SCHEMA_VERSIONS.codingReliabilityGate
+} as const;
+
+type PilotPackageAssetExpectation = "current" | "sealed-v1" | "normalized-sealed-v1";
 
 const artifactManifest = listSenaReviewPacketArtifacts();
 
@@ -907,10 +920,40 @@ function assertReviewPacketArtifactManifest(value: unknown) {
   );
 }
 
+function historicalPilotPackageAssets() {
+  return structuredClone(sealedV1PilotAssetInventory.assets);
+}
+
+function historicalPilotPackageAssetIntegrity() {
+  return structuredClone(sealedV1PilotAssetInventory.assetIntegrity);
+}
+
+function assertOptionalSealedPilotAssetOrigin(root: Record<string, unknown>, context: string) {
+  if (!Object.hasOwn(root, "sealedPilotAssetOrigin")) return;
+  if (!senaJsonValuesEqual(root.sealedPilotAssetOrigin, sealedV1PilotAssetOrigin)) {
+    throw new Error(`${context}.sealedPilotAssetOrigin must be absent or the sealed v1 pilot-asset origin.`);
+  }
+}
+
+function pilotPackageInventoryRule(expectation: PilotPackageAssetExpectation) {
+  switch (expectation) {
+    case "current":
+      return { historicalAssets: false, legacyExportSchemas: false };
+    case "sealed-v1":
+      return { historicalAssets: true, legacyExportSchemas: true };
+    case "normalized-sealed-v1":
+      return { historicalAssets: true, legacyExportSchemas: false };
+    default: {
+      const unexpected: never = expectation;
+      throw new Error(`Unexpected pilot asset expectation: ${String(unexpected)}`);
+    }
+  }
+}
+
 function assertSenaPilotPackageManifest(
   value: unknown,
   context: string,
-  allowHistoricalV1StatisticalSchemas = false
+  expectation: PilotPackageAssetExpectation = "current"
 ): asserts value is SenaPilotPackageManifest {
   const root = assertSchemaRecord(value, context, "sena-pilot-package-manifest/v1");
   assertString(root.packageName, `${context}.packageName`);
@@ -1060,8 +1103,26 @@ function assertSenaPilotPackageManifest(
     1,
     SENA_REVIEW_PACKET_IMPORT_LIMITS.pilotReviewGuardrails
   );
+  const inventoryRule = pilotPackageInventoryRule(expectation);
   const expectedExportArtifactSchemas = structuredClone(pilotPackageManifest.exportArtifactSchemas);
-  if (allowHistoricalV1StatisticalSchemas) {
+  // Intended. Sealed v1 packets, including 14bb306, never contained
+  // ai_agent_runs.csv. The first import matches the pinned 14bb306 inventory
+  // exactly, so a v1 tag that adds the template fails. Normalization records
+  // sealedPilotAssetOrigin and rewrites the statistical schema labels to v2
+  // without rewriting the asset inventory. A later import keeps that pinned
+  // inventory when the recorded origin is present, and also when a pre-marker
+  // save still carries the normalized v1 source schemas with the same inventory.
+  // The schema labels then stay at the normalized v2 values. A present
+  // sealedPilotAssetOrigin must be that marker exactly, whether or not it
+  // grants the historical inventory.
+  assertOptionalSealedPilotAssetOrigin(root, context);
+  const expectedAssets = inventoryRule.historicalAssets
+    ? historicalPilotPackageAssets()
+    : pilotPackageManifest.assets;
+  const expectedAssetIntegrity = inventoryRule.historicalAssets
+    ? historicalPilotPackageAssetIntegrity()
+    : pilotPackageManifest.assetIntegrity;
+  if (inventoryRule.legacyExportSchemas) {
     expectedExportArtifactSchemas["sena-fusion-math-audit.json"] =
       SENA_LEGACY_SCHEMA_VERSIONS.fusionMathAudit;
     expectedExportArtifactSchemas["sena-coding-reliability-gate.json"] =
@@ -1070,8 +1131,8 @@ function assertSenaPilotPackageManifest(
   const canonicalMappings: Array<[unknown, unknown, string]> = [
     [root.exportArtifacts, pilotPackageManifest.exportArtifacts, "exportArtifacts"],
     [root.exportArtifactSchemas, expectedExportArtifactSchemas, "exportArtifactSchemas"],
-    [root.assets, pilotPackageManifest.assets, "assets"],
-    [root.assetIntegrity, pilotPackageManifest.assetIntegrity, "assetIntegrity"],
+    [root.assets, expectedAssets, "assets"],
+    [root.assetIntegrity, expectedAssetIntegrity, "assetIntegrity"],
     [root.handoffChecks, pilotPackageManifest.handoffChecks, "handoffChecks"]
   ];
   const mismatch = canonicalMappings.find(([actual, expected]) =>
@@ -1771,6 +1832,7 @@ function normalizeReviewPacketStatisticalContracts(
     for (const [filename, schemaVersion] of statisticalSchemas) {
       normalized.contents.pilotPackageManifest.exportArtifactSchemas[filename] = schemaVersion;
     }
+    recordSealedV1PilotAssetOrigin(normalized);
   }
   const rebuiltAudit = rebuildNormalizedReviewPacketAudit();
   const reconciliationItems: SenaReviewPacketAuditItem[] = [];
@@ -1795,6 +1857,72 @@ function normalizeReviewPacketStatisticalContracts(
   }
   normalized.reviewPacketAudit = finalizeReviewPacketAudit(rebuiltAudit, reconciliationItems);
   return normalized;
+}
+
+function pilotManifestRecord(contents: Record<string, unknown>) {
+  const manifest = contents.pilotPackageManifest;
+  if (typeof manifest !== "object" || manifest === null || Array.isArray(manifest)) return null;
+  return manifest as Record<string, unknown>;
+}
+
+function hasNormalizedSealedV1StatisticalLeaves(contents: Record<string, unknown>) {
+  const fusion = normalizeSenaFusionMathAudit(
+    contents.fusionMathAudit,
+    reviewPacketFusionEvidence(contents, "review packet.contents")
+  );
+  const gate = normalizeSenaCodingReliabilityGate(contents.codingReliabilityGate);
+  return fusion.schemaVersion === SENA_SCHEMA_VERSIONS.fusionMathAudit &&
+    fusion.sourceSchemaVersion === sealedV1PilotAssetOrigin.fusionMathAudit &&
+    gate.schemaVersion === SENA_SCHEMA_VERSIONS.codingReliabilityGate &&
+    gate.sourceSchemaVersion === sealedV1PilotAssetOrigin.codingReliabilityGate;
+}
+
+function admitsRecordedSealedV1PilotAssetOrigin(contents: Record<string, unknown>) {
+  const manifest = pilotManifestRecord(contents);
+  if (!manifest || !senaJsonValuesEqual(manifest.sealedPilotAssetOrigin, sealedV1PilotAssetOrigin)) return false;
+  // The saved label is not enough. The statistical leaves must still be the
+  // normalized sealed-v1 contracts; a current packet wearing the label fails here.
+  return hasNormalizedSealedV1StatisticalLeaves(contents);
+}
+
+function selectPilotPackageAssetExpectation(
+  contents: Record<string, unknown>,
+  historicalV1StatisticalProjection: boolean
+): PilotPackageAssetExpectation {
+  if (historicalV1StatisticalProjection) return "sealed-v1";
+  if (
+    admitsRecordedSealedV1PilotAssetOrigin(contents) ||
+    admitsMarkerlessNormalizedSealedV1PilotAssets(contents)
+  ) {
+    return "normalized-sealed-v1";
+  }
+  return "current";
+}
+
+function admitsMarkerlessNormalizedSealedV1PilotAssets(contents: Record<string, unknown>) {
+  const manifest = pilotManifestRecord(contents);
+  // Packets imported and saved before sealedPilotAssetOrigin existed still
+  // carry normalized v1 source schemas and the pinned 13-asset inventory.
+  if (!manifest || Object.hasOwn(manifest, "sealedPilotAssetOrigin")) return false;
+  if (!senaJsonValuesEqual(manifest.assets, sealedV1PilotAssetInventory.assets)) return false;
+  if (!senaJsonValuesEqual(manifest.assetIntegrity, sealedV1PilotAssetInventory.assetIntegrity)) return false;
+  try {
+    return hasNormalizedSealedV1StatisticalLeaves(contents);
+  } catch {
+    return false;
+  }
+}
+
+function recordSealedV1PilotAssetOrigin(packet: SenaReviewPacket) {
+  const manifest = packet.contents.pilotPackageManifest;
+  if (!senaJsonValuesEqual(manifest.assets, historicalPilotPackageAssets())) return;
+  if (!senaJsonValuesEqual(manifest.assetIntegrity, historicalPilotPackageAssetIntegrity())) return;
+  if (packet.contents.fusionMathAudit.sourceSchemaVersion !== sealedV1PilotAssetOrigin.fusionMathAudit) return;
+  if (packet.contents.codingReliabilityGate.sourceSchemaVersion !== sealedV1PilotAssetOrigin.codingReliabilityGate) return;
+  manifest.sealedPilotAssetOrigin = {
+    fusionMathAudit: sealedV1PilotAssetOrigin.fusionMathAudit,
+    codingReliabilityGate: sealedV1PilotAssetOrigin.codingReliabilityGate
+  };
 }
 
 function assertSenaReviewPacket(value: unknown): void {
@@ -1858,10 +1986,14 @@ function assertSenaReviewPacket(value: unknown): void {
     );
     normalizeSenaCodingReliabilityGate(contents.codingReliabilityGate);
   }
+  const pilotAssetExpectation = selectPilotPackageAssetExpectation(
+    contents,
+    historicalV1StatisticalProjection
+  );
   assertSenaPilotPackageManifest(
     contents.pilotPackageManifest,
     "review packet.contents.pilotPackageManifest",
-    historicalV1StatisticalProjection
+    pilotAssetExpectation
   );
   assertSchemaRecord(contents.evidenceLedger, "review packet.contents.evidenceLedger", "sena-evidence-ledger/v1");
   assertSchemaRecord(contents.temporalRuntimeTrace, "review packet.contents.temporalRuntimeTrace", "sena-temporal-runtime-trace/v1");
