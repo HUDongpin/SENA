@@ -128,7 +128,20 @@ const backupRestoreOptionalTeamId = new Set<keyof typeof backupRestoreTeamScopeF
   "auditLog"
 ]);
 
-function backupRestoreRecordField(record: unknown, field: "id" | "teamId") {
+type BackupRestoreCollection = keyof typeof backupRestoreTeamScopeField;
+
+const backupRestoreUserReferenceFields = [
+  "userId",
+  "ownerId",
+  "invitedBy",
+  "createdByUserId",
+  "updatedByUserId",
+  "reviewerId"
+] as const;
+
+const backupRestoreProjectReferenceFields = ["projectId", "persistedProjectId"] as const;
+
+function backupRestoreRecordField(record: unknown, field: string) {
   if (!record || typeof record !== "object") return undefined;
   return (record as Record<string, unknown>)[field];
 }
@@ -137,7 +150,96 @@ function rejectBackupRestoreOutsideScope(): never {
   throw new SenaEnterpriseError("Backup restore records must belong to the authorized team scope.", 400, "backup_restore_record_outside_scope");
 }
 
-function assertBackupRestoreRecordsInScope(backup: SenaEnterpriseBackupArtifact) {
+function backupRestoreTextId(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function backupRestoreTeamInScope(teamId: unknown, allowed: Set<string>) {
+  return backupRestoreTextId(teamId) && allowed.has(teamId);
+}
+
+function backupRestoreCollectionRecords(db: SenaEnterpriseDb, collection: BackupRestoreCollection) {
+  const records = db[collection] as unknown;
+  return Array.isArray(records) ? records : [];
+}
+
+function assertExistingBackupRecordInScope(
+  db: SenaEnterpriseDb,
+  collection: BackupRestoreCollection,
+  id: string,
+  allowed: Set<string>
+) {
+  const existing = backupRestoreCollectionRecords(db, collection).find((candidate) => backupRestoreRecordField(candidate, "id") === id);
+  if (!existing) return;
+  const existingTeamId = backupRestoreRecordField(existing, backupRestoreTeamScopeField[collection]);
+  if ((existingTeamId === undefined || existingTeamId === null) && backupRestoreOptionalTeamId.has(collection)) return;
+  if (!backupRestoreTeamInScope(existingTeamId, allowed)) rejectBackupRestoreOutsideScope();
+}
+
+function backupRestoreProjectInScope(
+  projectId: unknown,
+  allowed: Set<string>,
+  db: SenaEnterpriseDb,
+  payload: SenaEnterpriseBackupArtifact["payload"]
+) {
+  if (!backupRestoreTextId(projectId)) return false;
+  const existing = db.projects.find((project) => project.id === projectId);
+  if (existing) return backupRestoreTeamInScope(existing.teamId, allowed);
+  const incoming = (Array.isArray(payload.projects) ? payload.projects : []).find((project) => project.id === projectId);
+  return Boolean(incoming && backupRestoreTeamInScope(incoming.teamId, allowed));
+}
+
+function backupRestoreUserInScope(userId: unknown, allowed: Set<string>, db: SenaEnterpriseDb) {
+  if (!backupRestoreTextId(userId)) return false;
+  if (!db.users.some((user) => user.id === userId)) return false;
+  return db.memberships.some((membership) => membership.userId === userId && backupRestoreTeamInScope(membership.teamId, allowed));
+}
+
+function backupRestoreUploadInScope(
+  uploadId: unknown,
+  allowed: Set<string>,
+  db: SenaEnterpriseDb,
+  payload: SenaEnterpriseBackupArtifact["payload"]
+) {
+  if (!backupRestoreTextId(uploadId)) return false;
+  const existing = db.uploads.find((upload) => upload.id === uploadId);
+  if (existing) return backupRestoreTeamInScope(existing.teamId, allowed);
+  const incoming = (Array.isArray(payload.uploads) ? payload.uploads : []).find((upload) => upload.id === uploadId);
+  return Boolean(incoming && backupRestoreTeamInScope(incoming.teamId, allowed));
+}
+
+function assertBackupRestoreReferencesInScope(
+  record: unknown,
+  checkUsers: boolean,
+  allowed: Set<string>,
+  db: SenaEnterpriseDb,
+  payload: SenaEnterpriseBackupArtifact["payload"]
+) {
+  if (!record || typeof record !== "object") rejectBackupRestoreOutsideScope();
+  const value = record as Record<string, unknown>;
+  if (checkUsers) {
+    for (const field of backupRestoreUserReferenceFields) {
+      if (value[field] == null) continue;
+      if (!backupRestoreUserInScope(value[field], allowed, db)) rejectBackupRestoreOutsideScope();
+    }
+  }
+  for (const field of backupRestoreProjectReferenceFields) {
+    if (value[field] == null) continue;
+    if (!backupRestoreProjectInScope(value[field], allowed, db, payload)) rejectBackupRestoreOutsideScope();
+  }
+  const binding = value.projectBinding;
+  if (binding && typeof binding === "object" && "projectId" in binding) {
+    const projectId = (binding as { projectId?: unknown }).projectId;
+    if (projectId != null && !backupRestoreProjectInScope(projectId, allowed, db, payload)) rejectBackupRestoreOutsideScope();
+  }
+  if (Array.isArray(value.uploadIds)) {
+    for (const uploadId of value.uploadIds) {
+      if (!backupRestoreUploadInScope(uploadId, allowed, db, payload)) rejectBackupRestoreOutsideScope();
+    }
+  }
+}
+
+function assertBackupRestoreRecordsInScope(backup: SenaEnterpriseBackupArtifact, db: SenaEnterpriseDb) {
   const teamIds = backup.scope?.teamIds;
   if (!Array.isArray(teamIds) || teamIds.some((teamId) => typeof teamId !== "string" || teamId.length === 0)) {
     rejectBackupRestoreOutsideScope();
@@ -145,16 +247,20 @@ function assertBackupRestoreRecordsInScope(backup: SenaEnterpriseBackupArtifact)
   const allowed = new Set(teamIds);
   const payload = backup.payload;
   if (!payload || typeof payload !== "object") rejectBackupRestoreOutsideScope();
-  for (const collection of Object.keys(backupRestoreTeamScopeField) as Array<keyof typeof backupRestoreTeamScopeField>) {
+  for (const collection of Object.keys(backupRestoreTeamScopeField) as BackupRestoreCollection[]) {
     const records = payload[collection];
     if (records == null) continue;
     if (!Array.isArray(records)) rejectBackupRestoreOutsideScope();
     const field = backupRestoreTeamScopeField[collection];
     for (const record of records) {
       const teamId = backupRestoreRecordField(record, field);
-      if (typeof teamId === "string" && allowed.has(teamId)) continue;
-      if ((teamId === undefined || teamId === null) && backupRestoreOptionalTeamId.has(collection)) continue;
-      rejectBackupRestoreOutsideScope();
+      const teamScoped = backupRestoreTeamInScope(teamId, allowed);
+      const teamOmitted = (teamId === undefined || teamId === null) && backupRestoreOptionalTeamId.has(collection);
+      if (!teamScoped && !teamOmitted) rejectBackupRestoreOutsideScope();
+      const id = backupRestoreRecordField(record, "id");
+      if (!backupRestoreTextId(id)) rejectBackupRestoreOutsideScope();
+      assertExistingBackupRecordInScope(db, collection, id, allowed);
+      assertBackupRestoreReferencesInScope(record, teamScoped, allowed, db, payload);
     }
   }
 }
@@ -276,7 +382,7 @@ function buildEnterpriseBackupRestoreResult(
     throw new SenaEnterpriseError("Only merge restore mode is supported.", 400, "unsupported_backup_restore_mode");
   }
   ensureBackupRestorePermission(context, backup, sourceDb);
-  assertBackupRestoreRecordsInScope(backup);
+  assertBackupRestoreRecordsInScope(backup, sourceDb);
   const verification = verifyEnterpriseBackupAgainstDb(context, backup, sourceDb);
   if (!backupCoreChecksPass(verification)) {
     throw new SenaEnterpriseError("Backup restore requires checksum, record counts, and secret exclusions to pass.", 400, "backup_restore_preflight_failed");
