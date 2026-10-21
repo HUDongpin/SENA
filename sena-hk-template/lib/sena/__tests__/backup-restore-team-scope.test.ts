@@ -3,8 +3,17 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import {
+  buildSenaModel,
+  buildSenaProjectSnapshot,
+  buildSenaReliabilityDashboard,
+  importSenaJsonContract,
+  lessonStudySenaContract,
+  reliabilityDashboardToReview
+} from "../index";
 import type { SenaEnterpriseBackupArtifact } from "../enterprise/ops-backup";
 import type { SenaEnterpriseDb } from "../enterprise/state";
+import type { SenaProjectSnapshot } from "../types";
 
 const stamp = "2026-01-01T00:00:00.000Z";
 
@@ -58,6 +67,60 @@ async function withIsolatedEnterprise<T>(prefix: string, run: (args: {
     vi.resetModules();
     rmSync(enterpriseDbDir, { recursive: true, force: true });
   }
+}
+
+let projectSnapshotCache: SenaProjectSnapshot | undefined;
+
+function projectSnapshot() {
+  if (projectSnapshotCache) return structuredClone(projectSnapshotCache);
+  const imported = importSenaJsonContract(lessonStudySenaContract);
+  const model = buildSenaModel(imported.dataset);
+  const reliability = buildSenaReliabilityDashboard([
+    { coderId: "c1", itemId: "u1", codeId: "Evidence", value: true },
+    { coderId: "c2", itemId: "u1", codeId: "Evidence", value: true }
+  ]);
+  projectSnapshotCache = buildSenaProjectSnapshot(model, {
+    title: "Scope restore snapshot",
+    generatedAt: stamp,
+    sourceDataset: imported.dataset,
+    humanReview: {
+      status: "human-reviewed",
+      reviewer: "Scope test",
+      interpretation: "Scope test interpretation.",
+      limitations: "Fixture only.",
+      nextActions: "Continue validation."
+    },
+    codingReliability: reliabilityDashboardToReview(reliability, "Scope test"),
+    dataGovernance: {
+      irbApprovalId: "SYNTHETIC-FIXTURE-NOT-HUMAN-SUBJECTS",
+      consentScope: "Synthetic fixture only.",
+      retentionPolicy: "Delete generated fixture state after the test run.",
+      usageConstraints: ["Do not use as real participant evidence."],
+      dataSteward: "Scope test"
+    }
+  });
+  return structuredClone(projectSnapshotCache);
+}
+
+function expectRestoreRejected(
+  enterprise: typeof import("../enterprise"),
+  context: ReturnType<typeof import("../enterprise").registerEnterpriseUser>["context"],
+  backup: SenaEnterpriseBackupArtifact,
+  dbPath: string
+) {
+  syncBackupIntegrity(backup);
+  const before = readFileSync(dbPath, "utf8");
+  let caught: unknown;
+  try {
+    enterprise.restoreEnterpriseBackup(context, backup, { mode: "merge" });
+  } catch (error) {
+    caught = error;
+  }
+  expect(caught).toMatchObject({
+    status: 400,
+    code: "backup_restore_record_outside_scope"
+  });
+  expect(readFileSync(dbPath, "utf8")).toBe(before);
 }
 
 function registerPair(enterprise: typeof import("../enterprise")) {
@@ -255,6 +318,98 @@ describe("SENA backup restore team scope", () => {
       expect(restore.summary.teamsUpdated).toBeGreaterThan(0);
       expect(restored?.name).toBe(originalName);
       expect(readDb(dbPath).auditLog.some((entry) => entry.id === "audit_without_team")).toBe(true);
+    });
+  });
+
+  it("rejects a restore that reuses another team's membership id", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-member-id-", async ({ enterprise, dbPath }) => {
+      const { owner, outsider } = registerPair(enterprise);
+      const teamId = owner.context.teams[0].id;
+      const outsiderTeamId = outsider.context.teams[0].id;
+      const outsideMembership = readDb(dbPath).memberships.find((membership) => membership.teamId === outsiderTeamId);
+      if (!outsideMembership) throw new Error("Expected the other team's membership.");
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      backup.payload.memberships.push({
+        ...outsideMembership,
+        teamId,
+        userId: owner.context.user.id,
+        role: "owner"
+      });
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      const stored = readDb(dbPath).memberships.find((membership) => membership.id === outsideMembership.id);
+      expect(stored?.teamId).toBe(outsiderTeamId);
+      expect(stored?.userId).toBe(outsider.context.user.id);
+    });
+  });
+
+  it("rejects a restore that reuses another team's project id", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-project-id-", async ({ enterprise, dbPath }) => {
+      const { owner, outsider } = registerPair(enterprise);
+      const teamId = owner.context.teams[0].id;
+      const outsiderTeamId = outsider.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(outsider.context, {
+        teamId: outsiderTeamId,
+        title: "Outside project",
+        snapshot: projectSnapshot()
+      });
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      backup.payload.projects.push({
+        ...project,
+        teamId,
+        title: "Claimed project"
+      });
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      expect(readDb(dbPath).projects.find((candidate) => candidate.id === project.id)?.teamId).toBe(outsiderTeamId);
+    });
+  });
+
+  it("rejects a restore whose projectId points outside the authorized teams", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-project-ref-", async ({ enterprise, dbPath }) => {
+      const { owner, outsider } = registerPair(enterprise);
+      const teamId = owner.context.teams[0].id;
+      const outsiderTeamId = outsider.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(outsider.context, {
+        teamId: outsiderTeamId,
+        title: "Referenced outside project",
+        snapshot: projectSnapshot()
+      });
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      backup.payload.projectRevisions.push({
+        id: "rev_outside_project",
+        projectId: project.id,
+        teamId,
+        userId: owner.context.user.id,
+        version: 1,
+        summary: "Points outside",
+        title: project.title,
+        description: project.description,
+        snapshot: project.snapshot,
+        datasetCounts: project.datasetCounts,
+        activeWindowLabel: project.activeWindowLabel,
+        claimUse: project.claimUse,
+        createdAt: stamp
+      });
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      expect(readDb(dbPath).projectRevisions.some((revision) => revision.id === "rev_outside_project")).toBe(false);
+    });
+  });
+
+  it("rejects a membership whose userId is outside the authorized teams", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-member-user-", async ({ enterprise, dbPath }) => {
+      const { owner, outsider } = registerPair(enterprise);
+      const teamId = owner.context.teams[0].id;
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      const ownMembership = backup.payload.memberships.find((membership) => membership.userId === owner.context.user.id);
+      if (!ownMembership) throw new Error("Expected the caller's membership.");
+      ownMembership.userId = outsider.context.user.id;
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      const stored = readDb(dbPath).memberships.find((membership) => membership.id === ownMembership.id);
+      expect(stored?.userId).toBe(owner.context.user.id);
+      expect(stored?.teamId).toBe(teamId);
     });
   });
 });
