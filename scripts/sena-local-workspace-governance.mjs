@@ -464,13 +464,18 @@ export function localWorkspaceHistoryTouches(root, from, to) {
   return nonemptyLines(history);
 }
 
+function commitFromRef(root, ref) {
+  const sha = gitSucceeded(root, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+  return sha && isSha40(sha.trim()) ? sha.trim() : null;
+}
+
 function integratedMainBase(root, head) {
   const candidates = [];
-  for (const ref of ["refs/heads/main", "refs/remotes/origin/main"]) {
-    const sha = gitSucceeded(root, ["rev-parse", "--verify", ref]);
-    if (!sha || !isSha40(sha.trim())) continue;
-    if (gitSucceeded(root, ["merge-base", "--is-ancestor", sha.trim(), head]) === null) continue;
-    candidates.push(sha.trim());
+  for (const ref of ["refs/heads/main", "refs/remotes/origin/main", "refs/remotes/origin/HEAD"]) {
+    const sha = commitFromRef(root, ref);
+    if (!sha || candidates.includes(sha)) continue;
+    if (gitSucceeded(root, ["merge-base", "--is-ancestor", sha, head]) === null) continue;
+    candidates.push(sha);
   }
   if (candidates.length === 0) return null;
   return candidates.reduce((newest, sha) => (

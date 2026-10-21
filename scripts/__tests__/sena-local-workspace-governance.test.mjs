@@ -699,6 +699,11 @@ function cloneIntegratedMain(t) {
     ["commit.gpgsign", "false"]
   ]) runGit(root, ["config", key, value]);
   runGit(root, ["checkout", "--detach", INTEGRATED_MAIN]);
+  // git clone --local copies refs/heads only. A CI checkout of a pull request
+  // often has main solely as a remote-tracking ref, so the clone has neither
+  // refs/heads/main nor refs/remotes/origin/main until they are created here.
+  runGit(root, ["update-ref", "refs/heads/main", INTEGRATED_MAIN]);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", INTEGRATED_MAIN]);
   return { temp, root };
 }
 
@@ -943,4 +948,27 @@ test("a merge that restores the local-workspace entry still counts as a change",
     head: main,
     updatesText: `refs/heads/main ${main} refs/heads/main ${beforeEntry}\n`
   }), false);
+});
+
+test("a checkout with no main ref keeps the local-workspace gate, and origin/HEAD can name main", t => {
+  const temp = mkdtempSync(join(realpathSync(tmpdir()), "sena-main-ref-"));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const root = join(temp, "repo");
+  mkdirSync(root);
+  runGit(root, ["init", "-b", "topic"]);
+  for (const [key, value] of [
+    ["user.name", "SENA Governance Test"], ["user.email", "sena-test@example.invalid"], ["commit.gpgsign", "false"]
+  ]) runGit(root, ["config", key, value]);
+  const entry = join(root, LOCAL_WORKSPACE_PATH);
+  put(entry, "{\"schemaVersion\":\"sena-local-workspace/v1\",\"task\":{\"worktreePath\":\"/nonexistent/sena-task\"}}\n");
+  runGit(root, ["add", "."]);
+  runGit(root, ["commit", "-m", "Add the entry"]);
+  const tip = gitText(root, ["rev-parse", "HEAD"]);
+  runGit(root, ["checkout", "--detach", tip]);
+  runGit(root, ["update-ref", "-d", "refs/heads/topic"]);
+  const updates = `refs/heads/topic ${tip} refs/heads/topic ${"0".repeat(40)}\n`;
+  assert.equal(localWorkspacePushRequiresTaskGate({ root, head: tip, updatesText: updates }), true);
+  runGit(root, ["update-ref", "refs/remotes/origin/default", tip]);
+  runGit(root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/default"]);
+  assert.equal(localWorkspacePushRequiresTaskGate({ root, head: tip, updatesText: updates }), false);
 });
