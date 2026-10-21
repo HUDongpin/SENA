@@ -439,6 +439,166 @@ export function isHistoricalLocalMainEvent({ root, event, environment = process.
   return true;
 }
 
+const isSha40 = (value) => typeof value === "string" && /^[a-f0-9]{40}$/.test(value);
+const ZERO_SHA = "0".repeat(40);
+
+function gitSucceeded(root, args) {
+  const result = git(root, args, true);
+  return result.status === 0 ? result.stdout.toString() : null;
+}
+
+function nonemptyLines(text) {
+  return text.split("\n").some(line => line.length > 0);
+}
+
+export function localWorkspaceHistoryTouches(root, from, to) {
+  if (!isSha40(from) || !isSha40(to)) return true;
+  const finalDiff = gitSucceeded(root, ["diff", "--name-only", "--no-renames", from, to, "--", LOCAL_WORKSPACE_PATH]);
+  if (finalDiff === null || nonemptyLines(finalDiff)) return true;
+  // --full-history keeps an edit that a later merge makes treesame to its parent.
+  const history = gitSucceeded(root, [
+    "log", "--full-history", "--name-only", "--pretty=format:", "--no-renames",
+    `${from}..${to}`, "--", LOCAL_WORKSPACE_PATH
+  ]);
+  if (history === null) return true;
+  return nonemptyLines(history);
+}
+
+function commitFromRef(root, ref) {
+  const sha = gitSucceeded(root, ["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`]);
+  return sha && isSha40(sha.trim()) ? sha.trim() : null;
+}
+
+function integratedMainBase(root, head) {
+  const candidates = [];
+  for (const ref of ["refs/heads/main", "refs/remotes/origin/main", "refs/remotes/origin/HEAD"]) {
+    const sha = commitFromRef(root, ref);
+    if (!sha || candidates.includes(sha)) continue;
+    if (gitSucceeded(root, ["merge-base", "--is-ancestor", sha, head]) === null) continue;
+    candidates.push(sha);
+  }
+  if (candidates.length === 0) return null;
+  return candidates.reduce((newest, sha) => (
+    gitSucceeded(root, ["merge-base", "--is-ancestor", newest, sha]) !== null ? sha : newest
+  ));
+}
+
+export function registeredLocalWorkspaceCheckout(root) {
+  const shown = git(root, ["show", `HEAD:${LOCAL_WORKSPACE_PATH}`], true);
+  if (shown.status !== 0) return false;
+  let registry;
+  try {
+    registry = JSON.parse(shown.stdout.toString());
+  } catch {
+    return true;
+  }
+  const taskPath = registry?.task?.worktreePath;
+  if (typeof taskPath !== "string" || taskPath.length === 0) return true;
+  let physicalRoot;
+  try {
+    physicalRoot = realpathSync(root);
+  } catch {
+    return true;
+  }
+  let physicalTask;
+  try {
+    physicalTask = realpathSync(taskPath);
+  } catch {
+    return false;
+  }
+  return physicalRoot === physicalTask;
+}
+
+function worktreePathTouches(root, args) {
+  const listed = gitSucceeded(root, args);
+  if (listed === null) return true;
+  return nonemptyLines(listed);
+}
+
+function updateTips(updatesText) {
+  const tips = [];
+  for (const line of updatesText.trim().split("\n").filter(line => line.length > 0)) {
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 4) return null;
+    const localSha = parts[1];
+    if (localSha === ZERO_SHA) continue;
+    if (!isSha40(localSha)) return null;
+    tips.push(localSha);
+  }
+  return tips;
+}
+
+function tipChangesEntry(root, tip) {
+  const base = integratedMainBase(root, tip);
+  if (base === null) return true;
+  return localWorkspaceHistoryTouches(root, base, tip);
+}
+
+export function localWorkspaceReviewRequiresTaskGate({ root }) {
+  if (registeredLocalWorkspaceCheckout(root)) return true;
+  if (worktreePathTouches(root, ["diff", "--cached", "--name-only", "--no-renames", "--", LOCAL_WORKSPACE_PATH]) ||
+      worktreePathTouches(root, ["diff", "--name-only", "--no-renames", "--", LOCAL_WORKSPACE_PATH]) ||
+      worktreePathTouches(root, ["ls-files", "--others", "--exclude-standard", "--", LOCAL_WORKSPACE_PATH])) {
+    return true;
+  }
+  const head = gitSucceeded(root, ["rev-parse", "HEAD"]);
+  if (head === null || !isSha40(head.trim())) return true;
+  return tipChangesEntry(root, head.trim());
+}
+
+export function localWorkspacePushRequiresTaskGate({ root, head, updatesText }) {
+  if (registeredLocalWorkspaceCheckout(root)) return true;
+  const tips = typeof updatesText === "string" ? updateTips(updatesText) : [];
+  if (tips === null) return true;
+  if (tips.length === 0) {
+    if (!isSha40(head)) return true;
+    tips.push(head);
+  }
+  return tips.some(tip => tipChangesEntry(root, tip));
+}
+
+export function isHistoricalUntouchedLocalWorkspaceEvent({ root, event, environment = process.env }) {
+  if (environment.GITHUB_ACTIONS !== "true") return false;
+  if (environment.GITHUB_REPOSITORY !== "HUDongpin/SENA") return false;
+  if (event?.repository?.full_name !== "HUDongpin/SENA") return false;
+  const checkout = gitSucceeded(root, ["rev-parse", "HEAD"]);
+  if (checkout === null || environment.GITHUB_SHA !== checkout.trim()) return false;
+  const kind = environment.GITHUB_EVENT_NAME;
+  let base;
+  let head;
+  if (kind === "pull_request") {
+    const pullRequest = event.pull_request;
+    if (pullRequest?.base?.repo?.full_name !== "HUDongpin/SENA") return false;
+    if (pullRequest?.head?.repo?.full_name !== "HUDongpin/SENA") return false;
+    if (pullRequest?.base?.ref !== "main") return false;
+    base = pullRequest.base?.sha;
+    head = pullRequest.head?.sha;
+    if (!isSha40(base) || !isSha40(head)) return false;
+    const ref = `refs/heads/${pullRequest.head?.ref}`;
+    if (environment.GITHUB_REF !== `refs/pull/${event.number}/merge` && environment.GITHUB_REF !== ref) {
+      return false;
+    }
+    const parents = gitSucceeded(root, ["rev-list", "--parents", "-n", "1", checkout.trim()]);
+    if (parents === null) return false;
+    if (checkout.trim() !== head && parents.trim() !== `${checkout.trim()} ${base} ${head}`) return false;
+  } else if (kind === "push") {
+    if (environment.GITHUB_REF === "refs/heads/main" || event?.ref === "refs/heads/main") return false;
+    if (event?.forced !== false || event?.deleted !== false) return false;
+    if (event?.ref !== environment.GITHUB_REF) return false;
+    head = event.after;
+    if (!isSha40(head) || checkout.trim() !== head) return false;
+    base = integratedMainBase(root, head);
+    if (base === null) return false;
+  } else {
+    return false;
+  }
+  if (gitSucceeded(root, ["cat-file", "-e", `${base}^{commit}`]) === null) return false;
+  if (gitSucceeded(root, ["cat-file", "-e", `${head}^{commit}`]) === null) return false;
+  const mergeBase = gitSucceeded(root, ["merge-base", base, head]);
+  if (mergeBase === null) return false;
+  return !localWorkspaceHistoryTouches(root, mergeBase.trim(), head);
+}
+
 export function validatePortableLocalWorkspace({ root, event, environment = process.env }) {
   requireFact(environment.GITHUB_ACTIONS === "true" &&
     environment.GITHUB_REPOSITORY === "HUDongpin/SENA" &&
