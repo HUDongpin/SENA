@@ -770,11 +770,11 @@ function directVerifier(root, args) {
   });
 }
 
-test("merged main runs registry verification outside the retired local-workspace worktree", () => {
-  const result = runVerifier(VERIFIER_PATH, ["registry"], {
-    cwd: REPO_ROOT_FOR_TEST,
-    env: governanceProcessEnv()
-  });
+test("merged main runs registry verification outside the retired local-workspace worktree", t => {
+  // The checkout running this suite may itself be a newly registered PR lane.
+  // Exercise the retired registration on an actual integrated-main fixture.
+  const { root } = cloneIntegratedMain(t);
+  const result = directVerifier(root, ["registry"]);
   const output = outputOf(result);
   assert.match(output, /SENA_REPO_REGISTRY/);
   assert.doesNotMatch(output, /local-workspace-/);

@@ -20,7 +20,7 @@
     "branch": "codex/sena-release-g7-repair-20261021",
     "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-release-20261021/SENA",
     "baseSha": "ac8117f43cf4d4662d175e1eb787438407833fa8",
-    "commitBaseSha": "ac8117f43cf4d4662d175e1eb787438407833fa8",
+    "commitBaseSha": "33e9485a795a0814a5e303e1b1ff96e9533aaf4a",
     "allowedPaths": [
       "CONTEXT.md",
       "coordination/repo-governance/local-workspace.json",
@@ -110,6 +110,7 @@
       "refs/remotes/origin/codex/sena-pr86-delivery-closeout-20260907 7fd9e29c34ee7c1573dc81f4824124faadbae279",
       "refs/remotes/origin/codex/sena-protected-currentness-activation-repair-20260901 e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
       "refs/remotes/origin/codex/sena-q-currentness-port-20260919 6ac9b9552b0b08f5b13aa80f592d743350069dce",
+      "refs/remotes/origin/codex/sena-release-g7-repair-20261021 33e9485a795a0814a5e303e1b1ff96e9533aaf4a",
       "refs/remotes/origin/cursor/a4-usability-empty-import-inspector-9f0f 81633f22f95666026dec59257271f31ea37b9884",
       "refs/remotes/origin/cursor/ai-agent-cleaning-manifest-adr-0013-1658 d9a7004ac71e176801cc535390aaaa98b9ebb0aa",
       "refs/remotes/origin/cursor/ai-agent-runs-provenance-adr-d9a4 89ae63d18b52bbd60d7fc0e8b0a5187826e368fc",
