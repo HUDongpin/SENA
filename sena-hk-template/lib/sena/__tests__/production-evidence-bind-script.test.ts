@@ -101,6 +101,14 @@ if [ "$1" = "--version" ]; then
   exit 0
 fi
 if [ "$1" = "env" ] && [ "$2" = "add" ]; then
+  if [ "$4" = "preview" ]; then
+    confirmed=no
+    for arg in "$@"; do if [ "$arg" = "--yes" ]; then confirmed=yes; fi; done
+    if [ "$confirmed" != "yes" ]; then
+      echo "preview git_branch_required: pass --yes for all preview branches" >&2
+      exit 2
+    fi
+  fi
   ${failValue}
   ${captureValue}
   exit 0
@@ -749,6 +757,34 @@ describe("SENA production evidence binding script", () => {
       expect(outputOf(production)).toContain("preview-deployment-required");
       expect(outputOf(production)).not.toContain("configured(redacted)");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("passes the approved all-preview-branches confirmation to each Vercel env write", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-preview-write-confirmation-"));
+    const oldPath = process.env.PATH;
+    try {
+      const binDir = path.join(root, "bin");
+      const capturePath = path.join(root, "writes.txt");
+      mkdirSync(binDir);
+      writeFakeVercel(binDir, capturePath);
+      process.env.PATH = `${binDir}:${oldPath ?? ""}`;
+      const artifact = cdnProbeFixture("https://preview.sena.hk");
+      const plan = planSenaProductionEvidenceArtifactBinding({
+        artifact, artifactSha256: digestA, shaFilePresent: true, shaFileMatches: true
+      }, { environment: "preview", productionTargetUrl: "https://preview.sena.hk" });
+      expect(plan.bindable).toBe(true);
+      if (!plan.bindable || !plan.binding || !plan.env) throw new Error("Preview fixture did not produce a binding plan");
+      const boundPlan = { ...plan, binding: plan.binding, env: plan.env };
+      expect(() => writeSenaProductionEvidenceBindingPlanToVercel(
+        { environment: "preview", scope: "test-team" }, boundPlan
+      )).not.toThrow();
+      const writes = readFileSync(capturePath, "utf8").trim().split("\n");
+      expect(writes[0]).toBe("SENA_CDN_LIVE_PROBE_CONFIRMED=0");
+      expect(writes.at(-1)).toBe("SENA_CDN_LIVE_PROBE_CONFIRMED=1");
+    } finally {
+      if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
       rmSync(root, { recursive: true, force: true });
     }
   });
