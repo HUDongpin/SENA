@@ -18,8 +18,7 @@ import {
   mutateEnterpriseDbAtomically,
   mutateEnterpriseStateAtomically,
   readEnterpriseDb,
-  type SenaEnterpriseDb,
-  type SenaEnterpriseUser
+  type SenaEnterpriseDb
 } from "./state";
 
 function now() {
@@ -98,6 +97,64 @@ function ensureBackupRestorePermission(
   for (const teamId of backup.scope.teamIds) {
     if (db.teams.some((team) => team.id === teamId)) {
       requireEnterprisePermission(context, teamId, "team:manage");
+    }
+  }
+}
+
+const backupRestoreTeamScopeField = {
+  teams: "id",
+  memberships: "teamId",
+  invitations: "teamId",
+  uploads: "teamId",
+  importRuns: "teamId",
+  analysisRuns: "teamId",
+  projects: "teamId",
+  projectRevisions: "teamId",
+  projectComments: "teamId",
+  adjudications: "teamId",
+  reliabilityRuns: "teamId",
+  validationRuns: "teamId",
+  expertReviews: "teamId",
+  platformDecisionAcceptances: "teamId",
+  releaseGateReviews: "teamId",
+  postCutoverObservations: "teamId",
+  goLiveAttestations: "teamId",
+  notifications: "teamId",
+  auditLog: "teamId"
+} as const satisfies Record<Exclude<keyof SenaEnterpriseBackupArtifact["payload"], "users">, "id" | "teamId">;
+
+const backupRestoreOptionalTeamId = new Set<keyof typeof backupRestoreTeamScopeField>([
+  "notifications",
+  "auditLog"
+]);
+
+function backupRestoreRecordField(record: unknown, field: "id" | "teamId") {
+  if (!record || typeof record !== "object") return undefined;
+  return (record as Record<string, unknown>)[field];
+}
+
+function rejectBackupRestoreOutsideScope(): never {
+  throw new SenaEnterpriseError("Backup restore records must belong to the authorized team scope.", 400, "backup_restore_record_outside_scope");
+}
+
+function assertBackupRestoreRecordsInScope(backup: SenaEnterpriseBackupArtifact) {
+  const teamIds = backup.scope?.teamIds;
+  if (!Array.isArray(teamIds) || teamIds.some((teamId) => typeof teamId !== "string" || teamId.length === 0)) {
+    rejectBackupRestoreOutsideScope();
+  }
+  const allowed = new Set(teamIds);
+  const payload = backup.payload;
+  if (!payload || typeof payload !== "object") rejectBackupRestoreOutsideScope();
+  for (const collection of Object.keys(backupRestoreTeamScopeField) as Array<keyof typeof backupRestoreTeamScopeField>) {
+    const records = payload[collection];
+    if (records == null) continue;
+    if (!Array.isArray(records)) rejectBackupRestoreOutsideScope();
+    const field = backupRestoreTeamScopeField[collection];
+    for (const record of records) {
+      const teamId = backupRestoreRecordField(record, field);
+      if (typeof teamId === "string" && allowed.has(teamId)) continue;
+      if ((teamId === undefined || teamId === null) && backupRestoreOptionalTeamId.has(collection)) continue;
+      rejectBackupRestoreOutsideScope();
     }
   }
 }
@@ -219,6 +276,7 @@ function buildEnterpriseBackupRestoreResult(
     throw new SenaEnterpriseError("Only merge restore mode is supported.", 400, "unsupported_backup_restore_mode");
   }
   ensureBackupRestorePermission(context, backup, sourceDb);
+  assertBackupRestoreRecordsInScope(backup);
   const verification = verifyEnterpriseBackupAgainstDb(context, backup, sourceDb);
   if (!backupCoreChecksPass(verification)) {
     throw new SenaEnterpriseError("Backup restore requires checksum, record counts, and secret exclusions to pass.", 400, "backup_restore_preflight_failed");
@@ -226,11 +284,6 @@ function buildEnterpriseBackupRestoreResult(
 
   const db = dryRun ? dbWorkingCopy(sourceDb) : sourceDb;
   const summary = emptyBackupRestoreSummary();
-  mergeById(db.users, backup.payload.users as SenaEnterpriseUser[], "usersCreated", "usersUpdated", summary, (existing, incoming) => ({
-    ...incoming,
-    passwordHash: existing?.passwordHash,
-    ssoIdentities: incoming.ssoIdentities ?? existing?.ssoIdentities ?? []
-  }));
   mergeById(db.teams, backup.payload.teams, "teamsCreated", "teamsUpdated", summary);
   mergeById(db.memberships, backup.payload.memberships, "membershipsCreated", "membershipsUpdated", summary);
   mergeById(db.invitations, backup.payload.invitations, "invitationsCreated", "invitationsUpdated", summary);
