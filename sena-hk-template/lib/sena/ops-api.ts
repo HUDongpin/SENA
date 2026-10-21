@@ -42,27 +42,44 @@ function opsTokenMatches(configuredTokens: string[], provided: string) {
  *
  * The resulting gate, in one place:
  *
- *   bearer supplied, tokens configured  → the token is the whole decision
- *   request names ?teamId=              → session + team:manage on THAT team
- *   team-less report                    → session + designated ops operator
- *   team-less mutation or live probe    → bearer only while tokens are configured
+ *   bearer supplied, tokens configured     → the token is the whole decision
+ *   allowlisted route that names ?teamId=  → session + team:manage on THAT team
+ *   /ops/jobs with the team only in the body → session, team check delegated
+ *   every other route                      → operator allowlist, or bearer for
+ *                                            mutations and live probes
+ *   ?teamId= on a route outside that list  → ignored
  */
 
 /**
  * The ops surface has two dimensions, and one permission cannot serve both.
  *
- * A request that NAMES a team is team administration, so it reuses the
- * permission the rest of the enterprise ops surface already requires:
- * lib/sena/enterprise/server-job-queue.ts scopes session-mode job access on it,
- * and lib/sena/enterprise/ops-platform-decisions.ts gates the native adapter
- * certification read behind it. Note that `admin` does not carry team:manage in
- * rolePermissions, so team-scoped ops access here means owner/PI of that team.
+ * Team administration is an allowlisted route, not the presence of a teamId
+ * query. Those routes reuse the permission the rest of the enterprise ops
+ * surface already requires: lib/sena/enterprise/server-job-queue.ts scopes
+ * session-mode job access on it, and lib/sena/enterprise/ops-platform-decisions.ts
+ * gates the native adapter certification read behind it. Note that `admin` does
+ * not carry team:manage in rolePermissions, so team-scoped ops access here means
+ * owner/PI of that team.
+ *
+ * Membership is the pathname, exactly. `/ops/jobs` is on the list.
+ * `/ops/jobs/probe`, `/ops/jobs/worker-heartbeat`, and `/ops/jobs/worker-contract`
+ * are not, and a query parameter cannot put them there.
  */
+const teamScopedOpsPaths = new Set([
+  "/api/sena/ops/capability-audit",
+  "/api/sena/ops/deployment",
+  "/api/sena/ops/go-live-rehearsal",
+  "/api/sena/ops/identity-production-evidence",
+  "/api/sena/ops/jobs",
+  "/api/sena/ops/native-adapters",
+  "/api/sena/ops/saas-operations"
+]);
 const opsSessionPermission = "team:manage" as const;
 
 /**
- * A request that names NO team is deployment administration, and team:manage is
- * worthless as a gate for it: registration is open and unauthenticated
+ * A request outside the team-scoped allowlist is deployment administration,
+ * and team:manage is worthless as a gate for it: registration is open and
+ * unauthenticated
  * (app/api/auth/register), and a registrant with no invite code is made `owner`
  * of a brand-new active team (lib/sena/enterprise/auth-registration.ts), which
  * carries team:manage. "Administers some team" is therefore a self-service
@@ -122,12 +139,13 @@ function isDesignatedOpsOperator(context: SenaEnterpriseSessionContext) {
  *   object-storage      PUTs, HEADs and DELETEs a probe object in the bucket
  *
  * They are shaped as GETs, so the mutation flag does not catch them; the effect
- * is what matters, not the verb. Together with every team-less mutation (the
- * `/ops/alerts` deliver webhook, the worker heartbeat) these stay bearer-only
- * while ops tokens are configured, which is exactly what they answered before
- * the session path existed. A browser session is a stealable credential, and
- * these are the ops actions an attacker would want: an alert-channel flood, a
- * queue dispatch, a synthetic job written into the shared store.
+ * is what matters, not the verb. Together with mutations outside the team-scoped
+ * allowlist (the `/ops/alerts` deliver webhook, the worker heartbeat) these stay
+ * bearer-only while ops tokens are configured, which is exactly what they
+ * answered before the session path existed. A browser session is a stealable
+ * credential, and these are the ops actions an attacker would want: an
+ * alert-channel flood, a queue dispatch, a synthetic job written into the
+ * shared store.
  */
 const deploymentWideOpsDispatchPaths = new Set([
   "/api/sena/ops/cdn",
@@ -168,6 +186,10 @@ const teamScopedOpsPathsCheckedDownstream = new Set([
   "/api/sena/ops/jobs"
 ]);
 
+function teamScopedOpsRoute(request: Request) {
+  return teamScopedOpsPaths.has(requestPath(request));
+}
+
 function teamCheckedDownstream(request: Request) {
   return teamScopedOpsPathsCheckedDownstream.has(requestPath(request));
 }
@@ -189,21 +211,24 @@ function requestedOpsTeamId(request: Request) {
 /**
  * Fails closed in every branch, and judges the two dimensions separately.
  *
- * A named team must be one the caller administers — and only that. Being a
+ * The allowlist is consulted before any teamId branch. On an allowlisted route,
+ * a named team must be one the caller administers — and only that. Being a
  * designated operator is a claim about the deployment, not a master key into
  * other people's teams; cross-team ops reads are the bearer token's job.
  *
- * A deployment-wide read (ops status, readiness, metrics, evidence manifests
- * carry no team at all) requires the operator designation instead. Team
- * administration buys nothing here, because self-registration hands it out.
+ * Every other route is deployment administration, whether or not the query
+ * names a team. A deployment-wide read requires the operator designation.
+ * Team administration buys nothing here, because self-registration hands it out.
  */
 function requireOpsSessionPermission(request: Request, context: SenaEnterpriseSessionContext) {
-  const requestedTeamId = requestedOpsTeamId(request);
-  if (requestedTeamId) {
-    requireEnterprisePermission(context, requestedTeamId, opsSessionPermission);
-    return;
+  if (teamScopedOpsRoute(request)) {
+    const requestedTeamId = requestedOpsTeamId(request);
+    if (requestedTeamId) {
+      requireEnterprisePermission(context, requestedTeamId, opsSessionPermission);
+      return;
+    }
+    if (teamCheckedDownstream(request)) return;
   }
-  if (teamCheckedDownstream(request)) return;
   if (!isDesignatedOpsOperator(context)) {
     throw new SenaEnterpriseError(
       `Deployment-wide SENA ops access requires an operator named in ${opsSessionOperatorEnv}.`,
@@ -215,17 +240,21 @@ function requireOpsSessionPermission(request: Request, context: SenaEnterpriseSe
 
 /**
  * True for the deployment-wide actions that must keep answering "bring the
- * token" to a cookie, regardless of who the cookie belongs to. Scoped by the
- * absence of a team dimension, so a team-scoped ops mutation — the jobs panel
- * retrying its own team's job — still runs on the session path, whether it names
- * the team in the query or downstream.
+ * token" to a cookie, regardless of who the cookie belongs to.
  *
- * Every other team-less mutation defaults to bearer-only, which is the direction
- * this should fail in: a deployment-wide ops mutation added later is covered
- * without an edit here.
+ * Only an allowlisted route may leave this path because it named a team. The
+ * jobs panel retrying its own team's job still runs on the session path, whether
+ * it names the team in the query or downstream. A teamId query on any other
+ * route, including the live probes, alerts, and the worker heartbeat, does not.
+ *
+ * Every other mutation defaults to bearer-only, which is the direction this
+ * should fail in: a deployment-wide ops mutation added later is covered without
+ * an edit here.
  */
 function bearerOnlyOpsAction(request: Request, input: { mutation: boolean }) {
-  if (requestedOpsTeamId(request) || teamCheckedDownstream(request)) return false;
+  if (teamScopedOpsRoute(request) && (requestedOpsTeamId(request) || teamCheckedDownstream(request))) {
+    return false;
+  }
   return input.mutation || deploymentWideOpsDispatchPaths.has(requestPath(request));
 }
 
