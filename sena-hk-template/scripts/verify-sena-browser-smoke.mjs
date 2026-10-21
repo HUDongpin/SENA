@@ -859,7 +859,7 @@ async function verifyPilotAssetLinks(page, url) {
   await page.locator('[data-testid="pilot-asset-integrity"]').waitFor({ state: "visible", timeout: defaultTimeout });
   await page.locator('[data-visual-role="pilot-asset-integrity"]').first().waitFor({ state: "attached", timeout: defaultTimeout });
   const integritySignal = await page.locator('[data-testid="pilot-asset-integrity"]').first().innerText({ timeout: defaultTimeout });
-  assertTextIncludes(integritySignal, "13 manifest fingerprints", "pilot asset integrity signal");
+  assertTextIncludes(integritySignal, "14 manifest fingerprints", "pilot asset integrity signal");
 
   const links = await page.locator('[data-testid="pilot-asset-link"]').evaluateAll((anchors) => anchors.map((anchor) => ({
     href: anchor.getAttribute("href") ?? "",
@@ -867,8 +867,8 @@ async function verifyPilotAssetLinks(page, url) {
     kind: anchor.getAttribute("data-asset-kind") ?? "",
     label: anchor.textContent?.replace(/\s+/g, " ").trim() ?? ""
   })));
-  if (links.length !== 14) {
-    throw new Error(`Expected 14 pilot asset links, received ${links.length}.`);
+  if (links.length !== 15) {
+    throw new Error(`Expected 15 pilot asset links, received ${links.length}.`);
   }
   for (const link of links) {
     if (link.href !== link.dataHref) {
@@ -882,7 +882,7 @@ async function verifyPilotAssetLinks(page, url) {
   const manifestLinks = links.filter((link) => link.kind === "manifest");
   const sampleLinks = links.filter((link) => link.kind === "sample");
   const templateLinks = links.filter((link) => link.kind === "template");
-  if (manifestLinks.length !== 1 || sampleLinks.length !== 6 || templateLinks.length !== 7) {
+  if (manifestLinks.length !== 1 || sampleLinks.length !== 6 || templateLinks.length !== 8) {
     throw new Error(`Unexpected pilot asset counts: manifest=${manifestLinks.length}; sample=${sampleLinks.length}; template=${templateLinks.length}.`);
   }
 

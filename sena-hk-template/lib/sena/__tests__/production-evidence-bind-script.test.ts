@@ -108,6 +108,10 @@ if [ "$1" = "env" ] && [ "$2" = "add" ]; then
       echo "preview git_branch_required: pass --yes for all preview branches" >&2
       exit 2
     fi
+    if [ "$#" -lt 5 ] || [ "$5" != "" ]; then
+      echo "preview git_branch_required: pass an explicit empty branch for all preview branches" >&2
+      exit 2
+    fi
   fi
   ${failValue}
   ${captureValue}
