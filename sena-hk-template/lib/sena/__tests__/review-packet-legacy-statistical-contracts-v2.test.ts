@@ -13,6 +13,8 @@ import {
   isSenaRuntimeBundle
 } from "../statistical-leaf-read";
 import { loadSena14bb306ReviewPacketFixture } from "./fixtures/sena-14bb306-fixture";
+import pilotPackageManifestJson from "../../../public/sena-pilot/sena-pilot-package-manifest.json";
+import sealedV1PilotAssetInventoryJson from "../sealed-v1-pilot-asset-inventory.json";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -114,6 +116,220 @@ function currentNeedsReviewFusionPacket() {
 }
 
 describe("review-packet statistical contract compatibility", () => {
+  it("keeps the sealed 14bb306 pilot asset inventory and still requires the ADR-0013 template on current packets", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const sealedAssets = structuredClone(source.contents.pilotPackageManifest.assets);
+    const sealedIntegrity = structuredClone(source.contents.pilotPackageManifest.assetIntegrity);
+    const imported = importSenaReviewPacket(source) as ReturnType<typeof buildSenaReviewPacket>;
+
+    expect(sealedAssets.templates).not.toContain("/sena-pilot/templates/ai_agent_runs.csv");
+    expect(imported.contents.pilotPackageManifest.assets).toEqual(sealedAssets);
+    expect(imported.contents.pilotPackageManifest.assetIntegrity).toEqual(sealedIntegrity);
+
+    const current = readyCurrentV2ReviewPacket();
+    current.contents.pilotPackageManifest.assets.templates =
+      current.contents.pilotPackageManifest.assets.templates.filter(
+        (href) => href !== "/sena-pilot/templates/ai_agent_runs.csv"
+      );
+    current.contents.pilotPackageManifest.assetIntegrity =
+      current.contents.pilotPackageManifest.assetIntegrity.filter(
+        (asset) => asset.href !== "/sena-pilot/templates/ai_agent_runs.csv"
+      );
+    expect(() => importSenaReviewPacket(current)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+  });
+
+  it("rejects a v1-tagged packet that includes the ADR-0013 ai_agent_runs template", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const href = "/sena-pilot/templates/ai_agent_runs.csv";
+    const integrity = pilotPackageManifestJson.assetIntegrity.find((asset) => asset.href === href);
+    expect(source.contents.fusionMathAudit.schemaVersion).toBe("sena-fusion-math-audit/v1");
+    expect(source.contents.codingReliabilityGate.schemaVersion).toBe("sena-coding-reliability-gate/v1");
+    expect(JSON.stringify(source.contents.pilotPackageManifest)).not.toContain(href);
+    if (!integrity || integrity.kind !== "template" || integrity.format !== "csv") {
+      throw new Error("Live pilot manifest is missing the ADR-0013 template integrity row.");
+    }
+
+    source.contents.pilotPackageManifest.assets.templates.push(href);
+    source.contents.pilotPackageManifest.assetIntegrity.push({
+      href,
+      kind: "template",
+      format: "csv",
+      bytes: integrity.bytes,
+      sha256: integrity.sha256
+    });
+    expect(() => importSenaReviewPacket(source)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+  });
+
+  it("re-imports a saved normalized sealed v1 packet from its recorded origin", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(source)));
+    const saved = JSON.parse(JSON.stringify(imported)) as ReturnType<typeof buildSenaReviewPacket>;
+    const href = "/sena-pilot/templates/ai_agent_runs.csv";
+
+    expect(saved.contents.pilotPackageManifest.sealedPilotAssetOrigin).toEqual({
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    });
+    expect(saved.contents.pilotPackageManifest.assets).toEqual(source.contents.pilotPackageManifest.assets);
+    expect(saved.contents.pilotPackageManifest.assetIntegrity).toEqual(
+      source.contents.pilotPackageManifest.assetIntegrity
+    );
+    expect(saved.contents.pilotPackageManifest.assets.templates).not.toContain(href);
+    expect(saved.contents.pilotPackageManifest.exportArtifactSchemas["sena-fusion-math-audit.json"])
+      .toBe("sena-fusion-math-audit/v2");
+    expect(saved.contents.pilotPackageManifest.exportArtifactSchemas["sena-coding-reliability-gate.json"])
+      .toBe("sena-coding-reliability-gate/v2");
+
+    expect(importSenaReviewPacket(saved)).toEqual(imported);
+    expect(isSenaReviewPacket(saved)).toBe(true);
+  });
+
+  it("accepts a genuine sealed v1 packet after the live pilot manifest inventory drifts", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    expect(source.contents.pilotPackageManifest.assets).toEqual(sealedV1PilotAssetInventoryJson.assets);
+    expect(source.contents.pilotPackageManifest.assetIntegrity).toEqual(
+      sealedV1PilotAssetInventoryJson.assetIntegrity
+    );
+    const live = pilotPackageManifestJson as {
+      assets: { templates: string[] };
+      assetIntegrity: Array<{ href: string; sha256: string }>;
+    };
+    const shared = live.assetIntegrity.find(
+      (asset) => asset.href === source.contents.pilotPackageManifest.assetIntegrity[0]?.href
+    );
+    if (!shared) throw new Error("Live pilot manifest is missing a sealed v1 integrity row.");
+    const originalSha = shared.sha256;
+    const originalTemplates = live.assets.templates.slice();
+    shared.sha256 = "ab".repeat(32);
+    live.assets.templates.push("/sena-pilot/templates/future-drift.csv");
+    try {
+      const driftedCurrent = readyCurrentV2ReviewPacket();
+      expect(driftedCurrent.contents.pilotPackageManifest.assets.templates).toContain(
+        "/sena-pilot/templates/future-drift.csv"
+      );
+      expect(
+        driftedCurrent.contents.pilotPackageManifest.assetIntegrity.find((asset) => asset.href === shared.href)?.sha256
+      ).toBe(shared.sha256);
+      const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(source))) as ReturnType<
+        typeof buildSenaReviewPacket
+      >;
+      expect(imported.contents.pilotPackageManifest.assets).toEqual(source.contents.pilotPackageManifest.assets);
+      expect(imported.contents.pilotPackageManifest.assetIntegrity).toEqual(
+        source.contents.pilotPackageManifest.assetIntegrity
+      );
+      expect(imported.contents.pilotPackageManifest.assets.templates).not.toContain(
+        "/sena-pilot/templates/ai_agent_runs.csv"
+      );
+      expect(imported.contents.pilotPackageManifest.assets.templates).not.toContain(
+        "/sena-pilot/templates/future-drift.csv"
+      );
+    } finally {
+      shared.sha256 = originalSha;
+      live.assets.templates.splice(0, live.assets.templates.length, ...originalTemplates);
+    }
+  });
+
+  it("rejects a malformed sealedPilotAssetOrigin on an otherwise valid current packet", () => {
+    const malformedOrigins: unknown[] = [
+      "sealed-v1",
+      null,
+      { fusionMathAudit: "sena-fusion-math-audit/v1" },
+      {
+        fusionMathAudit: "sena-fusion-math-audit/v1",
+        codingReliabilityGate: "sena-coding-reliability-gate/v1",
+        extra: true
+      }
+    ];
+    const currentTemplate = readyCurrentV2ReviewPacket();
+    for (const origin of malformedOrigins) {
+      const current = JSON.parse(JSON.stringify(currentTemplate)) as ReturnType<typeof buildSenaReviewPacket>;
+      (current.contents.pilotPackageManifest as unknown as JsonRecord).sealedPilotAssetOrigin = origin;
+      expect(() => importSenaReviewPacket(current)).toThrow(
+        "review packet.contents.pilotPackageManifest.sealedPilotAssetOrigin must be absent or the sealed v1 pilot-asset origin."
+      );
+      expect(isSenaReviewPacket(current)).toBe(false);
+    }
+
+    const current = JSON.parse(JSON.stringify(currentTemplate)) as ReturnType<typeof buildSenaReviewPacket>;
+    current.contents.pilotPackageManifest.sealedPilotAssetOrigin = {
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    };
+    const imported = importSenaReviewPacket(current);
+    expect(imported.contents.pilotPackageManifest.sealedPilotAssetOrigin).toEqual({
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    });
+    expect(imported.contents.pilotPackageManifest.assets.templates).toContain(
+      "/sena-pilot/templates/ai_agent_runs.csv"
+    );
+  });
+
+  it("admits a normalized sealed v1 packet saved before sealedPilotAssetOrigin existed", () => {
+    const source = loadSena14bb306ReviewPacketFixture() as ReturnType<typeof buildSenaReviewPacket>;
+    const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(source))) as ReturnType<
+      typeof buildSenaReviewPacket
+    >;
+    const saved = JSON.parse(JSON.stringify(imported)) as ReturnType<typeof buildSenaReviewPacket>;
+    delete saved.contents.pilotPackageManifest.sealedPilotAssetOrigin;
+
+    const reimported = importSenaReviewPacket(saved);
+    expect(reimported).toEqual(imported);
+    expect(reimported.contents.pilotPackageManifest.sealedPilotAssetOrigin).toEqual({
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    });
+    expect(reimported.contents.pilotPackageManifest.assets).toEqual(source.contents.pilotPackageManifest.assets);
+    expect(isSenaReviewPacket(saved)).toBe(true);
+
+    saved.contents.pilotPackageManifest.assetIntegrity[0].sha256 = "ab".repeat(32);
+    expect(() => importSenaReviewPacket(saved)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+  });
+
+  it("round-trips a current review packet unchanged", () => {
+    const packet = readyCurrentV2ReviewPacket();
+    const imported = importSenaReviewPacket(JSON.parse(JSON.stringify(packet)));
+    expect(imported).toEqual(packet);
+    expect(imported.contents.pilotPackageManifest.sealedPilotAssetOrigin).toBeUndefined();
+
+    const saved = JSON.parse(JSON.stringify(imported)) as ReturnType<typeof buildSenaReviewPacket>;
+    expect(importSenaReviewPacket(saved)).toEqual(packet);
+    expect(isSenaReviewPacket(saved)).toBe(true);
+  });
+
+  it("does not let a current packet relabelled as sealed-v1 omit the ADR-0013 template", () => {
+    const href = "/sena-pilot/templates/ai_agent_runs.csv";
+    const current = readyCurrentV2ReviewPacket();
+    current.contents.pilotPackageManifest.assets.templates =
+      current.contents.pilotPackageManifest.assets.templates.filter((template) => template !== href);
+    current.contents.pilotPackageManifest.assetIntegrity =
+      current.contents.pilotPackageManifest.assetIntegrity.filter((asset) => asset.href !== href);
+    current.contents.pilotPackageManifest.sealedPilotAssetOrigin = {
+      fusionMathAudit: "sena-fusion-math-audit/v1",
+      codingReliabilityGate: "sena-coding-reliability-gate/v1"
+    };
+
+    expect(() => importSenaReviewPacket(current)).toThrow(
+      "review packet.contents.pilotPackageManifest.assets does not match the canonical pilot-package mapping."
+    );
+
+    for (const leaf of statisticalLeaves(current)) {
+      leaf.fusionMathAudit.schemaVersion = "sena-fusion-math-audit/v1" as never;
+      leaf.fusionMathAudit.sourceSchemaVersion = "sena-fusion-math-audit/v1";
+      leaf.codingReliabilityGate.schemaVersion = "sena-coding-reliability-gate/v1" as never;
+      leaf.codingReliabilityGate.sourceSchemaVersion = "sena-coding-reliability-gate/v1";
+    }
+    expect(() => importSenaReviewPacket(current)).toThrow(
+      /canonical pilot-package mapping|fusion math audit|coding reliability gate/
+    );
+  });
+
   it("normalizes genuine 14bb306 fusion-audit v1 leaves without treating nonnegative evidence as proven", () => {
     const { packet, auditV1 } = packetWithGenuine14bb306StatisticalLeaves();
     expect((auditV1.items as JsonRecord[]).map((item) => item.id)).toEqual([

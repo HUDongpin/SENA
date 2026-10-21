@@ -22,6 +22,16 @@ import { dirname, basename, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { isDeepStrictEqual, types } from "node:util";
+import {
+  LOCAL_WORKSPACE_PATH,
+  isHistoricalLocalMainEvent,
+  isHistoricalUntouchedLocalWorkspaceEvent,
+  localWorkspacePushRequiresTaskGate,
+  localWorkspaceReviewRequiresTaskGate,
+  validateLocalPush,
+  validateLocalWorkspace,
+  validatePortableLocalWorkspace
+} from "./sena-local-workspace-governance.mjs";
 
 const GOVERNANCE_CALLER_GIT_ENVIRONMENT_ALLOWLIST = new Set([
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
@@ -299,6 +309,45 @@ function gitDerivedControlRoot() {
       gitText(["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim()
     )
   );
+}
+
+function controlRootFromCheckout(checkout) {
+  // A linked worktree's checkout has a .git pointer file. Git's alternate
+  // object directory is <primary>/.git/objects, so the control root is the
+  // parent of the common git directory. Isolation variables must not redirect
+  // this lookup at the caller's temporary object directory.
+  const commonDirectory = realpathSync(resolve(
+    checkout,
+    gitText(
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      {
+        cwd: checkout,
+        unsetEnv: GOVERNANCE_FORWARDED_CONTROL_GIT_ENVIRONMENT
+      }
+    ).trim()
+  ));
+  return realpathSync(dirname(commonDirectory));
+}
+
+function primaryCheckoutControlRoot() {
+  return controlRootFromCheckout(SCRIPT_REPO_ROOT);
+}
+
+function resolveCanonicalRegistryRepositoryRoot() {
+  const recorded = JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo;
+  if (typeof recorded !== "string" || recorded.length === 0) {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  }
+  const override = process.env.SENA_REPO_ROOT;
+  if (typeof override === "string" && override.length > 0) {
+    return controlRootFromCheckout(realpathSync(resolve(override)));
+  }
+  const recordedResolution = existingPathResolution(recorded);
+  if (recordedResolution.ok) return recordedResolution.path;
+  if (recordedResolution.errorCode !== "ENOENT") {
+    throw new Error("rule=isolated-governance-control-root-context-invalid");
+  }
+  return primaryCheckoutControlRoot();
 }
 
 export function validateIsolatedGovernanceControlRootContext(context) {
@@ -582,9 +631,7 @@ function isolatedGovernanceControlRootFromEnvironment() {
         ]).trim()
       )
     );
-    const canonicalRegistryRepositoryRoot = realpathSync(
-      resolve(JSON.parse(readFileSync(DEFAULT_REGISTRY, "utf8")).repo)
-    );
+    const canonicalRegistryRepositoryRoot = resolveCanonicalRegistryRepositoryRoot();
     if (targetRoot !== REPO_ROOT) {
       throw new Error("isolated target root mismatch");
     }
@@ -1500,7 +1547,7 @@ function printSecurityResult(findings, metadata) {
   return 1;
 }
 
-function runSecurity(flags) {
+function runSecurity(flags, options = {}) {
   const findings = [];
   const scanned = new Set();
   const trees = new Set(flagValues(flags, "tree"));
@@ -1523,7 +1570,7 @@ function runSecurity(flags) {
   }
 
   if (flags.has("pre-push")) {
-    const input = readFileSync(0, "utf8");
+    const input = options.prePushInput ?? readFileSync(0, "utf8");
     const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
     const updates = parsePrePushUpdates(input);
     let deletionRegistry = null;
@@ -1536,6 +1583,21 @@ function runSecurity(flags) {
   }
 
   if (flags.has("push-event")) {
+    if (options.localPushEvent) {
+      const event = options.localPushEvent;
+      for (const [flag, expected] of [
+        ["event-ref", event.ref], ["event-before", event.before], ["event-after", event.head],
+        ["event-forced", "false"], ["event-deleted", "false"]
+      ]) {
+        if (flagValues(flags, flag)[0] !== expected) {
+          throw new Error("rule=local-workspace-ci-security-event-mismatch");
+        }
+      }
+      // Always scan the bound head and its entire task history. Event-only
+      // calls must never accidentally become zero-target security passes.
+      trees.add(event.head);
+      for (const commit of revList([`${event.sourceCommit}..${event.head}`])) commits.add(commit);
+    } else {
     const deleted = flagValues(flags, "event-deleted")[0] === "true";
     const afterSha = flagValues(flags, "event-after")[0] ?? ZERO_SHA;
     const authorizationRegistry =
@@ -1551,6 +1613,7 @@ function runSecurity(flags) {
     addPushEventPolicyFindings(flags, registry, findings, {
       protectedMainAuthorization: Boolean(authorizationRegistry)
     });
+    }
   }
 
   if (flags.has("paths-from-stdin")) {
@@ -1642,7 +1705,7 @@ function runPostPr83PushDraftReadiness() {
   );
 }
 
-function runPushPolicy(flags) {
+function runPushPolicy(flags, preReadInput = undefined) {
   if (mobilePilotCurrentCheckoutMerge()) throw new Error("rule=mobile-pilot-release-push-denied");
   if (pr86DeliveryCurrentCheckoutMerged()) throw new Error("rule=pr86-delivery-closeout-push-denied");
   const currentBranch = git(
@@ -1650,7 +1713,7 @@ function runPushPolicy(flags) {
     { allowFailure: true }
   );
   const findings = [];
-  const input = readFileSync(0, "utf8");
+  const input = preReadInput ?? readFileSync(0, "utf8");
   const remoteName = flagValues(flags, "remote-name")[0] ?? "origin";
   const remoteLocation = process.env.SENA_GOVERNANCE_REMOTE_LOCATION ?? "";
   const updates = parsePrePushUpdates(input);
@@ -14250,6 +14313,9 @@ function jHEvidenceCustodyPhysicalAllowed(
 }
 
 let iHSourceCache = null;
+function noteIHDedicatedLandingSourceResolution(mode) {
+  process.stderr.write(`SENA_REPO_REGISTRY h-source=${mode}\n`);
+}
 function iHDedicatedLandingPortableSourceReconstructionAllowed() {
   try {
     if (
@@ -14306,6 +14372,7 @@ function iHDedicatedLandingSource() {
         throw new Error("rule=i-h-dedicated-landing-source-invalid");
       }
       iHSourceCache = expected;
+      noteIHDedicatedLandingSourceResolution("reconstructed");
       return protectedActivationNativeStructuredClone(iHSourceCache);
     }
     for (const [index, path] of PR86_DELIVERY_PATHS.entries()) {
@@ -14329,6 +14396,7 @@ function iHDedicatedLandingSource() {
       throw new Error("rule=i-h-dedicated-landing-source-invalid");
     }
     iHSourceCache = source;
+    noteIHDedicatedLandingSourceResolution("physical");
   }
   return protectedActivationNativeStructuredClone(iHSourceCache);
 }
@@ -14529,6 +14597,16 @@ export function jHEvidenceCustodyReconstructionAllowed(
 }
 
 export function iHDedicatedLandingHistoricalProjection(registry) {
+  // Resolve the H source before a later projection throw. An expired heartbeat
+  // fails the Q snapshot first, and that used to skip the branch CI actually
+  // takes when the local-only tree is absent.
+  if (
+    protectedMainAdvanceObjectSha(`${I_H_SOURCE_STAGED_TREE}^{tree}`) ===
+      I_H_SOURCE_STAGED_TREE ||
+    iHDedicatedLandingPortableSourceReconstructionAllowed()
+  ) {
+    iHDedicatedLandingSource();
+  }
   const latestMainQProjection = Boolean(
     registry?.qLatestMainConvergenceRemediation &&
       latestMainQConvergenceRemediationStructurallyAllowed(
@@ -17109,8 +17187,8 @@ const P_O_SOURCE_SHA256 = Object.freeze([
   "4ab4447f211e246c229fefb1c1ffa973d891c4206e0220b31aaa378133291bf7"
 ]);
 const P_O_RECORDED_AT = "2026-09-09T02:37:09Z";
-const P_O_CURRENTNESS_RECORDED_AT = "2026-10-18T20:17:41Z";
-const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-20T20:17:41Z";
+const P_O_CURRENTNESS_RECORDED_AT = "2026-10-20T01:59:02Z";
+const P_O_CURRENTNESS_NEXT_REVIEW_AT = "2026-10-22T01:59:02Z";
 const P_O_CURRENTNESS_G_LAST_COMMIT_AT = "2026-09-08T02:29:37+08:00";
 const P_O_CURRENTNESS_IH_LAST_COMMIT_AT = "2026-09-09T11:46:37+08:00";
 const P_O_CURRENTNESS_MOBILE_LAST_COMMIT_AT = "2026-09-07T16:28:51+08:00";
@@ -17194,6 +17272,13 @@ const P_O_CURRENTNESS_HEARTBEAT_20261014 = Object.freeze({
 const P_O_CURRENTNESS_HEARTBEAT_20261015 = Object.freeze({
   recordedAt: "2026-10-15T01:25:16Z",
   nextReviewAt: "2026-10-17T01:25:16Z",
+  gLastCommitAt: "2026-09-08T02:29:37+08:00",
+  ihLastCommitAt: "2026-09-09T11:46:37+08:00",
+  mobileLastCommitAt: "2026-09-07T16:28:51+08:00"
+});
+const P_O_CURRENTNESS_HEARTBEAT_20261018 = Object.freeze({
+  recordedAt: "2026-10-18T20:17:41Z",
+  nextReviewAt: "2026-10-20T20:17:41Z",
   gLastCommitAt: "2026-09-08T02:29:37+08:00",
   ihLastCommitAt: "2026-09-09T11:46:37+08:00",
   mobileLastCommitAt: "2026-09-07T16:28:51+08:00"
@@ -18568,6 +18653,10 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       heartbeatBase,
       P_O_CURRENTNESS_HEARTBEAT_20261015
     );
+    const admittedOn20261018 = latestMainQCurrentnessHeartbeatRegistry(
+      heartbeatBase,
+      P_O_CURRENTNESS_HEARTBEAT_20261018
+    );
     return [
       historical,
       historicalRepair,
@@ -18583,6 +18672,7 @@ function latestMainQConvergenceRemediationStructurallyAllowed(
       admittedOn20261013,
       admittedOn20261014,
       admittedOn20261015,
+      admittedOn20261018,
       current
     ].some(
       (entry) => entry && isDeepStrictEqual(candidateRegistry, entry)
@@ -26250,15 +26340,103 @@ function printUsage() {
   process.stdout.write(`  node scripts/verify-sena-repo-governance.mjs inventory --output PATH\n`);
 }
 
-function main() {
+async function main() {
   const { command, flags } = parseArguments(process.argv.slice(2));
+  let pushInput;
   try {
-    if (command === "security") return runSecurity(flags);
+    const localWorkspacePath = LOCAL_WORKSPACE_PATH;
+    const hasLocalWorkspace = existsSync(join(REPO_ROOT, localWorkspacePath)) ||
+      [":", "HEAD:"].some(prefix => git(["cat-file", "-e", `${prefix}${localWorkspacePath}`],
+        { allowFailure: true }).status === 0);
+    if (hasLocalWorkspace) {
+      // An additive, explicitly authorized local task is not an activation of
+      // the preserved Starship lifecycle. Alternate v1 authorization sources
+      // must not turn this local-only task into remote/deletion authority.
+      if (["deletion-boundary", "post-pr83-push-draft-readiness"].includes(command) ||
+          flags.has("identity-only") || flags.has("authorization-registry-commit")) {
+        throw new Error("rule=local-workspace-remote-operation-denied");
+      }
+      const reviewedHead = flagValues(flags, "registry-from-commit")[0] ??
+        gitText(["rev-parse", "HEAD"]).trim();
+      if (command === "push-policy" || (flags.has("pre-push") && command !== "audit")) {
+        pushInput = readFileSync(0, "utf8");
+      }
+      if ((command === "push-policy" || flags.has("pre-push")) &&
+          localWorkspacePushRequiresTaskGate({
+            root: REPO_ROOT, head: reviewedHead, updatesText: pushInput
+          })) {
+        if (!["push-policy", "audit", "security"].includes(command)) {
+          throw new Error("rule=local-workspace-remote-operation-denied");
+        }
+        if (command === "audit" && (!flags.has("live") ||
+            flagValues(flags, "registry-from-commit")[0] !== gitText(["rev-parse", "HEAD"]).trim())) {
+          throw new Error("rule=local-workspace-alternate-authority-denied");
+        }
+        const updatesText = command === "audit" ? undefined : pushInput;
+        const result = validateLocalPush({
+          root: REPO_ROOT, controlRoot: CONTROL_ROOT, updatesText,
+          remoteName: flagValues(flags, "remote-name")[0] ?? "origin",
+          remoteLocation: process.env.SENA_GOVERNANCE_REMOTE_LOCATION ??
+            gitText(["remote", "get-url", "--push", "origin"]).trim()
+        });
+        if (command === "security") return runSecurity(flags, { prePushInput: updatesText });
+        process.stdout.write(`SENA_LOCAL_PUSH ${JSON.stringify(result)}\n`);
+        return;
+      }
+      const portable = process.env.GITHUB_ACTIONS === "true" &&
+        ((command === "registry" && !flags.has("registry-from-index")) ||
+          (command === "audit" && flags.has("ci") && !flags.has("pre-commit")) ||
+          (command === "security" && flags.has("push-event")));
+      if (portable) {
+        if (flags.has("registry") || flags.has("registry-from-commit") || flags.has("registry-from-index")) {
+          throw new Error("rule=local-workspace-alternate-authority-denied");
+        }
+        const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
+        if (isHistoricalLocalMainEvent({ root: REPO_ROOT, event }) ||
+            isHistoricalUntouchedLocalWorkspaceEvent({ root: REPO_ROOT, event })) {
+          if (command === "registry") return runRegistry(flags);
+          if (command === "audit") return runAudit(flags);
+          return runSecurity(flags);
+        }
+        const result = validatePortableLocalWorkspace({ root: REPO_ROOT, event });
+        if (command === "security") {
+          if (result.kind !== "push") throw new Error("rule=local-workspace-ci-security-event-mismatch");
+          return runSecurity(flags, { localPushEvent: result });
+        }
+        process.stdout.write(`SENA_LOCAL_CI ${JSON.stringify(result)}\n`);
+        return;
+      }
+      if (command === "security" && flags.has("push-event")) {
+        throw new Error("rule=local-workspace-remote-operation-denied");
+      }
+      if (["audit", "write-policy", "registry"].includes(command) &&
+          localWorkspaceReviewRequiresTaskGate({ root: REPO_ROOT })) {
+        if (flags.has("live") || flags.has("registry") || flags.has("registry-from-commit")) {
+          throw new Error("rule=local-workspace-alternate-authority-denied");
+        }
+        const requireStaged = command === "write-policy" || flags.has("pre-commit");
+        if (requireStaged && (!flags.has("registry-from-index") ||
+            (command === "write-policy" && !flags.has("staged")))) {
+          throw new Error("rule=local-workspace-stage-zero-required");
+        }
+        const registryBytes = flags.has("registry-from-index")
+          ? git(["show", `:${localWorkspacePath}`]).stdout
+          : readFileSync(join(REPO_ROOT, localWorkspacePath));
+        const result = validateLocalWorkspace({
+          root: REPO_ROOT, controlRoot: CONTROL_ROOT, registryBytes, requireStaged
+        });
+        process.stdout.write(`SENA_LOCAL_WORKSPACE ${JSON.stringify(result)}\n`);
+        return;
+      }
+    }
+    if (command === "security") {
+      return runSecurity(flags, pushInput !== undefined ? { prePushInput: pushInput } : {});
+    }
     if (command === "post-pr83-push-draft-readiness") {
       return runPostPr83PushDraftReadiness();
     }
     if (command === "write-policy") return runWritePolicy(flags);
-    if (command === "push-policy") return runPushPolicy(flags);
+    if (command === "push-policy") return runPushPolicy(flags, pushInput);
     if (command === "deletion-boundary") return runDeletionBoundary(flags);
     if (command === "registry") return runRegistry(flags);
     if (command === "historical-registry") return runHistoricalRegistry(flags);
