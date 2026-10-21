@@ -5,6 +5,45 @@ worktrees, rescue refs, incident boundaries, and evidence maturity. It does not
 contain credential values, provider tokens, runtime databases, or copies of
 sensitive documents.
 
+## Mars local operation
+
+`local-workspace.json`, when present, registers a separately authorized local
+task after the Starship-to-Mars move. It binds the exact source commit, tree,
+and SHA-256 of the historical `active-work.json`; that file remains unchanged.
+Only exact repository-root paths are mapped. Sibling backup and quarantine
+paths retain their original locations.
+
+The local task runs in a Git-registered linked worktree. Its record binds the
+owner, branch, base, allowed paths, retained refs and worktree content
+fingerprints. A private owner-authorization record under the common Git
+directory's `sena-local-authorizations/` binds the exact staged tree and expires
+within 24 hours. Each grant permits one commit from the registered commit base.
+It records the user's authorization; it is not an independent
+review or a replacement for historical signatures.
+
+Normal pre-commit runs the local audit and stage-0 write policy, followed by
+the unchanged credential scanner. The local audit verifies the original rescue
+refs/bundle/inventory/source copies and durable reconstruction packages.
+Historical temporary host environments are not recertified. The full legacy
+audit and release evidence are not claimed by a local commit. A later explicit
+push/PR instruction requires `local-commit-and-pr` scope and a separate private
+push receipt bound to the exact final HEAD/tree, task branch, canonical origin
+and expected old remote SHA. Native pre-push rechecks custody and live remote
+state, then runs the unchanged outgoing-commit credential scan. Main/tag pushes,
+deletion and alternate protected-main authorization remain denied.
+Root `main`, other worktrees, historical registry bytes and retained source
+contents are preserved. This registration does not activate historical lanes.
+Only the task's own remote-tracking ref may be added at its receipt-bound HEAD.
+
+GitHub Actions uses a separate read-only provenance check bound to the push
+event or PR head and expected merge checkout. It does not load private receipts
+or recertify host custody, and cannot authorize native writes or pushes. Security
+checks still scan the final tree and all task commits. The historical source
+commit remains fixed when a later instruction registers a new commit base.
+On a verified GitHub push event for `main`, this feature registration becomes
+historical; main's existing legacy registry, portable audit and security checks
+remain authoritative, including later legitimate ledger updates.
+
 ## Current operating boundary
 
 The credential incident in `active-work.json` is closed by this final governance
