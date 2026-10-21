@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync, copyFileSync, existsSync as prExistsSync, linkSync, mkdirSync, mkdtempSync, readFileSync,
   realpathSync, renameSync, rmSync, symlinkSync, writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   LOCAL_WORKSPACE_PATH, LOCAL_WORKSPACE_SCHEMA,
   captureLocalPreservation, hasLocalWorkspaceIdentity,
@@ -15,6 +16,10 @@ import {
   validateLocalPush, validatePortableLocalWorkspace, isHistoricalLocalMainEvent
 } from "../sena-local-workspace-governance.mjs";
 
+const REPO_ROOT_FOR_TEST = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
+const VERIFIER_PATH = join(REPO_ROOT_FOR_TEST, "scripts/verify-sena-repo-governance.mjs");
+const LOCAL_MODULE_PATH = join(REPO_ROOT_FOR_TEST, "scripts/sena-local-workspace-governance.mjs");
+const INTEGRATED_MAIN = "e8f8a78a226f4b6830a28cced3a728c89587025b";
 const LEGACY_PATH = "coordination/repo-governance/active-work.json";
 const TARGET_PATH = "app/page.tsx";
 const sha = value => createHash("sha256").update(value).digest("hex");
@@ -657,4 +662,201 @@ test("PR delivery: integrated main retires task authority without pinning future
     root: fx.root, event: { ...event, forced: true }, environment
   }), "ci-main-event");
   assert.equal(isHistoricalLocalMainEvent(fx), false);
+});
+
+function governanceProcessEnv(overrides = {}) {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("GIT_") && key !== "GIT_OPTIONAL_LOCKS") delete env[key];
+    if (key.startsWith("GITHUB_")) delete env[key];
+  }
+  delete env.SENA_GOVERNANCE_TARGET_ROOT;
+  delete env.SENA_GOVERNANCE_CONTROL_ROOT;
+  delete env.SENA_GOVERNANCE_REMOTE_LOCATION;
+  return { ...env, ...overrides };
+}
+
+function runVerifier(script, args, { cwd, env, input } = {}) {
+  return spawnSync(process.execPath, [script, ...args], {
+    cwd, env, input, encoding: "utf8", maxBuffer: 64 * 1024 * 1024
+  });
+}
+
+function outputOf(result) {
+  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.slice(0, 4000);
+}
+
+function cloneIntegratedMain(t) {
+  const temp = mkdtempSync(join(realpathSync(tmpdir()), "sena-local-pr-"));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const root = join(temp, "repo");
+  runGit(REPO_ROOT_FOR_TEST, ["clone", "--local", REPO_ROOT_FOR_TEST, root]);
+  for (const [key, value] of [
+    ["user.name", "SENA Governance Test"],
+    ["user.email", "sena-test@example.invalid"],
+    ["commit.gpgsign", "false"]
+  ]) runGit(root, ["config", key, value]);
+  runGit(root, ["checkout", "--detach", INTEGRATED_MAIN]);
+  return { temp, root };
+}
+
+function useWorkspaceVerifier(root) {
+  copyFileSync(VERIFIER_PATH, join(root, "scripts/verify-sena-repo-governance.mjs"));
+  copyFileSync(LOCAL_MODULE_PATH, join(root, "scripts/sena-local-workspace-governance.mjs"));
+}
+
+function commitFile(root, path, message) {
+  runGit(root, ["add", "--", path]);
+  runGit(root, ["commit", "-m", message]);
+  return gitText(root, ["rev-parse", "HEAD"]);
+}
+
+function writePullRequestEvent(directory, { number, base, head, branch }) {
+  const path = join(directory, `event-${number}.json`);
+  writeFileSync(path, JSON.stringify({
+    repository: { full_name: "HUDongpin/SENA" },
+    number,
+    pull_request: {
+      base: { ref: "main", sha: base, repo: { full_name: "HUDongpin/SENA" } },
+      head: { ref: branch, sha: head, repo: { full_name: "HUDongpin/SENA" } }
+    }
+  }));
+  return path;
+}
+
+function pullRequestEnv(eventPath, { number, checkout }) {
+  return governanceProcessEnv({
+    GITHUB_ACTIONS: "true",
+    GITHUB_REPOSITORY: "HUDongpin/SENA",
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_REF: `refs/pull/${number}/merge`,
+    GITHUB_SHA: checkout,
+    GITHUB_EVENT_PATH: eventPath
+  });
+}
+
+function runPullRequest(root, eventDirectory, { number, base, head, branch, args }) {
+  const eventPath = writePullRequestEvent(eventDirectory, { number, base, head, branch });
+  runGit(root, ["checkout", "-f", "--detach", head]);
+  useWorkspaceVerifier(root);
+  const script = join(root, "scripts/verify-sena-repo-governance.mjs");
+  return runVerifier(script, args, {
+    cwd: root,
+    env: pullRequestEnv(eventPath, { number, checkout: head })
+  });
+}
+
+test("merged main runs registry verification outside the retired local-workspace worktree", () => {
+  const result = runVerifier(VERIFIER_PATH, ["registry"], {
+    cwd: REPO_ROOT_FOR_TEST,
+    env: governanceProcessEnv()
+  });
+  assert.equal(result.status, 0, outputOf(result));
+  assert.match(result.stdout, /SENA_REPO_REGISTRY pass/);
+  assert.doesNotMatch(outputOf(result), /local-workspace-/);
+});
+
+test("a normal PR branch updated to main passes full verification", t => {
+  const { temp, root } = cloneIntegratedMain(t);
+  const base = gitText(root, ["rev-parse", "HEAD"]);
+  const note = join(root, "coordination/repo-governance/pr-normal-note.txt");
+  put(note, "ordinary pull request note\n");
+  const head = commitFile(root, "coordination/repo-governance/pr-normal-note.txt", "Record an ordinary pull request note");
+  const registry = runPullRequest(root, temp, {
+    number: 201, base, head, branch: "cursor/normal-pr-updated-to-main", args: ["registry"]
+  });
+  assert.equal(registry.status, 0, outputOf(registry));
+  assert.match(registry.stdout, /SENA_REPO_REGISTRY pass/);
+  assert.doesNotMatch(outputOf(registry), /local-workspace-/);
+  const audit = runPullRequest(root, temp, {
+    number: 201, base, head, branch: "cursor/normal-pr-updated-to-main", args: ["audit", "--ci"]
+  });
+  assert.equal(audit.status, 0, outputOf(audit));
+  assert.match(audit.stdout, /"status": "pass"/);
+  const older = gitText(root, ["rev-parse", `${base}^1`]);
+  runGit(root, ["checkout", "-f", "--detach", older]);
+  put(join(root, "coordination/repo-governance/pr-merged-note.txt"), "note from before integration\n");
+  commitFile(root, "coordination/repo-governance/pr-merged-note.txt", "Note from the pre-integration parent");
+  runGit(root, ["merge", "--no-edit", base]);
+  const merged = gitText(root, ["rev-parse", "HEAD"]);
+  const mergedRegistry = runPullRequest(root, temp, {
+    number: 202, base, head: merged, branch: "cursor/pr-merged-main", args: ["registry"]
+  });
+  assert.equal(mergedRegistry.status, 0, outputOf(mergedRegistry));
+  assert.match(mergedRegistry.stdout, /SENA_REPO_REGISTRY pass/);
+  assert.equal(gitText(root, ["diff", "--name-only", base, merged, "--", LOCAL_WORKSPACE_PATH]), "");
+});
+
+test("a clock-only active-work heartbeat passes ci-source-identity", t => {
+  const { temp, root } = cloneIntegratedMain(t);
+  const base = gitText(root, ["rev-parse", "HEAD"]);
+  const ledger = join(root, LEGACY_PATH);
+  const original = readFileSync(ledger, "utf8");
+  const recordedAt = "2026-10-20T21:00:00Z";
+  const nextReviewAt = "2026-10-22T21:00:00Z";
+  const updated = original
+    .replaceAll("2026-10-18T20:17:41Z", recordedAt)
+    .replaceAll("2026-10-20T20:17:41Z", nextReviewAt);
+  assert.notEqual(updated, original);
+  put(ledger, updated);
+  const head = commitFile(root, LEGACY_PATH, "governance: currentness heartbeat clock-only");
+  assert.equal(gitText(root, ["diff", "--name-only", base, head]), LEGACY_PATH);
+  const result = runPullRequest(root, temp, {
+    number: 203,
+    base,
+    head,
+    branch: "codex/sena-coding-scope-mars-20261020",
+    args: ["registry"]
+  });
+  const output = outputOf(result);
+  assert.doesNotMatch(output, /local-workspace-ci-source-identity/);
+  assert.doesNotMatch(output, /local-workspace-ci-task/);
+  assert.match(output, /SENA_REPO_REGISTRY/);
+  assert.equal(result.status, 0, output);
+});
+
+test("a PR that changes the local-workspace entry still gets the local-workspace gate", t => {
+  const { temp, root } = cloneIntegratedMain(t);
+  const base = gitText(root, ["rev-parse", "HEAD"]);
+  const entry = join(root, LOCAL_WORKSPACE_PATH);
+  const original = readFileSync(entry, "utf8");
+  const updated = original.replace(
+    "Owner authorized committing the scoped delivery update",
+    "Owner authorized committing the scoped delivery update gate"
+  );
+  assert.notEqual(updated, original);
+  put(entry, updated);
+  const head = commitFile(root, LOCAL_WORKSPACE_PATH, "Touch the local-workspace entry");
+  const result = runPullRequest(root, temp, {
+    number: 204, base, head, branch: "cursor/touches-local-workspace", args: ["registry"]
+  });
+  assert.equal(result.status, 1, outputOf(result));
+  assert.match(result.stderr, /rule=local-workspace-ci-task/);
+  assert.doesNotMatch(outputOf(result), /SENA_REPO_REGISTRY pass/);
+
+  runGit(root, ["checkout", "-f", "--detach", base]);
+  put(entry, updated);
+  const touched = commitFile(root, LOCAL_WORKSPACE_PATH, "Touch the local-workspace entry again");
+  runGit(root, ["revert", "--no-edit", touched]);
+  const restored = gitText(root, ["rev-parse", "HEAD"]);
+  assert.equal(gitText(root, ["diff", "--name-only", base, restored, "--", LOCAL_WORKSPACE_PATH]), "");
+  const reverted = runPullRequest(root, temp, {
+    number: 205, base, head: restored, branch: "cursor/reverts-local-workspace", args: ["registry"]
+  });
+  assert.equal(reverted.status, 1, outputOf(reverted));
+  assert.match(reverted.stderr, /rule=local-workspace-ci-task/);
+});
+
+test("an unrelated staged commit is not rejected by the retired local-workspace task", t => {
+  const { root } = cloneIntegratedMain(t);
+  put(join(root, "coordination/repo-governance/pr-staged-note.txt"), "staged ordinary note\n");
+  runGit(root, ["add", "--", "coordination/repo-governance/pr-staged-note.txt"]);
+  useWorkspaceVerifier(root);
+  const result = runVerifier(join(root, "scripts/verify-sena-repo-governance.mjs"), [
+    "write-policy", "--registry-from-index", "--staged"
+  ], { cwd: root, env: governanceProcessEnv() });
+  const output = outputOf(result);
+  assert.equal(result.status, 1, output);
+  assert.match(output, /index-writer-unregistered/);
+  assert.doesNotMatch(output, /local-workspace-/);
 });
