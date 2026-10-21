@@ -1289,7 +1289,10 @@ function assertVercelAvailable() {
 }
 
 function upsertVercelEnv(options, key, value) {
-  const addArgs = vercelArgs(options, ["env", "add", key, options.environment, "--yes"]);
+  // An explicit empty branch means all Preview branches. Vercel 54.9.0
+  // otherwise requests a branch in noninteractive mode even with --yes.
+  const previewBranch = options.environment === "preview" ? [""] : [];
+  const addArgs = vercelArgs(options, ["env", "add", key, options.environment, ...previewBranch, "--yes"]);
   const add = run("vercel", addArgs, `${value}\n`);
   if (add.status === 0) return "added";
   const combined = `${add.stdout}\n${add.stderr}`;

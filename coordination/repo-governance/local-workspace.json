@@ -14,27 +14,27 @@
     "authorizedAt": "2026-10-21T14:01:08.753Z"
   },
   "task": {
-    "taskId": "SENA-PREVIEW-BIND-20261021",
+    "taskId": "SENA-PILOT-ASSETS-20261021",
     "threadId": "01a15d21-8b73-77d2-9c5f-489144a93dca",
     "ownerKey": "Codex-release-01a15d21-8b73-77d2-9c5f-489144a93dca",
-    "branch": "codex/sena-preview-bind-confirmation-20261021",
+    "branch": "codex/sena-pilot-assets-cli-20261021",
     "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-release-20261021/SENA",
-    "baseSha": "0a94422cbd88ec79d5770b0f05d38917b080298a",
-    "commitBaseSha": "0a94422cbd88ec79d5770b0f05d38917b080298a",
+    "baseSha": "918092160f17a274d49825892ad210cbdd967e3d",
+    "commitBaseSha": "918092160f17a274d49825892ad210cbdd967e3d",
     "allowedPaths": [
       "coordination/repo-governance/local-workspace.json",
       "docs/runbooks/www-sena-hk-redeploy-gates.md",
       "sena-hk-template/lib/sena/__tests__/production-evidence-bind-script.test.ts",
-      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts",
-      "sena-hk-template/scripts/bind-sena-production-evidence.mjs"
+      "sena-hk-template/scripts/bind-sena-production-evidence.mjs",
+      "sena-hk-template/scripts/verify-sena-browser-smoke.mjs"
     ],
     "disposition": "active",
-    "noPrReason": "Follow-up PR for actual noninteractive preview evidence binding and the historical test fixture needed by G7. Production remains conditional on release gates; missing external-worker proof is excluded pending the separate scope decision."
+    "noPrReason": "Repair the stale pilot asset-count assertions and the verified Vercel 54.9.0 all-preview-branches argument; document strict release performance evidence. The missing worker proof remains excluded pending the scope decision."
   },
   "historicalSource": {
     "repo": "/Volumes/Starship/SENA",
-    "commit": "0a94422cbd88ec79d5770b0f05d38917b080298a",
-    "tree": "e9b097c302bb638b1da48134ed1f09d5bfc00050",
+    "commit": "918092160f17a274d49825892ad210cbdd967e3d",
+    "tree": "6bd9d1e1bc64d4c57a858c198f72d5f54ebdbb95",
     "registryPath": "coordination/repo-governance/active-work.json",
     "registryBlob": "114b5970659ef139f5f02000330c8dd2399ec508",
     "registrySha256": "7a9fabfc42270ed5d7ef11bb536282d73fbdbe7307fbb9eb07d5458de275e39f"
@@ -70,6 +70,7 @@
       "refs/heads/codex/sena-pr80-post-main-closeout-20260901 0444b59968f6699f0ace6f4cb6eda4d6f8f44695",
       "refs/heads/codex/sena-pr82-clean-final-forward-fix-20260902 0f74b59277ce1e4d31a49dac70c52d1c2d0ba9b6",
       "refs/heads/codex/sena-pr86-delivery-closeout-20260907 e366df35d8304ddc0c2b5d963301b8a9324e2975",
+      "refs/heads/codex/sena-preview-bind-confirmation-20261021 c48996e5f83e832c0efd29993d8ce36e8442b496",
       "refs/heads/codex/sena-protected-currentness-activation-repair-20260901 e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
       "refs/heads/codex/sena-q-currentness-port-20260919 6ac9b9552b0b08f5b13aa80f592d743350069dce",
       "refs/heads/codex/sena-release-g7-repair-20261021 65c257bcb3b2304880331564b7c52fa24fdb9cf7",
@@ -85,7 +86,7 @@
       "refs/preserve/sena-evidenceflow-autostash-20260828T211255 ea2ef23babd57c4f0cbf5cfe8b9cf6fd290bf972",
       "refs/preserve/sena-evidenceflow-autostash-20260828T233440 20337a8d9286d09ed3ff42f4c67f1b103e221fb8",
       "refs/quarantine/sena-branch-retirement-20260829/ledger-reconciliation-2026-08-19 18d542f707e56aa9d043dd497e0efe48b540db20",
-      "refs/remotes/origin/HEAD 0a94422cbd88ec79d5770b0f05d38917b080298a",
+      "refs/remotes/origin/HEAD 918092160f17a274d49825892ad210cbdd967e3d",
       "refs/remotes/origin/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",
       "refs/remotes/origin/codex/sena-a01-repo-governance-20260827 1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
       "refs/remotes/origin/codex/sena-branch-retirement-20260829 ba85b0f66f80669197a2181e9dfab0e0044c9246",
@@ -97,6 +98,7 @@
       "refs/remotes/origin/codex/sena-post-pr83-currentness-correction-20260903 03e24b66ff7ab2792762d073cd7ea675c181fd89",
       "refs/remotes/origin/codex/sena-pr80-post-main-closeout-20260901 0444b59968f6699f0ace6f4cb6eda4d6f8f44695",
       "refs/remotes/origin/codex/sena-pr86-delivery-closeout-20260907 7fd9e29c34ee7c1573dc81f4824124faadbae279",
+      "refs/remotes/origin/codex/sena-preview-bind-confirmation-20261021 c48996e5f83e832c0efd29993d8ce36e8442b496",
       "refs/remotes/origin/codex/sena-protected-currentness-activation-repair-20260901 e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
       "refs/remotes/origin/codex/sena-q-currentness-port-20260919 6ac9b9552b0b08f5b13aa80f592d743350069dce",
       "refs/remotes/origin/codex/sena-release-g7-repair-20261021 65c257bcb3b2304880331564b7c52fa24fdb9cf7",
@@ -123,7 +125,7 @@
       "refs/remotes/origin/grok/governance-currentness-heartbeat-20261011 20e1ffb32b78118ae57b4bd59627df4e406f57f0",
       "refs/remotes/origin/grok/governance-currentness-heartbeat-20261013 f283e82a4d1a533f01d88faf82547c91b1311646",
       "refs/remotes/origin/grok/governance-currentness-heartbeat-20261015 0d75b892716fba6904b24134c245d4631264468b",
-      "refs/remotes/origin/main 0a94422cbd88ec79d5770b0f05d38917b080298a",
+      "refs/remotes/origin/main 918092160f17a274d49825892ad210cbdd967e3d",
       "refs/rescue/sena-20260827/reflog-only-0190acc 0190acc272f12b037cf7b85443e6e8114668589a",
       "refs/rescue/sena-20260827/unreachable-005f997236ad 005f997236ad2e67701badba6da4131247453a0f",
       "refs/rescue/sena-20260827/unreachable-145c56698300 145c56698300649d31530ed3bb2755b6743ce35b",
@@ -184,10 +186,10 @@
       },
       {
         "path": "/Users/dongpinhu/.codex/worktrees/sena-release-main-20261021/SENA",
-        "head": "0a94422cbd88ec79d5770b0f05d38917b080298a",
+        "head": "918092160f17a274d49825892ad210cbdd967e3d",
         "branch": null,
         "present": true,
-        "dirtyFingerprint": "5e9f946e13d9e5e065f24887ce3662e2984140df4e341f6c77f1e30b847c501e"
+        "dirtyFingerprint": "69550d974c73bbb3c1551ed56081ea53913e40379db245e92ea849abfa68ad98"
       },
       {
         "path": "/Volumes/Mars/SENA",

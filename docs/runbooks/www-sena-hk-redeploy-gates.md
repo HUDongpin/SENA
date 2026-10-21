@@ -157,12 +157,12 @@ Write the check to a named artifact, dry-run that exact file, then bind it:
 
 ```bash
 npm run build
-npm run sena:performance:check -- --output output/production-evidence/performance-budget.json
+SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED=1 npm run sena:performance:check -- --output output/production-evidence/performance-budget.json
 npm run sena:production-evidence:bind -- --artifact output/production-evidence/performance-budget.json
 npm run sena:production-evidence:bind -- --artifact output/production-evidence/performance-budget.json --yes
 ```
 
-`sena:performance:check` without `--output` writes no file. `sena:production-evidence:bind` without `--artifact` scans whatever is already under `output/production-evidence` and can bind a stale file. Without `--yes` the binder prints `Dry run only` and writes nothing. The `--yes` run writes the 10-key tuple:
+`SENA_PERFORMANCE_BUDGET_BINDABLE_REQUIRED=1` records the strict build-identity policy required by the binder; a passing local check without that policy is not bindable release evidence. `sena:performance:check` without `--output` writes no file. `sena:production-evidence:bind` without `--artifact` scans whatever is already under `output/production-evidence` and can bind a stale file. Without `--yes` the binder prints `Dry run only` and writes nothing. The `--yes` run writes the 10-key tuple:
 
 - `SENA_PERFORMANCE_BUDGET_CONFIRMED`
 - `SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256`
