@@ -672,6 +672,7 @@ function governanceProcessEnv(overrides = {}) {
     if (key.startsWith("GIT_") && key !== "GIT_OPTIONAL_LOCKS") delete env[key];
     if (key.startsWith("GITHUB_")) delete env[key];
   }
+  delete env.CI;
   delete env.SENA_GOVERNANCE_TARGET_ROOT;
   delete env.SENA_GOVERNANCE_CONTROL_ROOT;
   delete env.SENA_GOVERNANCE_REMOTE_LOCATION;
