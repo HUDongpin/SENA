@@ -29,9 +29,11 @@ Gate ids stay G2 through G8. Run them in this order:
 
 ## G2. Git provenance
 
-Do this first. Dongpin chooses A or B.
+Dongpin chose option B on 2026-10-18 at 21:34 HKT. CLI deploys continue, and each deploy records its commit. Option A, the git link, is not chosen.
 
 ### A. Link the project to git
+
+Option A is not chosen.
 
 Link Vercel project `sena-hk` to `HUDongpin/SENA`. Set the root directory to `sena-hk-template`. That directory contains the Next app and `vercel.json`. Deploy from main, so every deploy records its commit.
 
@@ -57,21 +59,36 @@ vercel deploy --meta "gitCommitSha=${SHA}"
 
 `exit 1` stops the script before `vercel deploy`. That non-zero status is the refusal. Check out the target commit, make the worktree clean, and run the block again. The preview command records `gitCommitSha` only after the refusal exits 0.
 
-This preview command has no `--prod`. `--prod` promotes `www.sena.hk`. G8 is the only promotion, and its command repeats this refusal in the same shell before adding `--prod`.
+This preview command has no `--prod`. `--prod` promotes `www.sena.hk`. G8 is the only promotion, and its command repeats this refusal in the same shell before adding `--prod`. Keep this rollback command in the runbook before any `--prod` deploy.
 
-After the deploy, run:
+```bash
+vercel rollback dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC --scope <team>
+```
+
+Replace `<team>` with the Vercel team scope. `vercel rollback` points production at `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC` without a new build. On the Hobby plan, `vercel rollback` accepts only the immediately previous production deployment.
+
+After rollback, run:
+
+```bash
+vercel rollback status --scope <team>
+vercel inspect https://www.sena.hk --scope <team>
+```
+
+Confirm that the rollback completed. Confirm that `vercel inspect` reports deployment id `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Record that deployment id.
+
+After each deploy, run:
 
 ```bash
 vercel inspect <deployment-url>
 ```
 
-Confirm the inspected `gitCommitSha` equals `$SHA` from that clean worktree. Record the deployment id and that sha. A mismatch discards the deployment. G4 and G6 use only a deployment that passed this check.
+Confirm that the `gitCommitSha` meta equals the target commit. Record the deployment id and the commit sha.
 
-### Recommendation
-
-Choose A. A git link makes drift measurable and rollback auditable. Keep auto-promotion off, so production promotion stays manual.
+Auto-promotion stays off. The rollback target stays `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`.
 
 ## G3. Production environment
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: Dongpin.
 
@@ -102,6 +119,8 @@ The script name is `sena:vercel:preflight` in `sena-hk-template/package.json` li
 
 ## G5. Preview environment
 
+The G2 decision unblocks this gate. The production redeploy remains held.
+
 Owner: Dongpin.
 
 No preview environment variables exist. Add preview-scoped config so the target commit can be previewed before production.
@@ -119,6 +138,8 @@ vercel env ls preview
 Use the same full-list rule as G3. A list that stops at 100 entries is incomplete.
 
 ## G4. Commit-bound evidence
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: code and Dongpin.
 
@@ -315,6 +336,8 @@ On the preview, the evidence is the `/api/sena/ops/*` responses saved in G6.
 
 ## G6. File writes, Postgres, and Blob
 
+The G2 decision unblocks this gate. The production redeploy remains held.
+
 Owner: code and Dongpin.
 
 `SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH` blocks file-backed enterprise writes when `NODE_ENV=production` is also set. See `sena-hk-template/lib/sena/enterprise/state.ts` lines 912-926. The blocking reason is `NODE_ENV=production+SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH` (line 926). The error code is `enterprise_file_state_production_write_blocked` (line 953).
@@ -367,6 +390,8 @@ These routes require ops access. `SENA_OPS_TOKEN` is the bearer (`sena-hk-templa
 Local `npm run sena:cdn:verify`, `npm run sena:jobs:queue-verify`, and `npm run sena:observability:verify` use the local process environment. The preview evidence is the saved route responses above.
 
 ## G7. Enterprise tests
+
+The G2 decision unblocks this gate. The production redeploy remains held.
 
 Owner: code.
 
@@ -430,4 +455,19 @@ Replace `<team>` with the Vercel team scope. `vercel rollback` points production
 
 Owner: Dongpin and the CTO.
 
-Both agree before `www.sena.hk` moves. Until that agreement, the rollback target remains `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`.
+Both agree before `www.sena.hk` moves. Until that agreement, the rollback target remains `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Keep this rollback command in the runbook before any `--prod` deploy.
+
+```bash
+vercel rollback dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC --scope <team>
+```
+
+Replace `<team>` with the Vercel team scope. `vercel rollback` points production at `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC` without a new build. On the Hobby plan, `vercel rollback` accepts only the immediately previous production deployment.
+
+After rollback, run:
+
+```bash
+vercel rollback status --scope <team>
+vercel inspect https://www.sena.hk --scope <team>
+```
+
+Confirm that the rollback completed. Confirm that `vercel inspect` reports deployment id `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Record that deployment id.
