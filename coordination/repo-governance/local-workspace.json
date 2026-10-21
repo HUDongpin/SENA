@@ -20,7 +20,7 @@
     "branch": "codex/sena-release-g7-repair-20261021",
     "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-release-20261021/SENA",
     "baseSha": "ac8117f43cf4d4662d175e1eb787438407833fa8",
-    "commitBaseSha": "33e9485a795a0814a5e303e1b1ff96e9533aaf4a",
+    "commitBaseSha": "84b8160f2a3d8b8ed87a45ff9878d856191affe2",
     "allowedPaths": [
       "CONTEXT.md",
       "coordination/repo-governance/local-workspace.json",
@@ -58,11 +58,11 @@
   "preservation": {
     "refs": [
       "refs/codex/snapshots/d546435fcc7619437abd5fb67c467fdac216b382 1d1478b5c8f35961b36281ca2dc984a80b05a2f2",
-      "refs/codex/turn-diffs/captures/1792569289400/1bbb8ca5-a02c-48e4-af04-17aabaec8608/base b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
+      "refs/codex/turn-diffs/captures/1792591233006/2ed6d8e9-87c1-43a6-9c73-26a25995859a/base b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
       "refs/codex/turn-diffs/checkpoints/029a2ac4be9bc2ae301d1e3e2d7003fd/d44e710b126b9e08fddb6065ae83f8b4/1792568613843/431d167d-3dcd-4439-831a-f364b9eb677f b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
       "refs/codex/turn-diffs/checkpoints/0cc11f04086606f3ad18f489d52a9ea3/532a7fc6321f9ac6aee06ec2c42608dd/1792496909643/194196c5-236b-45b2-b77f-a9bdb60f2c0c b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
       "refs/codex/turn-diffs/checkpoints/4511ca097b869f78cf4ed5886738adc4/dd67bf48927da2e30f5704c6045d7bff/1792481886925/a20f3e83-c407-4840-9f18-04c5213e9530 8ca245a5fb72938307cda26c55545a5ec1221dfa",
-      "refs/codex/turn-diffs/checkpoints/bdabd0be2baa9c38b6f8dba19b02001c/e23d1cfc71116bcd36fb18947c7cdba8/1792569245413/7e65a5da-2105-4b11-a209-d86157439585 b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
+      "refs/codex/turn-diffs/checkpoints/bdabd0be2baa9c38b6f8dba19b02001c/4195e26b9829905a5b92124d239012e5/1792577720593/78221379-9ddc-4434-89ff-9d3cb3c28c12 b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
       "refs/heads/claude/quirky-merkle-da02fa 1248ec261711e1ed544b9bda4c04aa17034072d6",
       "refs/heads/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",
       "refs/heads/codex/sena-a01-post-g-governance-20260924 37fc70188c31737f2f6424d0dc9384fe52164df7",
