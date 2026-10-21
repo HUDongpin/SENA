@@ -2472,9 +2472,9 @@ describe("SENA repository governance", () => {
     const strippedRoot = realpathSync(stripped);
     // Exercise the v1 registry override on a pre-overlay checkout. The current
     // local-workspace contract correctly refuses alternate CI authorities.
-    const historicalSource = JSON.parse(readFileSync(
-      join(projectRoot, "coordination/repo-governance/local-workspace.json"), "utf8"
-    )).historicalSource.commit;
+    // Later registrations can use a source that already contains an overlay.
+    // Freeze the actual pre-overlay source required by this historical test.
+    const historicalSource = "c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d";
     runGit(strippedRoot, ["checkout", "--detach", historicalSource]);
     const missingTree = spawnSync("git", ["cat-file", "-e", `${stagedTree}^{tree}`], {
       cwd: strippedRoot,

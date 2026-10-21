@@ -1289,7 +1289,7 @@ function assertVercelAvailable() {
 }
 
 function upsertVercelEnv(options, key, value) {
-  const addArgs = vercelArgs(options, ["env", "add", key, options.environment]);
+  const addArgs = vercelArgs(options, ["env", "add", key, options.environment, "--yes"]);
   const add = run("vercel", addArgs, `${value}\n`);
   if (add.status === 0) return "added";
   const combined = `${add.stdout}\n${add.stderr}`;

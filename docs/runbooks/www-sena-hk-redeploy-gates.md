@@ -381,6 +381,8 @@ Local `npm run sena:cdn:verify`, `npm run sena:jobs:queue-verify`, and `npm run 
 
 Owner: code.
 
+Run the integrated-main gate in a dedicated clean release checkout, separate from the worktree named by the retained `local-workspace.json` task registration. That registered task worktree intentionally keeps its own authorization checks; historical registry tests must not borrow its authority. Preserve the repair worktree and its private receipts.
+
 `sena-hk-template/lib/sena/__tests__/enterprise-go-live.test.ts` and `sena-hk-template/lib/sena/__tests__/enterprise.test.ts` must pass in a full run of the local harness. From `sena-hk-template`:
 
 ```bash
