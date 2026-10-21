@@ -4,6 +4,8 @@
 
 SENA is a research-pilot workbench for evidence-traceable fusion of social network analysis and epistemic network analysis. The current delivery target is local pilot readiness and reviewer handoff, not a claim that the system is already a staffed production SaaS.
 
+The release workflow distinguishes an isolated self-managed Vercel preview rehearsal from production acceptance. Preview operational checks may defer only the `www.sena.hk` preflight receipt; the original strict production path and manifest remain unresolved and exported. Preview closeout cannot authorize a production-ready claim. The deployment, observation, evidence-binding, and rollback sequence is maintained in `docs/runbooks/www-sena-hk-redeploy-gates.md`; passing local tests does not establish completion of that live sequence.
+
 ## Ubiquitous Language
 
 - SENA: Social Epistemic Network Analysis, the project-level method and workbench.

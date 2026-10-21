@@ -1,64 +1,74 @@
 {
   "schemaVersion": "sena-local-workspace/v1",
-  "repo": "/Volumes/Mars/SENA",
   "scope": "local-commit-and-pr",
+  "repo": "/Volumes/Mars/SENA",
   "historicalAuthority": "non-authorizing",
-  "historicalSource": {
-    "repo": "/Volumes/Starship/SENA",
-    "commit": "c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
-    "tree": "92eb6fefc6127ad3120c8d05a9b61b2cf3ae8799",
-    "registryPath": "coordination/repo-governance/active-work.json",
-    "registryBlob": "5225f6787f772b5dc6ae49edf6fd539e18246ac0",
-    "registrySha256": "333016fa31ed1244f82f876670e3943588c82d92e57a7ab39bf0f94569714f19"
-  },
-  "pathMapping": {
-    "from": "/Volumes/Starship/SENA",
-    "to": "/Volumes/Mars/SENA"
-  },
   "authorization": {
-    "threadId": "01a1583f-655e-7441-ae38-88c2a4bc2abf",
-    "userInstruction": "commit and make a pr",
+    "threadId": "01a15d21-8b73-77d2-9c5f-489144a93dca",
+    "userInstruction": "读取 SENA release handoff，继续推进：先补齐 Playwright 浏览器并修复 75 项治理测试失败，再完整重跑 G7，处理剩余发布门禁；全部通过后直接重部署 www.sena.hk，并保留回滚目标。用户选择自主管理的研究试点边界。",
     "operations": [
       "commit",
       "push",
       "pr"
     ],
-    "authorizedAt": "2026-10-20T08:57:55.699Z"
+    "authorizedAt": "2026-10-21T07:54:59.350Z"
   },
   "task": {
-    "taskId": "SENA-CODING-SCOPE-MARS-20261020",
-    "threadId": "01a1583f-655e-7441-ae38-88c2a4bc2abf",
-    "ownerKey": "Codex-task-01a1583f-655e-7441-ae38-88c2a4bc2abf",
-    "branch": "codex/sena-coding-scope-mars-20261020",
-    "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-coding-scope-mars/SENA",
-    "baseSha": "c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+    "taskId": "SENA-RELEASE-G7-20261021",
+    "threadId": "01a15d21-8b73-77d2-9c5f-489144a93dca",
+    "ownerKey": "Codex-release-01a15d21-8b73-77d2-9c5f-489144a93dca",
+    "branch": "codex/sena-release-g7-repair-20261021",
+    "worktreePath": "/Users/dongpinhu/.codex/worktrees/sena-release-20261021/SENA",
+    "baseSha": "ac8117f43cf4d4662d175e1eb787438407833fa8",
+    "commitBaseSha": "84b8160f2a3d8b8ed87a45ff9878d856191affe2",
     "allowedPaths": [
-      ".github/workflows/repo-security-gate.yml",
       "CONTEXT.md",
-      "coordination/repo-governance/README.md",
       "coordination/repo-governance/local-workspace.json",
+      "docs/runbooks/www-sena-hk-redeploy-gates.md",
       "scripts/__tests__/sena-local-workspace-governance.test.mjs",
-      "scripts/sena-local-workspace-governance.mjs",
       "scripts/verify-sena-repo-governance.mjs",
       "sena-hk-template/README.md",
-      "sena-hk-template/components/LanguageProvider.tsx",
-      "sena-hk-template/components/Workflow.tsx",
-      "sena-hk-template/components/WorkspacePreview.tsx"
+      "sena-hk-template/lib/sena/__tests__/enterprise-go-live.test.ts",
+      "sena-hk-template/lib/sena/__tests__/preview-rehearsal-readiness.test.ts",
+      "sena-hk-template/lib/sena/__tests__/production-evidence-bind-script.test.ts",
+      "sena-hk-template/lib/sena/__tests__/production-go-live-gate.test.ts",
+      "sena-hk-template/lib/sena/__tests__/repo-governance.test.ts",
+      "sena-hk-template/lib/sena/enterprise/go-live-closeout-check.ts",
+      "sena-hk-template/lib/sena/enterprise/ops-deployment-readiness.ts",
+      "sena-hk-template/lib/sena/enterprise/ops-deployment.ts",
+      "sena-hk-template/lib/sena/enterprise/ops-platform-decision-policy.ts",
+      "sena-hk-template/lib/sena/enterprise/production-go-live-gate.ts",
+      "sena-hk-template/scripts/bind-sena-production-evidence.mjs"
     ],
     "disposition": "active",
-    "noPrReason": "Owner authorized committing the scoped delivery update, pushing this exact task branch and opening its pull request. Merge, deployment, deletion and unrelated remote changes remain unauthorized.",
-    "commitBaseSha": "e6d9e2b356eacc09b9c6dbc247091c63a7aed21b"
+    "noPrReason": "A reviewed repair PR is necessary to integrate the release fixes. Production redeployment remains conditional on all applicable release gates; unrelated changes, cleanup and ref deletion are excluded."
+  },
+  "historicalSource": {
+    "repo": "/Volumes/Starship/SENA",
+    "commit": "ac8117f43cf4d4662d175e1eb787438407833fa8",
+    "tree": "9e71f1e8deb8d03e82914072d41f494c4df43e0a",
+    "registryPath": "coordination/repo-governance/active-work.json",
+    "registryBlob": "114b5970659ef139f5f02000330c8dd2399ec508",
+    "registrySha256": "7a9fabfc42270ed5d7ef11bb536282d73fbdbe7307fbb9eb07d5458de275e39f"
+  },
+  "pathMapping": {
+    "from": "/Volumes/Starship/SENA",
+    "to": "/Volumes/Mars/SENA"
   },
   "preservation": {
     "refs": [
-      "refs/codex/turn-diffs/captures/1792485625387/aa23a9be-dd51-4716-bde7-52f881365c65/base 535947d3ff72ffb27b9f838e31c81dad41abc133",
-      "refs/codex/turn-diffs/checkpoints/0cc11f04086606f3ad18f489d52a9ea3/5d3910771cb17dd4e5a0f91a9504a72b/1792485411325/73a4c0a6-a168-48f6-bc06-88bdea5e2293 535947d3ff72ffb27b9f838e31c81dad41abc133",
+      "refs/codex/snapshots/d546435fcc7619437abd5fb67c467fdac216b382 1d1478b5c8f35961b36281ca2dc984a80b05a2f2",
+      "refs/codex/turn-diffs/captures/1792591233006/2ed6d8e9-87c1-43a6-9c73-26a25995859a/base b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
+      "refs/codex/turn-diffs/checkpoints/029a2ac4be9bc2ae301d1e3e2d7003fd/d44e710b126b9e08fddb6065ae83f8b4/1792568613843/431d167d-3dcd-4439-831a-f364b9eb677f b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
+      "refs/codex/turn-diffs/checkpoints/0cc11f04086606f3ad18f489d52a9ea3/532a7fc6321f9ac6aee06ec2c42608dd/1792496909643/194196c5-236b-45b2-b77f-a9bdb60f2c0c b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
       "refs/codex/turn-diffs/checkpoints/4511ca097b869f78cf4ed5886738adc4/dd67bf48927da2e30f5704c6045d7bff/1792481886925/a20f3e83-c407-4840-9f18-04c5213e9530 8ca245a5fb72938307cda26c55545a5ec1221dfa",
+      "refs/codex/turn-diffs/checkpoints/bdabd0be2baa9c38b6f8dba19b02001c/4195e26b9829905a5b92124d239012e5/1792577720593/78221379-9ddc-4434-89ff-9d3cb3c28c12 b987bc0e741eb78db9fa34a1fb74e74d1c4f9ba4",
       "refs/heads/claude/quirky-merkle-da02fa 1248ec261711e1ed544b9bda4c04aa17034072d6",
       "refs/heads/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",
       "refs/heads/codex/sena-a01-post-g-governance-20260924 37fc70188c31737f2f6424d0dc9384fe52164df7",
       "refs/heads/codex/sena-a01-repo-governance-20260827 1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
       "refs/heads/codex/sena-branch-retirement-20260829 e24c635d1f53fccb2264c6be002aec2775de127c",
+      "refs/heads/codex/sena-coding-scope-mars-20261020 1d1478b5c8f35961b36281ca2dc984a80b05a2f2",
       "refs/heads/codex/sena-convergence-currentness-20260907 b9c25385453ee4da26e261c945dd125b0cd856ab",
       "refs/heads/codex/sena-convergence-integration-20260906 c782aa03940028a2c19db18dfddec55370c797b1",
       "refs/heads/codex/sena-convergence-q-currentness-20260908 e366df35d8304ddc0c2b5d963301b8a9324e2975",
@@ -80,16 +90,17 @@
       "refs/heads/grok/governance-currentness-heartbeat-20261011 20e1ffb32b78118ae57b4bd59627df4e406f57f0",
       "refs/heads/grok/governance-currentness-heartbeat-20261013 f283e82a4d1a533f01d88faf82547c91b1311646",
       "refs/heads/grok/governance-currentness-heartbeat-20261015 0d75b892716fba6904b24134c245d4631264468b",
-      "refs/heads/main 00d480e1584a417b48275d699bb18f31cf8f80f3",
+      "refs/heads/main e8f8a78a226f4b6830a28cced3a728c89587025b",
       "refs/keep-around/sena-pr46-final-handshake-autostash-index-20260901 08942f55d3ccc045b4bf6cc7643dfa138a0baf0b",
       "refs/keep-around/sena-pr46-final-handshake-autostash-wip-20260901 65e60921138615ee3fb63f21d7f250cfb574eff7",
       "refs/preserve/sena-evidenceflow-autostash-20260828T211255 ea2ef23babd57c4f0cbf5cfe8b9cf6fd290bf972",
       "refs/preserve/sena-evidenceflow-autostash-20260828T233440 20337a8d9286d09ed3ff42f4c67f1b103e221fb8",
       "refs/quarantine/sena-branch-retirement-20260829/ledger-reconciliation-2026-08-19 18d542f707e56aa9d043dd497e0efe48b540db20",
-      "refs/remotes/origin/HEAD c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+      "refs/remotes/origin/HEAD ac8117f43cf4d4662d175e1eb787438407833fa8",
       "refs/remotes/origin/codex/sena-a01-g-governance-successor-20260923 bdb168636f4d10f8764c8236344d08fe062326da",
       "refs/remotes/origin/codex/sena-a01-repo-governance-20260827 1cc64c17a6b1d562fee0bdb8b9737da50e25678a",
       "refs/remotes/origin/codex/sena-branch-retirement-20260829 ba85b0f66f80669197a2181e9dfab0e0044c9246",
+      "refs/remotes/origin/codex/sena-coding-scope-mars-20261020 1d1478b5c8f35961b36281ca2dc984a80b05a2f2",
       "refs/remotes/origin/codex/sena-evidenceflow-v1-20260828 a6d76c3f77fa550e503b8fa3a3faf6ed9c878898",
       "refs/remotes/origin/codex/sena-h-governance-intake-20260908 23f53106fbc8868a4fa8d32f67bd4b7c63295f42",
       "refs/remotes/origin/codex/sena-main-gap-mobile-release-20260904 59acaa742da0fa445c7bcc8c9e1e1ae3ab0ff5cf",
@@ -99,6 +110,7 @@
       "refs/remotes/origin/codex/sena-pr86-delivery-closeout-20260907 7fd9e29c34ee7c1573dc81f4824124faadbae279",
       "refs/remotes/origin/codex/sena-protected-currentness-activation-repair-20260901 e16ec80b749ca9130d11d8b3aa9dfe2581653f41",
       "refs/remotes/origin/codex/sena-q-currentness-port-20260919 6ac9b9552b0b08f5b13aa80f592d743350069dce",
+      "refs/remotes/origin/codex/sena-release-g7-repair-20261021 33e9485a795a0814a5e303e1b1ff96e9533aaf4a",
       "refs/remotes/origin/cursor/a4-usability-empty-import-inspector-9f0f 81633f22f95666026dec59257271f31ea37b9884",
       "refs/remotes/origin/cursor/ai-agent-cleaning-manifest-adr-0013-1658 d9a7004ac71e176801cc535390aaaa98b9ebb0aa",
       "refs/remotes/origin/cursor/ai-agent-runs-provenance-adr-d9a4 89ae63d18b52bbd60d7fc0e8b0a5187826e368fc",
@@ -122,7 +134,7 @@
       "refs/remotes/origin/grok/governance-currentness-heartbeat-20261011 20e1ffb32b78118ae57b4bd59627df4e406f57f0",
       "refs/remotes/origin/grok/governance-currentness-heartbeat-20261013 f283e82a4d1a533f01d88faf82547c91b1311646",
       "refs/remotes/origin/grok/governance-currentness-heartbeat-20261015 0d75b892716fba6904b24134c245d4631264468b",
-      "refs/remotes/origin/main c5fd1b4e4cd7a4378b0db28c711b014ea21ef12d",
+      "refs/remotes/origin/main ac8117f43cf4d4662d175e1eb787438407833fa8",
       "refs/rescue/sena-20260827/reflog-only-0190acc 0190acc272f12b037cf7b85443e6e8114668589a",
       "refs/rescue/sena-20260827/unreachable-005f997236ad 005f997236ad2e67701badba6da4131247453a0f",
       "refs/rescue/sena-20260827/unreachable-145c56698300 145c56698300649d31530ed3bb2755b6743ce35b",
@@ -183,10 +195,10 @@
       },
       {
         "path": "/Volumes/Mars/SENA",
-        "head": "00d480e1584a417b48275d699bb18f31cf8f80f3",
+        "head": "e8f8a78a226f4b6830a28cced3a728c89587025b",
         "branch": "refs/heads/main",
         "present": true,
-        "dirtyFingerprint": "34dca5c9ecc9218464d248ef5061bafe57e07ed528d2dd5f854db8d46280d155"
+        "dirtyFingerprint": "dee319acd107ea662a7cd0e17a3ad32a837aaf61cd14769b397925e0ef54b700"
       },
       {
         "path": "/Volumes/Mars/SENA-custody-proposal",

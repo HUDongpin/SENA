@@ -81,9 +81,14 @@ function packetBlockers(packet: SenaEnterpriseProductionRuntimeEnvPacket) {
 }
 
 function goLiveBlockers(closeout: SenaGoLiveCloseoutCheck) {
-  return closeout.checks
+  return [
+    ...(closeout.environment.deploymentTarget === "production" ? [] : [
+      sourceBlocker("go-live-closeout", "preview-rehearsal-is-not-production-closeout")
+    ]),
+    ...closeout.checks
     .filter((check) => !check.pass)
-    .flatMap((check) => check.blockers.map((blocker) => sourceBlocker(check.id, blocker)));
+    .flatMap((check) => check.blockers.map((blocker) => sourceBlocker(check.id, blocker)))
+  ];
 }
 
 function check(input: {
@@ -116,7 +121,8 @@ export function buildSenaEnterpriseProductionGoLiveGate(input: {
 }): SenaEnterpriseProductionGoLiveGate {
   const manifestReady = input.manifest.status === "ready";
   const packetReady = input.runtimeEnvPacket.status === "ready";
-  const goLiveReady = input.goLiveCloseout.status === "ready";
+  const goLiveReady = input.goLiveCloseout.status === "ready" &&
+    input.goLiveCloseout.environment.deploymentTarget === "production";
   const checks = [
     check({
       id: "production-evidence-manifest",

@@ -30,6 +30,7 @@ import {
 } from "./ops-governance";
 import {
   isSelfManagedEnterpriseMode,
+  isSelfManagedVercelPreview,
   selfManagedIdentityEvidence
 } from "./ops-platform-decision-policy";
 import {
@@ -87,12 +88,21 @@ export function getEnterpriseDeploymentReadiness(input: {
     uploadObjectStorageCustody: input.uploadObjectStorageCustody
   });
   const productionPerformancePathRequired = opsStatus.deployment.nodeEnv === "production" || envValue("SENA_REQUIRE_PRODUCTION_PERFORMANCE_PATH") === "1";
+  const previewRehearsal = isSelfManagedVercelPreview();
+  const deploymentTarget = envValue("VERCEL") === "1" ? envValue("VERCEL_ENV") ?? "unknown" : "local";
+  // A preview must rehearse before www is promoted. Keep the production
+  // receipt unresolved in the strict path, outside operational counts.
+  const deferredProductionChecks = previewRehearsal
+    ? productionPerformancePath.items.filter((item) => item.id === "production-runtime-header")
+    : [];
+  const operationalPerformanceItems = productionPerformancePath.items.filter((item) =>
+    !deferredProductionChecks.includes(item));
   const productionPerformanceBlockingItems = productionPerformancePathRequired
-    ? productionPerformancePath.items
+    ? operationalPerformanceItems
     : [];
   const productionPerformanceAdvisoryItems = productionPerformancePathRequired
     ? []
-    : productionPerformancePath.items.map((item) => ({ ...item, severity: "advisory" as const }));
+    : operationalPerformanceItems.map((item) => ({ ...item, severity: "advisory" as const }));
   const configuredOidcProviders = governance.auth.oidcProviders
     .filter((provider) => provider.configured)
     .map((provider) => provider.provider);
@@ -625,12 +635,15 @@ export function getEnterpriseDeploymentReadiness(input: {
   const blockingReview = blocking.length - blockingPass;
   const advisoryPass = advisory.filter((item) => item.status === "pass").length;
   const advisoryReview = advisory.length - advisoryPass;
+  const status = blockingReview > 0 ? "blocked" : advisoryReview > 0 ? "review" : "ready";
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseDeploymentReadiness,
-    status: blockingReview > 0 ? "blocked" : advisoryReview > 0 ? "review" : "ready",
+    status,
+    productionAcceptanceAllowed: deploymentTarget === "production" && status === "ready" && productionPerformancePath.status === "pass",
     generatedAt: now(),
     environment: {
+      deploymentTarget,
       nodeEnv: opsStatus.deployment.nodeEnv,
       runtime: "nodejs",
       storageEngine: opsStatus.storage.engine,
@@ -658,9 +671,10 @@ export function getEnterpriseDeploymentReadiness(input: {
     },
     blocking,
     advisory,
+    deferredProductionChecks,
     productionPerformancePath,
     runbook: {
-      requiredBeforeProduction: blocking.map((item) => item.nextAction),
+      requiredBeforeProduction: [...blocking, ...deferredProductionChecks].map((item) => item.nextAction),
       platformDecisions: [
         "Do not treat .sena-enterprise/enterprise-db.json as a multi-user production state store; configure native Postgres or keep the deployment explicitly scoped to research-pilot traffic.",
         "Choose managed database or durable volume ownership for enterprise JSON state, using the signed database sync bridge only when accepted by the platform owner.",
@@ -716,8 +730,10 @@ export type SenaEnterpriseDeploymentReadinessItem = {
 export type SenaEnterpriseDeploymentReadiness = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseDeploymentReadiness;
   status: "ready" | "review" | "blocked";
+  productionAcceptanceAllowed: boolean;
   generatedAt: string;
   environment: {
+    deploymentTarget: string;
     nodeEnv: string;
     runtime: "nodejs";
     storageEngine: SenaEnterpriseStorageEngine;
@@ -745,6 +761,7 @@ export type SenaEnterpriseDeploymentReadiness = {
   };
   blocking: SenaEnterpriseDeploymentReadinessItem[];
   advisory: SenaEnterpriseDeploymentReadinessItem[];
+  deferredProductionChecks: SenaEnterpriseDeploymentReadinessItem[];
   productionPerformancePath: SenaEnterpriseProductionPerformancePath;
   runbook: {
     requiredBeforeProduction: string[];

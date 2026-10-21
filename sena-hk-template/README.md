@@ -383,6 +383,8 @@ The subsequent full pilot passed both test phases (3,204 plus 63 tests, with two
 
 Self-managed go-live closeout sequence:
 
+The helper commands below operate on their local configured store. For a deployed self-managed Vercel preview, use that preview's authenticated ops routes and the [redeploy runbook](../docs/runbooks/www-sena-hk-redeploy-gates.md). Server metadata identifies preview scope. Readiness exports `deferredProductionChecks` for the production-domain receipt, while the strict production-performance path and production evidence manifest retain their actual unresolved status. Other operational gates and the full 60-minute observation still apply. Closeout exports `environment.deploymentTarget`; final production acceptance requires an explicit `production` target. Operational evidence can be bound with `sena:production-evidence:bind --env preview --target-url https://<preview-host> --artifact <file>` after the tool verifies a READY preview in the linked project at the current commit. Production preflight and production-ready claim artifacts cannot be bound to preview.
+
 1. Run `npm run sena:pilot:verify`.
 2. Run `npm run sena:self-managed:workflow` to create the self-managed release, backup, restore, audit, release-gate, rollback, and active post-cutover observation evidence.
 3. Run `npm run sena:post-cutover:observe -- --watch --attest` to sample the real 60-minute observation window, complete it after `requiredUntil`, and submit the self-managed approved go-live attestation.

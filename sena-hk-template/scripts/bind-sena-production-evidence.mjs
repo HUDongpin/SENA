@@ -39,6 +39,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-postgres-probe/v1", {
     label: "Postgres live probe",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_ENTERPRISE_POSTGRES_LIVE_PROBE_CONFIRMED",
       sha256: "SENA_ENTERPRISE_POSTGRES_PROBE_ARTIFACT_SHA256",
@@ -50,6 +51,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-postgres-schema-contract/v1", {
     label: "Postgres schema contract",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_CONFIRMED",
       sha256: "SENA_ENTERPRISE_POSTGRES_SCHEMA_CONTRACT_ARTIFACT_SHA256",
@@ -61,6 +63,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-object-storage-contract/v1", {
     label: "Object storage contract",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_OBJECT_STORAGE_CONTRACT_CONFIRMED",
       sha256: "SENA_OBJECT_STORAGE_CONTRACT_ARTIFACT_SHA256",
@@ -72,6 +75,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-object-storage-probe/v1", {
     label: "Object storage live probe",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_OBJECT_STORAGE_LIVE_PROBE_CONFIRMED",
       sha256: "SENA_OBJECT_STORAGE_PROBE_ARTIFACT_SHA256",
@@ -83,6 +87,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-cdn-contract/v1", {
     label: "CDN contract",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_CDN_CONTRACT_CONFIRMED",
       sha256: "SENA_CDN_CONTRACT_ARTIFACT_SHA256",
@@ -94,6 +99,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-cdn-probe/v1", {
     label: "CDN live probe",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_CDN_LIVE_PROBE_CONFIRMED",
       sha256: "SENA_CDN_PROBE_ARTIFACT_SHA256",
@@ -105,6 +111,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-server-job-queue-contract/v1", {
     label: "Server job queue contract",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_JOB_QUEUE_CONTRACT_CONFIRMED",
       sha256: "SENA_JOB_QUEUE_CONTRACT_ARTIFACT_SHA256",
@@ -116,6 +123,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-server-job-queue-probe/v1", {
     label: "Server job queue live probe",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_JOB_QUEUE_LIVE_PROBE_CONFIRMED",
       sha256: "SENA_JOB_QUEUE_PROBE_ARTIFACT_SHA256",
@@ -127,6 +135,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-server-job-worker-contract/v1", {
     label: "Server job worker contract",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_JOB_WORKER_CONTRACT_CONFIRMED",
       sha256: "SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256",
@@ -138,6 +147,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-observability-contract/v1", {
     label: "Observability contract",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_OBSERVABILITY_CONTRACT_CONFIRMED",
       sha256: "SENA_OBSERVABILITY_CONTRACT_ARTIFACT_SHA256",
@@ -149,6 +159,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-observability-probe/v1", {
     label: "Observability live probe",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_OBSERVABILITY_LIVE_PROBE_CONFIRMED",
       sha256: "SENA_OBSERVABILITY_PROBE_ARTIFACT_SHA256",
@@ -160,6 +171,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-production-performance-budget/v2", {
     label: "Production performance budget",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_PERFORMANCE_BUDGET_CONFIRMED",
       sha256: "SENA_PERFORMANCE_BUDGET_ARTIFACT_SHA256",
@@ -181,6 +193,7 @@ const artifactBindings = new Map([
   ["sena-enterprise-conference-load-rehearsal/v1", {
     label: "Conference load rehearsal",
     expectedStatus: "pass",
+    previewAllowed: true,
     env: {
       confirmed: "SENA_CONFERENCE_LOAD_REHEARSAL_CONFIRMED",
       sha256: "SENA_CONFERENCE_LOAD_REHEARSAL_ARTIFACT_SHA256",
@@ -888,6 +901,7 @@ function parseArgs(argv) {
     evidenceDirs: [],
     environment: "production",
     productionTargetUrl: defaultProductionTargetUrl,
+    explicitTargetUrl: false,
     scope: process.env.VERCEL_SCOPE,
     yes: false
   };
@@ -902,7 +916,10 @@ function parseArgs(argv) {
     if (arg === "--artifact") options.artifacts.push(next());
     else if (arg === "--evidence-dir") options.evidenceDirs.push(next());
     else if (arg === "--env") options.environment = next();
-    else if (arg === "--target-url" || arg === "--cdn-verify-url") options.productionTargetUrl = next();
+    else if (arg === "--target-url" || arg === "--cdn-verify-url") {
+      options.productionTargetUrl = next();
+      options.explicitTargetUrl = true;
+    }
     else if (arg === "--scope") options.scope = next();
     else if (arg === "--yes") options.yes = true;
     else if (arg === "--help" || arg === "-h") {
@@ -915,8 +932,16 @@ function parseArgs(argv) {
   if (options.artifacts.length === 0 && options.evidenceDirs.length === 0) {
     options.evidenceDirs.push(path.join("output", "production-evidence"));
   }
-  if (options.environment !== "production") {
-    throw new Error(`SENA production evidence binding only writes to the Vercel production environment. Refusing --env ${options.environment}.`);
+  if (!["production", "preview"].includes(options.environment)) {
+    throw new Error(`Refusing unsupported Vercel environment: ${options.environment}`);
+  }
+  if (options.environment === "preview") {
+    if (!options.explicitTargetUrl || productionTargetUrlProblem(options.productionTargetUrl)) {
+      throw new Error("preview-binding-requires-explicit-public-https-target");
+    }
+    const target = new URL(options.productionTargetUrl);
+    if (["www.sena.hk", "sena.hk"].includes(target.hostname) || target.hostname.includes("production") ||
+        target.username || target.password) throw new Error("preview-binding-refuses-production-target");
   }
   return options;
 }
@@ -932,7 +957,8 @@ Usage:
 Options:
   --artifact <file>      Redacted verifier artifact JSON. Can be repeated.
   --evidence-dir <dir>   Directory containing verifier artifact JSON files. Can be repeated.
-  --env <name>           Vercel environment. Must be production.
+  --env <name>           production (default), or preview for operational evidence only.
+                        Preview requires --target-url and a linked, READY preview of this commit.
   --target-url <url>     Deployed HTTPS production URL whose host hash must match conference-load evidence.
   --cdn-verify-url <url> Alias for --target-url. Defaults to SENA_CDN_VERIFY_URL or https://www.sena.hk.
   --scope <team-slug>    Vercel team scope. Defaults to VERCEL_SCOPE or linked project scope.
@@ -1017,6 +1043,9 @@ export function planSenaProductionEvidenceArtifactBinding(read, options, localPe
       bindable: false,
       reason: `unknown-schema:${schemaVersion ?? "missing"}`
     };
+  }
+  if (options.environment === "preview" && binding.previewAllowed !== true) {
+    return { bindable: false, binding, reason: "preview-schema-not-allowed" };
   }
   const expectedStatuses = binding.expectedStatuses ?? [binding.expectedStatus];
   if (!expectedStatuses.includes(read.artifact?.status)) {
@@ -1302,8 +1331,58 @@ export function writeSenaProductionEvidenceBindingPlanToVercel(options, result) 
   }
 }
 
+function inspectPreviewDeployment(options) {
+  let project;
+  try {
+    project = JSON.parse(readFileSync(path.join(process.cwd(), ".vercel", "project.json"), "utf8"));
+  } catch {
+    throw new Error("preview-project-link-required");
+  }
+  const inspected = run("vercel", vercelArgs(options, ["inspect", new URL(options.productionTargetUrl).origin, "--format", "json"]));
+  let deployment;
+  try {
+    deployment = JSON.parse(inspected.stdout);
+  } catch {
+    throw new Error("preview-deployment-inspection-invalid");
+  }
+  if (inspected.status !== 0 || deployment.target !== "preview" || deployment.readyState !== "READY") {
+    throw new Error("preview-deployment-required");
+  }
+  if (typeof deployment.id !== "string" || !/^dpl_[A-Za-z0-9]+$/.test(deployment.id)) {
+    throw new Error("preview-deployment-identity-missing");
+  }
+  // `inspect --format json` omits project and source metadata. Read those
+  // through the CLI's authenticated API without printing the raw response.
+  const metadataResponse = run("vercel", vercelArgs({ ...options, scope: options.scope ?? project.orgId },
+    ["api", `/v13/deployments/${deployment.id}`, "--method", "GET", "--raw"]));
+  let metadata;
+  try {
+    metadata = JSON.parse(metadataResponse.stdout);
+  } catch {
+    throw new Error("preview-deployment-metadata-invalid");
+  }
+  if (metadataResponse.status !== 0 || metadata.id !== deployment.id ||
+      ![null, "preview"].includes(metadata.target) || metadata.readyState !== "READY") {
+    throw new Error("preview-deployment-required");
+  }
+  if (!project.projectId || metadata.projectId !== project.projectId) {
+    throw new Error("preview-project-mismatch");
+  }
+  const source = run("git", ["-C", senaProjectRoot, "rev-parse", "HEAD"]);
+  const commit = source.stdout.trim();
+  const declaredSources = [metadata.gitSource?.sha, metadata.meta?.gitCommitSha]
+    .filter((value) => value !== undefined && value !== null);
+  if (source.status !== 0 || !isSenaFullGitObjectId(commit) ||
+      declaredSources.length === 0 || declaredSources.some((value) => value !== commit)) {
+    throw new Error("preview-source-commit-mismatch");
+  }
+  console.log(`previewDeploymentId=${deployment.id}`);
+  console.log(`previewSourceCommit=${commit}`);
+}
+
 function runSenaProductionEvidenceBinding(argv) {
   const options = parseArgs(argv);
+  if (options.environment === "preview") inspectPreviewDeployment(options);
   const reads = collectSenaProductionEvidenceArtifactReads(options);
   const plans = reads.map((read) => ({
     read,

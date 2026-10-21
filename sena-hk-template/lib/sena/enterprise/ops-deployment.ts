@@ -81,7 +81,8 @@ import {
   type SenaEnterpriseNativeAdapterCertification
 } from "./ops-platform-adapter-certification";
 import {
-  isSelfManagedEnterpriseMode
+  isSelfManagedEnterpriseMode,
+  isSelfManagedVercelPreview
 } from "./ops-platform-decision-policy";
 import {
   buildEnterpriseDeploymentReleaseGateEvidence,
@@ -770,13 +771,23 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
     saasOperatingModelApproved: fullSaasBackendApproved
   });
   const productionEvidenceManifest = buildEnterpriseProductionEvidenceManifest();
+  const deferredProductionEvidenceIds = isSelfManagedVercelPreview()
+    ? ["vercel-production-preflight"]
+    : [];
+  const operationalEvidenceItems = productionEvidenceManifest.items.filter((item) =>
+    !deferredProductionEvidenceIds.includes(item.id));
+  const operationalProductionEvidenceMissingRequired = operationalEvidenceItems
+    .filter((item) => item.status === "missing-required").length +
+    productionEvidenceManifest.advisoryItems.filter((item) => item.status === "missing-required").length;
+  const operationalProductionEvidenceStatus = operationalProductionEvidenceMissingRequired > 0
+    ? "blocked" : operationalEvidenceItems.every((item) => item.confirmed) ? "ready" : "review";
 
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseOrganizationDeployment,
     generatedAt,
-    status: readiness.status === "blocked" || missingRequiredEnv.length > 0 || productionEvidenceManifest.status === "blocked"
+    status: readiness.status === "blocked" || missingRequiredEnv.length > 0 || operationalProductionEvidenceStatus === "blocked"
       ? "blocked"
-      : openPlatformDecisions > 0 || readiness.status === "review" || governance.status === "review" || productionEvidenceManifest.status === "review"
+      : openPlatformDecisions > 0 || readiness.status === "review" || governance.status === "review" || operationalProductionEvidenceStatus === "review"
         ? "review"
         : "ready",
     redaction: {
@@ -791,6 +802,7 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
       callbackPath: ssoCallbackPath
     },
     environment: {
+      deploymentTarget: readiness.environment.deploymentTarget,
       nodeEnv: opsStatus.deployment.nodeEnv,
       runtime: "nodejs",
       storageEngine: opsStatus.storage.engine,
@@ -819,6 +831,9 @@ export function getEnterpriseOrganizationDeploymentPackage(input: {
       identityEvidenceInvalidAllowedHosts: identityProductionEvidence.evidenceUrlHostBinding.invalidAllowedHostCount,
       productionEvidenceStatus: productionEvidenceManifest.status,
       productionEvidenceMissingRequired: productionEvidenceManifest.summary.missingRequired,
+      operationalProductionEvidenceStatus,
+      operationalProductionEvidenceMissingRequired,
+      deferredProductionEvidenceIds,
       blockingReview: readiness.summary.blockingReview,
       advisoryReview: readiness.summary.advisoryReview
     },
@@ -895,6 +910,7 @@ export type SenaEnterpriseOrganizationDeploymentPackage = {
     callbackPath: string;
   };
   environment: {
+    deploymentTarget: string;
     nodeEnv: string;
     runtime: "nodejs";
     storageEngine: SenaEnterpriseStorageEngine;
@@ -923,6 +939,9 @@ export type SenaEnterpriseOrganizationDeploymentPackage = {
     identityEvidenceInvalidAllowedHosts: number;
     productionEvidenceStatus: SenaEnterpriseProductionEvidenceManifest["status"];
     productionEvidenceMissingRequired: number;
+    operationalProductionEvidenceStatus: SenaEnterpriseProductionEvidenceManifest["status"];
+    operationalProductionEvidenceMissingRequired: number;
+    deferredProductionEvidenceIds: string[];
     blockingReview: number;
     advisoryReview: number;
   };

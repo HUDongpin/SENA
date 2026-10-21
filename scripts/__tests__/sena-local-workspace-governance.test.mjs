@@ -693,14 +693,14 @@ function cloneIntegratedMain(t) {
   const temp = mkdtempSync(join(realpathSync(tmpdir()), "sena-local-pr-"));
   t.after(() => rmSync(temp, { recursive: true, force: true }));
   const root = join(temp, "repo");
-  runGit(REPO_ROOT_FOR_TEST, ["clone", "--local", REPO_ROOT_FOR_TEST, root]);
+  runGit(REPO_ROOT_FOR_TEST, ["clone", "--no-local", REPO_ROOT_FOR_TEST, root]);
   for (const [key, value] of [
     ["user.name", "SENA Governance Test"],
     ["user.email", "sena-test@example.invalid"],
     ["commit.gpgsign", "false"]
   ]) runGit(root, ["config", key, value]);
   runGit(root, ["checkout", "--detach", INTEGRATED_MAIN]);
-  // git clone --local copies refs/heads only. A CI checkout of a pull request
+  // git clone copies refs/heads only. A CI checkout of a pull request
   // often has main solely as a remote-tracking ref, so the clone has neither
   // refs/heads/main nor refs/remotes/origin/main until they are created here.
   runGit(root, ["update-ref", "refs/heads/main", INTEGRATED_MAIN]);
@@ -770,11 +770,11 @@ function directVerifier(root, args) {
   });
 }
 
-test("merged main runs registry verification outside the retired local-workspace worktree", () => {
-  const result = runVerifier(VERIFIER_PATH, ["registry"], {
-    cwd: REPO_ROOT_FOR_TEST,
-    env: governanceProcessEnv()
-  });
+test("merged main runs registry verification outside the retired local-workspace worktree", t => {
+  // The checkout running this suite may itself be a newly registered PR lane.
+  // Exercise the retired registration on an actual integrated-main fixture.
+  const { root } = cloneIntegratedMain(t);
+  const result = directVerifier(root, ["registry"]);
   const output = outputOf(result);
   assert.match(output, /SENA_REPO_REGISTRY/);
   assert.doesNotMatch(output, /local-workspace-/);

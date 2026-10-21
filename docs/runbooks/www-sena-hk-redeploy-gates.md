@@ -275,6 +275,17 @@ G8 accepts this tuple when `vercel inspect` shows the promoted deployment is the
 
 ### Preview ops closeout
 
+For an explicitly self-managed deployment, server metadata `VERCEL=1` and `VERCEL_ENV=preview` selects the preview rehearsal boundary. Only the production-domain runtime-header receipt is deferred from operational readiness. It remains `review` in `deferredProductionChecks` and in the unchanged strict production-performance path. The organization deployment package likewise retains the full strict production evidence manifest and excludes only `vercel-production-preflight` from its operational status. Every other required evidence item, including explicitly required advisory artifacts, still applies. A ready preview rehearsal is not production acceptance: the closeout records `environment.deploymentTarget=preview`, and the final production gate refuses it.
+
+Bind each validated operational artifact to the preview environment with an explicit target, first as a dry run and then with `--yes`:
+
+```bash
+npm run sena:production-evidence:bind -- --env preview --target-url https://<preview-host> --artifact <named-preview-artifact>
+npm run sena:production-evidence:bind -- --env preview --target-url https://<preview-host> --artifact <named-preview-artifact> --yes
+```
+
+The binder verifies READY preview placement, linked project identity, and source commit through authenticated Vercel inspection. It refuses production preflight, runtime-env packet, and go-live claim schemas in preview, including archive children. CDN/load host hashes must match the preview target. Provider-only artifacts still need their saved preview-route and deployment provenance; a provider hash alone does not identify a deployment. Environment writes take effect on the next deployment. Preserve any same-source bootstrap evidence separately, verify that business/provider configuration did not change, and collect fresh final G4/G6 evidence on the deployment being accepted.
+
 The closeout that counts is the preview deployment's own ops workflow. Save its responses. `npm run sena:go-live:check` loads `.env.local` and builds deployment readiness, rehearsal, rollback drill, and post-cutover status from the local `.sena-enterprise` store. `npm run sena:production:gate` rebuilds that same local closeout when `--preflight` points at the preview artifact. `npm run sena:self-managed:workflow` and `npm run sena:post-cutover:observe` write that local store. Those local commands are not the preview closeout.
 
 On the preview host, with that deployment's ops bearer, save the five closeout checks. They are deployment readiness, go-live rehearsal, rollback drill, post-cutover monitor, and capability audit.
@@ -376,13 +387,15 @@ Owner: code.
 npm test
 ```
 
-`npm test` is `node scripts/run-vitest-with-enterprise-temp-db.mjs` (`package.json` line 57). With no file arguments it runs the suite, then the serial phase in `scripts/sena-vitest-phase-plan.mjs` lines 25-32. That phase includes `enterprise-go-live.test.ts` and `enterprise.test.ts` (lines 4-5). The GitHub build workflow does not run this suite.
+`npm test` is `node scripts/run-vitest-with-enterprise-temp-db.mjs`. With no file arguments it runs the ordinary suite, including `enterprise-go-live.test.ts` and `enterprise.test.ts`, then the serial phase defined in `scripts/sena-vitest-phase-plan.mjs`. The serial phase contains `snapshot-restore-route-round21.test.ts`, `publication-reliability-evidence-route-round14.test.ts`, and `production-evidence-bind-script.test.ts`. The GitHub build workflow does not run this suite.
 
 `npm test` does not start a production server or run the browser handoff. Before G8, stop local `next dev` and `next start` processes for this project, then run the release handoff gate from `sena-hk-template`:
 
 ```bash
 npm run sena:pilot:verify
 ```
+
+The full pilot verifier itself executes `npm test`, including both harness phases, before building and running the browser checks. A completed full pilot on frozen source can therefore establish both G7 requirements from its recorded test-phase and final summaries; a separate duplicate suite run is unnecessary. Diagnostic modes and partial-stage logs do not satisfy this gate.
 
 `npm run sena:pilot:verify` is `node scripts/verify-sena-pilot.mjs` (`package.json` line 16). It clears `.next`, builds, starts a temporary production server, runs the browser smoke, and stops that server. The smoke covers sample and template downloads, JSON contract upload, five-CSV upload, the built-in lesson-study sample, layout switches, alpha/beta/gamma, temporal modes, SVG evidence, downloads, review-packet restore, and project-snapshot restore. G8 waits for this gate and for `npm test`.
 
@@ -416,7 +429,18 @@ curl -fsSI https://www.sena.hk
 
 The preflight artifact `status` must be `pass`, including `deployment-ready`. The host must be `www.sena.hk`. The deployment id must be the promotion just created. It must differ from `dpl_AHJ28x1VrYtZ4Y2Rgdj1se7y51EC`. Option B: inspected `gitCommitSha` equals `$SHA`. Option A: the git commit on the deployment equals the target commit. The `--yes` bind writes `SENA_VERCEL_PRODUCTION_PREFLIGHT_CONFIRMED`, `SENA_VERCEL_PRODUCTION_PREFLIGHT_ARTIFACT_SHA256`, `SENA_VERCEL_PRODUCTION_PREFLIGHT_VERIFIED_AT`, `SENA_VERCEL_PRODUCTION_PREFLIGHT_TARGET_HOST_SHA256`, `SENA_VERCEL_PRODUCTION_PREFLIGHT_DEPLOYMENT_URL_SHA256`, `SENA_VERCEL_PRODUCTION_PREFLIGHT_HTTP_STATUS`, and `SENA_VERCEL_PRODUCTION_PREFLIGHT_RUNTIME_HEADER`.
 
-Repeat the G4 closeout GETs and the G6 probe set against `https://www.sena.hk`. Save them under `output/production-evidence/production-closeout/`. The preview files describe the preview. These files describe the deployment that now serves the production domain.
+After activating the final production deployment and completing its required observation as described below, repeat the G4 closeout GETs and the G6 probe set against `https://www.sena.hk`. Save them under `output/production-evidence/production-closeout/`. The preview files describe the preview. Final acceptance files describe the serving production deployment. The initial deployment's expected missing-receipt state is bootstrap evidence, not a completed final closeout.
+
+### Activating the post-deployment receipt
+
+Vercel environment binding does not change a running deployment. When the initial production deployment A lacks its new preflight receipt, use this finite activation sequence:
+
+1. Record A's deployment ID, clean source commit S, and configuration inventory. Obtain a genuine passing `www.sena.hk` preflight P_A and the actual production-provider probes/contracts required by the strict runtime. Bind those A artifacts. Preview-provider evidence cannot replace production-provider evidence. Any real preflight or live-service failure invokes rollback; missing evidence that this explicit bootstrap step is collecting is not a passed final closeout.
+2. Deploy the same clean S as B to activate that environment snapshot. Business/provider settings must match A; only evidence values may differ. Before starting, confirm the original held rollback deployment remains available under the account's rollback policy after both deployments.
+3. Obtain a fresh passing external preflight P_B, inspected source identity, all five G6 probes, and the ops closeout from B. Record B as the serving deployment. P_A is explicitly the bootstrap receipt present in B's immutable environment; it is not P_B and must not be presented as evidence measured from B.
+4. Complete B's own required post-cutover observation. The isolated preview observation is separate evidence and cannot replace this production window. Final acceptance must use B's saved runtime responses, not the closeout rebuilt from a local store by `sena:production:gate`.
+
+The current runtime receipt validates its host, hash, timestamp, HTTP status and managed-state header; it does not compare the receipt's deployment-URL hash to its own deployment ID. The fresh P_B, inspection, source/configuration comparison, and B probe set supply that exact-deployment check externally. Binding P_B afterward is optional configuration for a future deployment and does not update B. Do not start an unbounded rebind/redeploy loop. Any failure in this sequence invokes the original rollback procedure below.
 
 If the preflight, the bind, `vercel inspect`, or the live request fails, roll production back to the held deployment:
 
