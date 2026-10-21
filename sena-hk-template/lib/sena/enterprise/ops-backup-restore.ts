@@ -128,6 +128,11 @@ const backupRestoreOptionalTeamId = new Set<keyof typeof backupRestoreTeamScopeF
   "auditLog"
 ]);
 
+// Project deletion removes the project row and its live attachments. Team
+// notifications and audit events keep that project id as history. Restore
+// accepts the id when no current or incoming project uses it. A project that
+// still exists must belong to an authorized team.
+
 type BackupRestoreCollection = keyof typeof backupRestoreTeamScopeField;
 
 const backupRestoreUserReferenceFields = [
@@ -180,13 +185,15 @@ function backupRestoreProjectInScope(
   projectId: unknown,
   allowed: Set<string>,
   db: SenaEnterpriseDb,
-  payload: SenaEnterpriseBackupArtifact["payload"]
+  payload: SenaEnterpriseBackupArtifact["payload"],
+  allowUnresolved = false
 ) {
   if (!backupRestoreTextId(projectId)) return false;
   const existing = db.projects.find((project) => project.id === projectId);
   if (existing) return backupRestoreTeamInScope(existing.teamId, allowed);
   const incoming = (Array.isArray(payload.projects) ? payload.projects : []).find((project) => project.id === projectId);
-  return Boolean(incoming && backupRestoreTeamInScope(incoming.teamId, allowed));
+  if (incoming) return backupRestoreTeamInScope(incoming.teamId, allowed);
+  return allowUnresolved;
 }
 
 function backupRestoreUserInScope(userId: unknown, allowed: Set<string>, db: SenaEnterpriseDb) {
@@ -213,7 +220,8 @@ function assertBackupRestoreReferencesInScope(
   checkUsers: boolean,
   allowed: Set<string>,
   db: SenaEnterpriseDb,
-  payload: SenaEnterpriseBackupArtifact["payload"]
+  payload: SenaEnterpriseBackupArtifact["payload"],
+  allowUnresolvedProjectReference: boolean
 ) {
   if (!record || typeof record !== "object") rejectBackupRestoreOutsideScope();
   const value = record as Record<string, unknown>;
@@ -225,12 +233,16 @@ function assertBackupRestoreReferencesInScope(
   }
   for (const field of backupRestoreProjectReferenceFields) {
     if (value[field] == null) continue;
-    if (!backupRestoreProjectInScope(value[field], allowed, db, payload)) rejectBackupRestoreOutsideScope();
+    if (!backupRestoreProjectInScope(value[field], allowed, db, payload, allowUnresolvedProjectReference)) {
+      rejectBackupRestoreOutsideScope();
+    }
   }
   const binding = value.projectBinding;
   if (binding && typeof binding === "object" && "projectId" in binding) {
     const projectId = (binding as { projectId?: unknown }).projectId;
-    if (projectId != null && !backupRestoreProjectInScope(projectId, allowed, db, payload)) rejectBackupRestoreOutsideScope();
+    if (projectId != null && !backupRestoreProjectInScope(projectId, allowed, db, payload, allowUnresolvedProjectReference)) {
+      rejectBackupRestoreOutsideScope();
+    }
   }
   if (Array.isArray(value.uploadIds)) {
     for (const uploadId of value.uploadIds) {
@@ -260,7 +272,14 @@ function assertBackupRestoreRecordsInScope(backup: SenaEnterpriseBackupArtifact,
       const id = backupRestoreRecordField(record, "id");
       if (!backupRestoreTextId(id)) rejectBackupRestoreOutsideScope();
       assertExistingBackupRecordInScope(db, collection, id, allowed);
-      assertBackupRestoreReferencesInScope(record, teamScoped, allowed, db, payload);
+      assertBackupRestoreReferencesInScope(
+        record,
+        teamScoped,
+        allowed,
+        db,
+        payload,
+        backupRestoreOptionalTeamId.has(collection)
+      );
     }
   }
 }

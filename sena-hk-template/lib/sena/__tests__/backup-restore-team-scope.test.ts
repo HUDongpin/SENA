@@ -412,4 +412,131 @@ describe("SENA backup restore team scope", () => {
       expect(stored?.teamId).toBe(teamId);
     });
   });
+
+  it("restores team audit history and notifications that still name a deleted project", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-deleted-project-", async ({ enterprise, dbPath }) => {
+      const owner = enterprise.registerEnterpriseUser({
+        name: "Deleted Project Owner",
+        email: "deleted-project-owner@example.edu",
+        password: "sena-secure-123",
+        organization: "Deleted Project Lab",
+        plan: "enterprise"
+      });
+      const teamId = owner.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(owner.context, {
+        teamId,
+        title: "Deleted before backup",
+        snapshot: projectSnapshot()
+      });
+      const deletion = enterprise.deleteEnterpriseProject(owner.context, project.id);
+      expect(deletion).toMatchObject({ projectId: project.id, deleted: true });
+
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      expect(backup.payload.projects.some((candidate) => candidate.id === project.id)).toBe(false);
+      expect(backup.payload.auditLog.some((entry) => entry.event === "project.delete" && entry.projectId === project.id && entry.teamId === teamId)).toBe(true);
+      backup.payload.notifications.push({
+        id: "note_deleted_project",
+        kind: "project.comment",
+        status: "delivered",
+        channel: "in-app",
+        teamId,
+        projectId: project.id,
+        userId: owner.context.user.id,
+        title: "Comment on a deleted project",
+        body: "Historical notification",
+        createdAt: stamp,
+        detail: {}
+      });
+      syncBackupIntegrity(backup);
+
+      const dryRun = enterprise.restoreEnterpriseBackup(owner.context, backup, { dryRun: true });
+      expect(dryRun.status).toBe("dry-run");
+      expect(readDb(dbPath).notifications.some((notification) => notification.id === "note_deleted_project")).toBe(false);
+
+      const restore = enterprise.restoreEnterpriseBackup(owner.context, backup, { mode: "merge" });
+      const restored = readDb(dbPath);
+      expect(restore.status).toBe("completed");
+      expect(restored.projects.some((candidate) => candidate.id === project.id)).toBe(false);
+      expect(restored.auditLog.some((entry) => entry.event === "project.delete" && entry.projectId === project.id)).toBe(true);
+      expect(restored.notifications.some((notification) => notification.id === "note_deleted_project" && notification.projectId === project.id)).toBe(true);
+    });
+  });
+
+  it("rejects historical records whose projectId still points at another team's live project", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-live-foreign-project-", async ({ enterprise, dbPath }) => {
+      const { owner, outsider } = registerPair(enterprise);
+      const teamId = owner.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(outsider.context, {
+        teamId: outsider.context.teams[0].id,
+        title: "Live outside project",
+        snapshot: projectSnapshot()
+      });
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      backup.payload.auditLog.push({
+        id: "audit_live_foreign_project",
+        event: "project.read",
+        teamId,
+        projectId: project.id,
+        userId: owner.context.user.id,
+        createdAt: stamp,
+        detail: { title: "foreign" }
+      });
+      backup.payload.notifications.push({
+        id: "note_live_foreign_project",
+        kind: "project.comment",
+        status: "delivered",
+        channel: "in-app",
+        teamId,
+        projectId: project.id,
+        userId: owner.context.user.id,
+        title: "Foreign project",
+        body: "Must not restore",
+        createdAt: stamp,
+        detail: {}
+      });
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      const restored = readDb(dbPath);
+      expect(restored.auditLog.some((entry) => entry.id === "audit_live_foreign_project")).toBe(false);
+      expect(restored.notifications.some((notification) => notification.id === "note_live_foreign_project")).toBe(false);
+      expect(restored.projects.find((candidate) => candidate.id === project.id)?.teamId).toBe(outsider.context.teams[0].id);
+    });
+  });
+
+  it("rejects a live project revision whose projectId does not resolve", async () => {
+    await withIsolatedEnterprise("sena-backup-restore-dangling-revision-", async ({ enterprise, dbPath }) => {
+      const owner = enterprise.registerEnterpriseUser({
+        name: "Dangling Revision Owner",
+        email: "dangling-revision-owner@example.edu",
+        password: "sena-secure-123",
+        organization: "Dangling Revision Lab",
+        plan: "enterprise"
+      });
+      const teamId = owner.context.teams[0].id;
+      const project = enterprise.createEnterpriseProject(owner.context, {
+        teamId,
+        title: "Revision source",
+        snapshot: projectSnapshot()
+      });
+      const backup = enterprise.createEnterpriseBackup(owner.context, { teamId });
+      backup.payload.projectRevisions.push({
+        id: "rev_dangling_project",
+        projectId: "project_deleted_elsewhere",
+        teamId,
+        userId: owner.context.user.id,
+        version: 1,
+        summary: "Dangling",
+        title: project.title,
+        description: project.description,
+        snapshot: project.snapshot,
+        datasetCounts: project.datasetCounts,
+        activeWindowLabel: project.activeWindowLabel,
+        claimUse: project.claimUse,
+        createdAt: stamp
+      });
+
+      expectRestoreRejected(enterprise, owner.context, backup, dbPath);
+      expect(readDb(dbPath).projectRevisions.some((revision) => revision.id === "rev_dangling_project")).toBe(false);
+    });
+  });
 });
