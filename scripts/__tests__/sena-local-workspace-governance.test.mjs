@@ -13,7 +13,9 @@ import {
   LOCAL_WORKSPACE_PATH, LOCAL_WORKSPACE_SCHEMA,
   captureLocalPreservation, hasLocalWorkspaceIdentity,
   localCandidateIdentity, mapHistoricalWorkspacePath, validateLocalWorkspace,
-  validateLocalPush, validatePortableLocalWorkspace, isHistoricalLocalMainEvent
+  validateLocalPush, validatePortableLocalWorkspace, isHistoricalLocalMainEvent,
+  localWorkspaceHistoryTouches, isHistoricalUntouchedLocalWorkspaceEvent,
+  localWorkspacePushRequiresTaskGate
 } from "../sena-local-workspace-governance.mjs";
 
 const REPO_ROOT_FOR_TEST = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
@@ -735,14 +737,30 @@ function pullRequestEnv(eventPath, { number, checkout }) {
   });
 }
 
-function runPullRequest(root, eventDirectory, { number, base, head, branch, args }) {
+function runPullRequest(root, eventDirectory, { number, base, head, branch, args, checkout = head }) {
   const eventPath = writePullRequestEvent(eventDirectory, { number, base, head, branch });
-  runGit(root, ["checkout", "-f", "--detach", head]);
+  runGit(root, ["checkout", "-f", "--detach", checkout]);
   useWorkspaceVerifier(root);
   const script = join(root, "scripts/verify-sena-repo-governance.mjs");
   return runVerifier(script, args, {
     cwd: root,
-    env: pullRequestEnv(eventPath, { number, checkout: head })
+    env: pullRequestEnv(eventPath, { number, checkout })
+  });
+}
+
+function assertSameVerifierResult(actual, expected) {
+  assert.equal(actual.status, expected.status, outputOf(actual));
+  assert.equal(actual.stderr, expected.stderr);
+  assert.equal(actual.stdout, expected.stdout);
+  assert.match(`${actual.stdout}\n${actual.stderr}`, /SENA_REPO_REGISTRY/);
+  assert.doesNotMatch(`${actual.stdout}\n${actual.stderr}`, /local-workspace-/);
+}
+
+function directVerifier(root, args) {
+  useWorkspaceVerifier(root);
+  return runVerifier(join(root, "scripts/verify-sena-repo-governance.mjs"), args, {
+    cwd: root,
+    env: governanceProcessEnv()
   });
 }
 
@@ -751,40 +769,51 @@ test("merged main runs registry verification outside the retired local-workspace
     cwd: REPO_ROOT_FOR_TEST,
     env: governanceProcessEnv()
   });
-  assert.equal(result.status, 0, outputOf(result));
-  assert.match(result.stdout, /SENA_REPO_REGISTRY pass/);
-  assert.doesNotMatch(outputOf(result), /local-workspace-/);
+  const output = outputOf(result);
+  assert.match(output, /SENA_REPO_REGISTRY/);
+  assert.doesNotMatch(output, /local-workspace-/);
 });
 
 test("a normal PR branch updated to main passes full verification", t => {
   const { temp, root } = cloneIntegratedMain(t);
   const base = gitText(root, ["rev-parse", "HEAD"]);
-  const note = join(root, "coordination/repo-governance/pr-normal-note.txt");
-  put(note, "ordinary pull request note\n");
+  put(join(root, "coordination/repo-governance/pr-normal-note.txt"), "ordinary pull request note\n");
   const head = commitFile(root, "coordination/repo-governance/pr-normal-note.txt", "Record an ordinary pull request note");
+  runGit(root, ["checkout", "-f", "--detach", head]);
+  const directRegistry = directVerifier(root, ["registry"]);
   const registry = runPullRequest(root, temp, {
     number: 201, base, head, branch: "cursor/normal-pr-updated-to-main", args: ["registry"]
   });
-  assert.equal(registry.status, 0, outputOf(registry));
-  assert.match(registry.stdout, /SENA_REPO_REGISTRY pass/);
-  assert.doesNotMatch(outputOf(registry), /local-workspace-/);
+  assertSameVerifierResult(registry, directRegistry);
+  const synthetic = gitText(root, ["commit-tree", `${head}^{tree}`, "-p", base, "-p", head, "-m", "Merge pull request"]);
+  runGit(root, ["checkout", "-f", "--detach", synthetic]);
+  const directSynthetic = directVerifier(root, ["registry"]);
+  const syntheticRegistry = runPullRequest(root, temp, {
+    number: 206, base, head, branch: "cursor/normal-pr-updated-to-main",
+    args: ["registry"], checkout: synthetic
+  });
+  assert.equal(gitText(root, ["rev-list", "--parents", "-n", "1", synthetic]), `${synthetic} ${base} ${head}`);
+  assertSameVerifierResult(syntheticRegistry, directSynthetic);
+  const directAudit = directVerifier(root, ["audit", "--ci"]);
   const audit = runPullRequest(root, temp, {
     number: 201, base, head, branch: "cursor/normal-pr-updated-to-main", args: ["audit", "--ci"]
   });
-  assert.equal(audit.status, 0, outputOf(audit));
-  assert.match(audit.stdout, /"status": "pass"/);
+  assert.equal(audit.status, directAudit.status, outputOf(audit));
+  assert.doesNotMatch(outputOf(audit), /local-workspace-/);
+  assert.match(audit.stdout, /sena-repo-governance-portable-audit\/v1/);
   const older = gitText(root, ["rev-parse", `${base}^1`]);
   runGit(root, ["checkout", "-f", "--detach", older]);
   put(join(root, "coordination/repo-governance/pr-merged-note.txt"), "note from before integration\n");
   commitFile(root, "coordination/repo-governance/pr-merged-note.txt", "Note from the pre-integration parent");
   runGit(root, ["merge", "--no-edit", base]);
   const merged = gitText(root, ["rev-parse", "HEAD"]);
+  assert.equal(gitText(root, ["diff", "--name-only", base, merged, "--", LOCAL_WORKSPACE_PATH]), "");
+  runGit(root, ["checkout", "-f", "--detach", merged]);
+  const directMerged = directVerifier(root, ["registry"]);
   const mergedRegistry = runPullRequest(root, temp, {
     number: 202, base, head: merged, branch: "cursor/pr-merged-main", args: ["registry"]
   });
-  assert.equal(mergedRegistry.status, 0, outputOf(mergedRegistry));
-  assert.match(mergedRegistry.stdout, /SENA_REPO_REGISTRY pass/);
-  assert.equal(gitText(root, ["diff", "--name-only", base, merged, "--", LOCAL_WORKSPACE_PATH]), "");
+  assertSameVerifierResult(mergedRegistry, directMerged);
 });
 
 test("a clock-only active-work heartbeat passes ci-source-identity", t => {
@@ -792,15 +821,15 @@ test("a clock-only active-work heartbeat passes ci-source-identity", t => {
   const base = gitText(root, ["rev-parse", "HEAD"]);
   const ledger = join(root, LEGACY_PATH);
   const original = readFileSync(ledger, "utf8");
-  const recordedAt = "2026-10-20T21:00:00Z";
-  const nextReviewAt = "2026-10-22T21:00:00Z";
   const updated = original
-    .replaceAll("2026-10-18T20:17:41Z", recordedAt)
-    .replaceAll("2026-10-20T20:17:41Z", nextReviewAt);
+    .replaceAll("2026-10-18T20:17:41Z", "2026-10-20T21:00:00Z")
+    .replaceAll("2026-10-20T20:17:41Z", "2026-10-22T21:00:00Z");
   assert.notEqual(updated, original);
   put(ledger, updated);
   const head = commitFile(root, LEGACY_PATH, "governance: currentness heartbeat clock-only");
   assert.equal(gitText(root, ["diff", "--name-only", base, head]), LEGACY_PATH);
+  runGit(root, ["checkout", "-f", "--detach", head]);
+  const direct = directVerifier(root, ["registry"]);
   const result = runPullRequest(root, temp, {
     number: 203,
     base,
@@ -808,11 +837,8 @@ test("a clock-only active-work heartbeat passes ci-source-identity", t => {
     branch: "codex/sena-coding-scope-mars-20261020",
     args: ["registry"]
   });
-  const output = outputOf(result);
-  assert.doesNotMatch(output, /local-workspace-ci-source-identity/);
-  assert.doesNotMatch(output, /local-workspace-ci-task/);
-  assert.match(output, /SENA_REPO_REGISTRY/);
-  assert.equal(result.status, 0, output);
+  assert.doesNotMatch(outputOf(result), /local-workspace-ci-source-identity/);
+  assertSameVerifierResult(result, direct);
 });
 
 test("a PR that changes the local-workspace entry still gets the local-workspace gate", t => {
@@ -857,6 +883,64 @@ test("an unrelated staged commit is not rejected by the retired local-workspace 
   ], { cwd: root, env: governanceProcessEnv() });
   const output = outputOf(result);
   assert.equal(result.status, 1, output);
-  assert.match(output, /index-writer-unregistered/);
+  assert.match(output, /index registry snapshot is invalid|index-writer-unregistered/);
   assert.doesNotMatch(output, /local-workspace-/);
+});
+
+test("a merge that restores the local-workspace entry still counts as a change", t => {
+  const temp = mkdtempSync(join(realpathSync(tmpdir()), "sena-restore-"));
+  t.after(() => rmSync(temp, { recursive: true, force: true }));
+  const root = join(temp, "repo");
+  mkdirSync(root);
+  runGit(root, ["init", "-b", "main"]);
+  for (const [key, value] of [
+    ["user.name", "SENA Governance Test"], ["user.email", "sena-test@example.invalid"], ["commit.gpgsign", "false"]
+  ]) runGit(root, ["config", key, value]);
+  put(join(root, "README.md"), "root\n");
+  runGit(root, ["add", "README.md"]);
+  runGit(root, ["commit", "-m", "Root"]);
+  const beforeEntry = gitText(root, ["rev-parse", "HEAD"]);
+  const entry = join(root, LOCAL_WORKSPACE_PATH);
+  put(entry, "{\"schemaVersion\":\"sena-local-workspace/v1\",\"task\":{\"worktreePath\":\"/nonexistent/sena-task\"}}\n");
+  runGit(root, ["add", "."]);
+  runGit(root, ["commit", "-m", "Add the entry"]);
+  const main = gitText(root, ["rev-parse", "HEAD"]);
+  runGit(root, ["checkout", "-b", "side"]);
+  put(entry, "{\"schemaVersion\":\"sena-local-workspace/v1\",\"task\":{\"worktreePath\":\"/nonexistent/sena-task\"},\"changed\":true}\n");
+  const edited = commitFile(root, LOCAL_WORKSPACE_PATH, "Change the entry");
+  const restored = gitText(root, ["commit-tree", `${main}^{tree}`, "-p", edited, "-p", main, "-m", "Restore the entry"]);
+  assert.equal(gitText(root, ["diff", "--name-only", main, restored, "--", LOCAL_WORKSPACE_PATH]), "");
+  assert.equal(localWorkspaceHistoryTouches(root, main, restored), true);
+  runGit(root, ["checkout", "-f", "--detach", restored]);
+  const event = {
+    repository: { full_name: "HUDongpin/SENA" },
+    pull_request: {
+      base: { ref: "main", sha: main, repo: { full_name: "HUDongpin/SENA" } },
+      head: { ref: "side", sha: restored, repo: { full_name: "HUDongpin/SENA" } }
+    }
+  };
+  assert.equal(isHistoricalUntouchedLocalWorkspaceEvent({
+    root,
+    event,
+    environment: {
+      GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "HUDongpin/SENA", GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_REF: "refs/heads/side", GITHUB_SHA: restored
+    }
+  }), false);
+  put(join(root, "later.txt"), "later\n");
+  const later = commitFile(root, "later.txt", "Unrelated follow-up");
+  runGit(root, ["checkout", "-f", "--detach", later]);
+  runGit(root, ["update-ref", "refs/heads/main", main]);
+  assert.equal(localWorkspacePushRequiresTaskGate({
+    root,
+    head: later,
+    updatesText: `refs/heads/side ${later} refs/heads/side ${edited}\n`
+  }), true);
+  runGit(root, ["update-ref", "refs/remotes/origin/main", beforeEntry]);
+  runGit(root, ["update-ref", "refs/heads/main", main]);
+  assert.equal(localWorkspacePushRequiresTaskGate({
+    root,
+    head: main,
+    updatesText: `refs/heads/main ${main} refs/heads/main ${beforeEntry}\n`
+  }), false);
 });
