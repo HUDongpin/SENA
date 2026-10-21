@@ -41,6 +41,16 @@ type Translation = {
     docs: string;
     docsKicker: string;
   };
+  codingReview: {
+    title: string;
+    description: string;
+    inputs: string;
+    outputs: string;
+    scope: string;
+    action: string;
+    importedCodebook: string;
+    importedCodingScheme: string;
+  };
   labels: {
     inputs: string;
     outputs: string;
@@ -93,12 +103,12 @@ export const dictionary: Record<Lang, Translation> = {
       ]
     },
     sections: {
-      platform: "A complete SENA research workflow",
-      platformKicker: "From raw discourse to transparent, reproducible social-epistemic evidence.",
+      platform: "The SENA analysis and review workflow",
+      platformKicker: "Bring your coded discourse and codebook to explore transparent, reproducible social-epistemic evidence.",
       method: "A nexus framework for people, ideas, roles, and time",
       methodKicker: "SENA connects Social Network Analysis, Epistemic Network Analysis, and SENS into one theory-aligned workflow.",
       workspace: "Enterprise research workspace preview",
-      workspaceKicker: "A serious dashboard for importing, coding, comparing, interpreting, and reporting social-epistemic evidence.",
+      workspaceKicker: "Import already-coded data, review coding reliability, and compare, interpret, and report social-epistemic evidence.",
       cases: "Research cases",
       casesKicker: "Built for educational research, discourse analysis, teacher collaboration, and knowledge-building studies.",
       analytics: "Visual analytics gallery",
@@ -107,6 +117,16 @@ export const dictionary: Record<Lang, Translation> = {
       ethicsKicker: "SENA treats AI as an assistant, not an authority. Every claim should remain auditable and human-reviewed.",
       docs: "Docs and method library",
       docsKicker: "Scholarly guides, templates, examples, and API-ready documentation for research teams."
+    },
+    codingReview: {
+      title: "Coded Data & Reliability Review",
+      description: "Import an existing codebook and coded discourse for analysis. Upload coder annotations to calculate agreement and export disagreements for review.",
+      inputs: "Existing codebook, coded segments, coder annotation files",
+      outputs: "Imported coded data, agreement metrics, exportable disagreement list",
+      scope: "Prepare codes and annotations in your coding tool before import. In-app codebook editing, manual coding, and AI coding suggestions are not available.",
+      action: "Open SENA workspace",
+      importedCodebook: "Imported codebook",
+      importedCodingScheme: "Imported coding scheme"
     },
     labels: {
       inputs: "Inputs",
@@ -158,12 +178,12 @@ export const dictionary: Record<Lang, Translation> = {
       ]
     },
     sections: {
-      platform: "完整的 SENA 研究流程",
-      platformKicker: "從原始話語到透明、可複現的社會—知識證據。",
+      platform: "SENA 分析與審核流程",
+      platformKicker: "導入已編碼話語與編碼手冊，探索透明、可複現的社會—知識證據。",
       method: "連結人、觀念、角色與時間的 Nexus 框架",
       methodKicker: "SENA 將社會網絡分析、知識網絡分析與 SENS 整合為一個理論導向的流程。",
       workspace: "企業級研究工作區預覽",
-      workspaceKicker: "用於導入、編碼、比較、解釋與報告社會—知識證據的嚴肅研究儀表板。",
+      workspaceKicker: "導入已編碼資料、審核編碼可靠性，並比較、解釋與報告社會—知識證據。",
       cases: "研究案例",
       casesKicker: "面向教育研究、話語分析、教師協作與知識建構研究。",
       analytics: "視覺分析展示",
@@ -172,6 +192,16 @@ export const dictionary: Record<Lang, Translation> = {
       ethicsKicker: "SENA 將 AI 視為輔助，而非權威；每一項主張都應可審核並經人工檢視。",
       docs: "文件與方法庫",
       docsKicker: "為研究團隊提供學術指南、模板、案例與 API 文件。"
+    },
+    codingReview: {
+      title: "編碼資料與可靠性審核",
+      description: "導入現有編碼手冊與已編碼話語進行分析；上傳編碼員標註，計算一致性並匯出分歧供審核。",
+      inputs: "現有編碼手冊、已編碼片段、編碼員標註檔案",
+      outputs: "已導入的編碼資料、一致性指標、可匯出分歧清單",
+      scope: "請先在編碼工具中準備編碼與標註，再導入 SENA。目前不提供站內編碼手冊編輯、人工編碼或 AI 編碼建議。",
+      action: "開啟 SENA 工作區",
+      importedCodebook: "已導入編碼手冊",
+      importedCodingScheme: "已導入編碼方案"
     },
     labels: {
       inputs: "輸入",
@@ -223,12 +253,12 @@ export const dictionary: Record<Lang, Translation> = {
       ]
     },
     sections: {
-      platform: "完整的 SENA 研究流程",
-      platformKicker: "从原始话语到透明、可复现的社会—知识证据。",
+      platform: "SENA 分析与审核流程",
+      platformKicker: "导入已编码话语与编码手册，探索透明、可复现的社会—知识证据。",
       method: "连接人、观念、角色与时间的 Nexus 框架",
       methodKicker: "SENA 将社会网络分析、知识网络分析与 SENS 整合为一个理论导向流程。",
       workspace: "企业级研究工作区预览",
-      workspaceKicker: "用于导入、编码、比较、解释与报告社会—知识证据的严肃研究仪表盘。",
+      workspaceKicker: "导入已编码数据、审核编码可靠性，并比较、解释与报告社会—知识证据。",
       cases: "研究案例",
       casesKicker: "面向教育研究、话语分析、教师协作与知识建构研究。",
       analytics: "可视化分析展示",
@@ -237,6 +267,16 @@ export const dictionary: Record<Lang, Translation> = {
       ethicsKicker: "SENA 将 AI 视为辅助，而非权威；每一项主张都应可审计并经人工核验。",
       docs: "文档与方法库",
       docsKicker: "为研究团队提供学术指南、模板、案例与 API 文档。"
+    },
+    codingReview: {
+      title: "编码数据与可靠性审核",
+      description: "导入现有编码手册与已编码话语进行分析；上传编码员标注，计算一致性并导出分歧供审核。",
+      inputs: "现有编码手册、已编码片段、编码员标注文件",
+      outputs: "已导入的编码数据、一致性指标、可导出分歧列表",
+      scope: "请先在编码工具中准备编码与标注，再导入 SENA。目前不提供站内编码手册编辑、人工编码或 AI 编码建议。",
+      action: "打开 SENA 工作区",
+      importedCodebook: "已导入编码手册",
+      importedCodingScheme: "已导入编码方案"
     },
     labels: {
       inputs: "输入",

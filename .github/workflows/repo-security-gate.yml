@@ -54,6 +54,9 @@ jobs:
         with:
           node-version: 24
 
+      - name: Test local workspace authorization boundaries
+        run: node --test scripts/__tests__/sena-local-workspace-governance.test.mjs
+
       - name: Fetch the default-branch comparison ref
         if: github.event_name != 'push' || github.event.deleted != true
         run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
