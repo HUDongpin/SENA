@@ -1,4 +1,4 @@
-import { createHash, createPublicKey, randomBytes, verify } from "node:crypto";
+import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
 import type { JsonWebKey as CryptoJsonWebKey } from "node:crypto";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { SenaEnterpriseError } from "./errors";
@@ -39,9 +39,12 @@ import {
 } from "./auth-config";
 
 export const ssoCallbackPath = "/api/auth/sso/callback";
+export const senaSsoStateCookieName = "sena_sso_state";
 export const ssoProviders: SenaEnterpriseSsoProvider[] = ["institution", "google", "orcid"];
 
 const ssoStateMinutes = 10;
+const ssoPostLoginRedirectFallback = "/workspace/sena";
+const ssoRedirectControlChars = /[\u0000-\u001F\u007F]/;
 
 const defaultSsoDiscoveryUrls: Partial<Record<SenaEnterpriseSsoProvider, string>> = {
   google: "https://accounts.google.com/.well-known/openid-configuration",
@@ -154,12 +157,42 @@ function ssoCallbackUrl(provider: SenaEnterpriseSsoProvider, baseUrl?: string) {
   return url.toString();
 }
 
-function safeRedirectTo(redirectTo?: string) {
-  const fallback = "/workspace/sena";
-  const value = redirectTo?.trim();
-  if (!value) return fallback;
-  if (!value.startsWith("/") || value.startsWith("//")) return fallback;
+function isSchemeLikeSsoRedirect(value: string) {
+  if (value.includes("://")) return true;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return true;
+  return /^\/[a-z][a-z0-9+.-]*:/i.test(value);
+}
+
+export function resolveSsoPostLoginRedirect(redirectTo?: string) {
+  const value = redirectTo?.trim() ?? "";
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return ssoPostLoginRedirectFallback;
+  if (ssoRedirectControlChars.test(value) || isSchemeLikeSsoRedirect(value)) return ssoPostLoginRedirectFallback;
+  try {
+    const resolved = new URL(value, "https://sena.invalid");
+    if (resolved.origin !== "https://sena.invalid" || resolved.username || resolved.password) {
+      return ssoPostLoginRedirectFallback;
+    }
+  } catch {
+    return ssoPostLoginRedirectFallback;
+  }
   return value;
+}
+
+export function ssoStateCookieOptions(maxAgeSeconds: number) {
+  return {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax" as const,
+    path: "/api/auth/sso",
+    maxAge: maxAgeSeconds
+  };
+}
+
+export function ssoBrowserStatesMatch(cookieState?: string, callbackState?: string) {
+  if (!cookieState || !callbackState) return false;
+  const cookieBytes = Buffer.from(cookieState);
+  const callbackBytes = Buffer.from(callbackState);
+  return cookieBytes.length === callbackBytes.length && timingSafeEqual(cookieBytes, callbackBytes);
 }
 
 function ssoStateExpiry() {
@@ -864,7 +897,7 @@ async function createEnterpriseSsoAuthorizationInDb(
     stateHash: tokenHash(rawState),
     nonce,
     codeVerifier,
-    redirectTo: safeRedirectTo(input.redirectTo),
+    redirectTo: resolveSsoPostLoginRedirect(input.redirectTo),
     inviteCode: safeInviteCode(input.inviteCode),
     createdAt: now(),
     expiresAt: ssoStateExpiry()

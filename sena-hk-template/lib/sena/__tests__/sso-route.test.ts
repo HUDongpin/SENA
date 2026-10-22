@@ -191,14 +191,17 @@ describe("SENA SSO route production fallback policy", () => {
       memberships: [{ id: "membership-sso-callback", teamId: "team-sso-callback", userId: "user-sso-callback", role: "reviewer", status: "active" }]
     };
     vi.resetModules();
-    vi.doMock("@/lib/sena/enterprise/auth-sso", () => ({
-      completeEnterpriseSsoCallbackAsync: async () => ({
-        token: "sena-callback-token",
-        redirectTo: "/workspace/sena?rail=sets",
-        context
-      }),
-      senaSessionCookieName: "sena_session"
-    }));
+    vi.doMock("@/lib/sena/enterprise/auth-sso", async () => {
+      const actual = await vi.importActual<typeof import("../enterprise/auth-sso")>("@/lib/sena/enterprise/auth-sso");
+      return {
+        ...actual,
+        completeEnterpriseSsoCallbackAsync: async () => ({
+          token: "sena-callback-token",
+          redirectTo: "/workspace/sena?rail=sets",
+          context
+        })
+      };
+    });
     vi.doMock("@/lib/sena/api-helpers", () => ({
       authSessionHeaders: () => ({
         "x-sena-auth-flow": "sso-callback",
@@ -231,7 +234,9 @@ describe("SENA SSO route production fallback policy", () => {
 
     try {
       const route = await import("../../../app/api/auth/sso/callback/route");
-      const response = await route.GET(new Request("https://sena.example.test/api/auth/sso/callback?provider=google&code=provider-code&state=state-1"));
+      const response = await route.GET(new Request("https://sena.example.test/api/auth/sso/callback?provider=google&code=provider-code&state=state-1", {
+        headers: { cookie: "sena_sso_state=state-1" }
+      }));
 
       expect(response.status).toBe(307);
       expect(response.headers.get("x-sena-observed-route")).toBe("auth-sso-callback");
