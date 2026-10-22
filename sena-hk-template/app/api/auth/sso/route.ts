@@ -10,7 +10,9 @@ import {
   isEnterpriseSsoProviderConfigured,
   preflightEnterpriseSsoProvidersAsync,
   requireEnterpriseLocalSsoFallbackAllowed,
+  senaSsoStateCookieName,
   ssoEnterpriseUserAsync,
+  ssoStateCookieOptions,
   type SenaEnterpriseSsoProvider
 } from "@/lib/sena/enterprise/auth-sso";
 import {
@@ -34,6 +36,17 @@ function ssoProvider(value: unknown): SenaEnterpriseSsoProvider {
 
 function requestOrigin(request: Request) {
   return new URL(request.url).origin;
+}
+
+function bindSsoBrowserState(response: NextResponse, authorizationUrl: string, expiresAt: string) {
+  const state = new URL(authorizationUrl).searchParams.get("state");
+  if (!state) return response;
+  response.cookies.set(
+    senaSsoStateCookieName,
+    state,
+    ssoStateCookieOptions(sessionCookieMaxAgeSeconds(expiresAt))
+  );
+  return response;
 }
 
 function ssoProductionGateHeaders(
@@ -136,7 +149,11 @@ export async function GET(request: Request) {
       redirectTo: url.searchParams.get("redirectTo") ?? undefined,
       inviteCode: url.searchParams.get("inviteCode") ?? undefined
     });
-    return NextResponse.redirect(authorization.authorizationUrl);
+    return bindSsoBrowserState(
+      NextResponse.redirect(authorization.authorizationUrl),
+      authorization.authorizationUrl,
+      authorization.expiresAt
+    );
   });
 }
 
@@ -155,7 +172,11 @@ export async function POST(request: Request) {
         redirectTo: body.redirectTo ? String(body.redirectTo) : undefined,
         inviteCode: body.inviteCode ? String(body.inviteCode) : undefined
       });
-      return NextResponse.json(authorization);
+      return bindSsoBrowserState(
+        NextResponse.json(authorization),
+        authorization.authorizationUrl,
+        authorization.expiresAt
+      );
     }
 
     requireEnterpriseLocalSsoFallbackAllowed(provider);
