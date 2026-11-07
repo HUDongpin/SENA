@@ -1,4 +1,5 @@
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
+import { currentWorkerProofEvidence, withWorkerProofEvidence } from "./server-job-worker-proof";
 import { senaProductionPosture } from "./auth-config";
 import {
   envValue,
@@ -15,6 +16,8 @@ import {
 export type SenaEnterpriseServerJobWorkerContract = {
   schemaVersion: typeof SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract;
   generatedAt: string;
+  readinessSource: "durable-worker-callback";
+  proof?: NonNullable<ReturnType<typeof currentWorkerProofEvidence>>;
   status: "pass" | "review";
   productionReady: boolean;
   provider: {
@@ -91,10 +94,9 @@ export type SenaEnterpriseServerJobWorkerContractReadiness = {
   evidence: string[];
 };
 
-const EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED = false as const;
-const EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED = false as const;
+const EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED = true as const;
 const EXTERNAL_WORKER_CALLBACK_RECEIPT_REQUIREMENT =
-  "authenticated nonce-bound external worker callback receipt (not implemented)" as const;
+  "fresh authenticated nonce-bound external worker callback receipt for this deployment" as const;
 const EXTERNAL_WORKER_PROOF_POLICY =
   "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback" as const;
 
@@ -134,18 +136,15 @@ export function serverJobWorkerContractRequired() {
 }
 
 export function serverJobWorkerContractReadiness(): SenaEnterpriseServerJobWorkerContractReadiness {
-  const artifactHash = envValue("SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256");
-  const verifiedAt = envValue("SENA_JOB_WORKER_CONTRACT_VERIFIED_AT");
+  const contract = getEnterpriseServerJobWorkerContract();
+  const confirmed = contract.productionReady && contract.worker.externalWorkerCallbackReceiptConfirmed;
+  // Match the exact standalone artifact bytes; a receipt hash identifies a different document.
+  const artifactHash = confirmed ? sha256Text(`${JSON.stringify(contract, null, 2)}\n`) : undefined;
+  const verifiedAt = confirmed ? contract.generatedAt : undefined;
   const artifactHashConfigured = validSha256(artifactHash);
   const verifiedAtConfigured = productionEvidenceTimestampConfigured(verifiedAt);
-  const artifactValidationPassed = envValue("SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION") === "pass";
+  const artifactValidationPassed = confirmed;
   const required = serverJobWorkerContractRequired();
-  const confirmed = booleanEnv("SENA_JOB_WORKER_CONTRACT_CONFIRMED") &&
-    artifactHashConfigured &&
-    verifiedAtConfigured &&
-    artifactValidationPassed &&
-    EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED &&
-    EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED;
 
   return {
     required,
@@ -166,7 +165,9 @@ export function serverJobWorkerContractReadiness(): SenaEnterpriseServerJobWorke
       `serverJobWorkerContractVerifiedAt=${productionEvidenceTimestampEvidenceValue(verifiedAt)}`,
       `serverJobWorkerContractArtifactValidation=${artifactValidationPassed ? "pass" : "missing-or-invalid"}`,
       `serverJobWorkerExternalCallbackReceiptSupported=${EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED}`,
-      `serverJobWorkerExternalCallbackReceiptConfirmed=${EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED}`,
+      `serverJobWorkerExternalCallbackReceiptConfirmed=${contract.worker.externalWorkerCallbackReceiptConfirmed}`,
+      "serverJobWorkerContractConfirmationSource=current-durable-worker-callback",
+      "legacyWorkerContractEnvironmentTupleAuthoritative=false",
       `serverJobWorkerContractSchema=${SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract}`,
       "serverJobWorkerContractCommand=npm run sena:jobs:worker-contract",
       "serverJobWorkerContractChecks=managed-queue|postgres-status-store|callback|owner|runbook|external-authenticated-callback-receipt",
@@ -176,7 +177,9 @@ export function serverJobWorkerContractReadiness(): SenaEnterpriseServerJobWorke
 }
 
 export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobWorkerContract {
-  const generatedAt = now();
+  const proof = currentWorkerProofEvidence();
+  const externalProofConfirmed = Boolean(proof);
+  const generatedAt = proof?.verifiedAt ?? now();
   const queue = serverJobQueueStatus();
   const store = serverJobStoreRuntime();
   const runtime = envValue("SENA_JOB_WORKER_RUNTIME") ?? "not-configured";
@@ -200,7 +203,7 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
     [heartbeatConfirmed, "SENA_JOB_WORKER_HEARTBEAT_CONFIRMED=1"],
     [heartbeatArtifactHashConfigured, "SENA_JOB_WORKER_HEARTBEAT_SHA256"],
     [heartbeatVerifiedAtConfigured, "SENA_JOB_WORKER_HEARTBEAT_VERIFIED_AT"],
-    [EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED && EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED,
+    [externalProofConfirmed,
       EXTERNAL_WORKER_CALLBACK_RECEIPT_REQUIREMENT]
   ] as const;
   const missing = requirements
@@ -211,6 +214,8 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
   return {
     schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract,
     generatedAt,
+    readinessSource: "durable-worker-callback",
+    ...(proof ? { proof } : {}),
     status: productionReady ? "pass" : "review",
     productionReady,
     provider: {
@@ -238,7 +243,9 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       heartbeatVerifiedAtConfigured,
       statusStoreSelfTestOnly: true,
       externalWorkerCallbackReceiptSupported: EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED,
-      externalWorkerCallbackReceiptConfirmed: EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED,
+      externalWorkerCallbackReceiptConfirmed: externalProofConfirmed,
+      externalWorkerCallbackReceiptSha256: proof?.receiptSha256,
+      externalWorkerCallbackReceiptVerifiedAt: proof?.verifiedAt,
       callbackUrlHash,
       runbookUrlHash,
       heartbeatArtifactSha256: heartbeatArtifactHashConfigured ? heartbeatArtifactSha256?.toLowerCase() : undefined,
@@ -291,7 +298,9 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
       `workerHeartbeatVerifiedAt=${heartbeatVerifiedAtConfigured ? "configured" : "missing"}`,
       "workerStatusStoreSelfTestOnly=true",
       `externalWorkerCallbackReceiptSupported=${EXTERNAL_WORKER_CALLBACK_RECEIPT_SUPPORTED}`,
-      `externalWorkerCallbackReceiptConfirmed=${EXTERNAL_WORKER_CALLBACK_RECEIPT_CONFIRMED}`,
+      `externalWorkerCallbackReceiptConfirmed=${externalProofConfirmed}`,
+      "workerProofAuthority=verified-postgres-receipt",
+      "workerProofBrokerDurabilityAttested=false",
       `externalWorkerProofPolicy=${EXTERNAL_WORKER_PROOF_POLICY}`,
       "statusCallback=/api/sena/ops/jobs",
       "workerActions=mark-running|renew-lease|mark-succeeded|mark-failed|retry|dead-letter",
@@ -309,4 +318,8 @@ export function getEnterpriseServerJobWorkerContract(): SenaEnterpriseServerJobW
     ],
     missing
   };
+}
+
+export function getEnterpriseServerJobWorkerContractWithEvidence() {
+  return withWorkerProofEvidence(() => getEnterpriseServerJobWorkerContract());
 }

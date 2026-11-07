@@ -8,6 +8,8 @@ export type SenaApiAuthMode =
   | "session-or-ops-bearer"
   | "provisioning-bearer"
   | "scim-bearer"
+  | "ops-bearer"
+  | "worker-proof-hmac"
   | "job-worker-hmac";
 
 export type SenaApiGroupId =
@@ -50,7 +52,7 @@ export type SenaApiHeaderParameter = {
 };
 
 export type SenaApiErrorResponseFact = {
-  status: 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429 | 503;
+  status: 400 | 401 | 403 | 404 | 409 | 410 | 413 | 422 | 429 | 503;
   code: string;
   description: string;
   /** Methods that can emit this error. Omit only when every method can. */
@@ -752,6 +754,46 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
     responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerContract]
   },
   {
+    id: "sena-ops-jobs-worker-proof",
+    group: "ops",
+    path: "/api/sena/ops/jobs/worker-proof",
+    methods: ["POST"],
+    auth: "ops-bearer",
+    summary: "Issue a deployment-bound synthetic challenge through the configured signed queue and report its durable callback state.",
+    evidenceNoteId: "sena-ops-jobs-worker-proof",
+    requestBodyMethods: [],
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerProofStatus],
+    normalResponsesByMethod: { POST: [
+      { status: 200, contentTypes: ["application/json"] },
+      { status: 202, contentTypes: ["application/json"] }
+    ] },
+    errorResponses: [
+      { status: 503, code: "worker_proof_dispatch_failed", description: "Signed dispatch failed. The response also retains the redacted proof status and dispatch evidence." },
+      { status: 503, code: "worker_proof_queue_not_configured", description: "The managed, webhook, or QStash proof transport is not configured." },
+      { status: 503, code: "worker_proof_configuration_unavailable", description: "The current deployment cannot configure a bound worker proof." }
+    ]
+  },
+  {
+    id: "sena-ops-jobs-worker-proof-callback",
+    group: "ops",
+    path: "/api/sena/ops/jobs/worker-proof/callback",
+    methods: ["POST"],
+    auth: "worker-proof-hmac",
+    summary: "Authenticate and atomically consume an unexpired worker proof, preserving a stable durable receipt.",
+    evidenceNoteId: "sena-ops-jobs-worker-proof-callback",
+    responses: [SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerProofStatus],
+    headerParameters: [
+      { name: "x-sena-worker-proof-timestamp", required: true, description: "Canonical integer Unix seconds, authenticated with a maximum 60-second skew." },
+      { name: "x-sena-worker-proof-signature", required: true, description: "sha256=<hex> HMAC under the dedicated worker-proof callback key and callback domain." }
+    ],
+    errorResponses: [
+      { status: 401, code: "worker_proof_authentication_failed", description: "The dedicated callback signature or timestamp is invalid." },
+      { status: 409, code: "worker_proof_consumption_conflict", description: "The nonce was concurrently consumed or expired before its row lock was acquired." },
+      { status: 410, code: "worker_proof_expired", description: "The challenge has expired." },
+      { status: 413, code: "worker_proof_body_too_large", description: "The callback exceeds its 16 KiB or bounded-chunk transport limit." }
+    ]
+  },
+  {
     id: "sena-ops-jobs-worker",
     group: "ops",
     path: "/api/sena/ops/jobs/worker",
@@ -771,6 +813,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
       { status: 400, code: "server_job_worker_event_unsupported", description: "The queue event is not supported." },
       { status: 400, code: "server_job_worker_probe_schema_invalid", description: "A probe event does not carry the probe schema." },
       { status: 400, code: "server_job_worker_queue_schema_invalid", description: "A queue event does not carry the queue webhook schema." },
+      { status: 400, code: "worker_proof_schema_invalid", description: "A worker proof event does not carry the proof challenge schema." },
       { status: 401, code: "server_job_worker_payload_hash_required", description: "The request has no payload digest header." },
       { status: 401, code: "server_job_worker_payload_hash_invalid", description: "The payload digest is malformed or does not match the exact body." },
       { status: 401, code: "server_job_worker_worker_payload_hash_invalid", description: "A queue delivery's canonical worker payload digest is missing, malformed, or inconsistent across its header, job, delivery, and workerPayload carriers." },
@@ -789,7 +832,7 @@ export const SENA_API_ENDPOINT_FACTS: SenaApiEndpointFact[] = [
       { name: "x-sena-worker-payload-sha256", required: false, description: "Required for server_job.queue: lowercase SHA-256 of the canonical workerPayload; probes omit it." },
       { name: "x-sena-webhook-timestamp", required: true, description: "Signed ISO-8601 delivery instant within the configured replay window." },
       { name: "x-sena-webhook-signature", required: true, description: "sha256=<hex> HMAC of '<timestamp>.<exact request body>' using SENA_JOB_QUEUE_SECRET." },
-      { name: "x-sena-webhook-event", required: true, allowedValues: ["server_job.queue", "server_job.queue.probe"], description: "Queue delivery event bound to the declared payload schema." }
+      { name: "x-sena-webhook-event", required: true, allowedValues: ["server_job.queue", "server_job.queue.probe", "server_job.worker.proof"], description: "Queue delivery event bound to the declared payload schema." }
     ],
     requestBodyContentTypesByMethod: {
       POST: ["application/json"]

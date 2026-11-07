@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { buildSenaGoLiveCloseoutCheck, loadSenaLocalEnv } from "../lib/sena/enterprise/go-live-closeout-check";
-import { buildEnterpriseProductionEvidenceManifest } from "../lib/sena/enterprise/ops-production-evidence";
+import { buildEnterpriseProductionEvidenceManifest, buildEnterpriseProductionEvidenceManifestWithWorkerProof } from "../lib/sena/enterprise/ops-production-evidence";
 import { buildSenaEnterpriseProductionGoLiveGate } from "../lib/sena/enterprise/production-go-live-gate";
 import { buildEnterpriseProductionRuntimeEnvPacket } from "../lib/sena/enterprise/production-runtime-env-packet";
 import { emitVerificationArtifact } from "./verification-artifact-output";
@@ -87,7 +87,7 @@ const preflight = readJsonArtifact(options.preflight);
 const archive = readJsonArtifact(options.archive);
 const manifest = manifestArtifact.artifact
   ? manifestArtifact.artifact as ReturnType<typeof buildEnterpriseProductionEvidenceManifest>
-  : buildEnterpriseProductionEvidenceManifest();
+  : await buildEnterpriseProductionEvidenceManifestWithWorkerProof();
 const runtimeEnvPacket = buildEnterpriseProductionRuntimeEnvPacket({
   domain: options.domain,
   vercelScope: options.vercelScope,

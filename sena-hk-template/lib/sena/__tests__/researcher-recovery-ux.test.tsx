@@ -64,19 +64,20 @@ describe("empty import, contract-audit, and inspector recovery UX", () => {
   });
 
   it("guides recovery after Clear when no people or codes are loaded", () => {
-    const markup = renderToStaticMarkup(createElement(WorkspaceDataImportPanel, {
-      model: emptyModel,
-      timelineModel: emptyModel,
-      dataset: emptyDataset,
-      importMessage: "No SENA contract loaded.",
-      fileAccept: ".csv,.json",
-      isLoadingSample: false,
-      onLoadSample: () => undefined,
-      onContractUpload: () => undefined,
-      onExportContractTemplate: () => undefined,
-      onClearContract: () => undefined,
-      children: null
-    }));
+    const markup = renderToStaticMarkup(
+      <WorkspaceDataImportPanel
+        model={emptyModel}
+        timelineModel={emptyModel}
+        dataset={emptyDataset}
+        importMessage="No SENA contract loaded."
+        fileAccept=".csv,.json"
+        isLoadingSample={false}
+        onLoadSample={() => undefined}
+        onContractUpload={() => undefined}
+        onExportContractTemplate={() => undefined}
+        onClearContract={() => undefined}
+      >{null}</WorkspaceDataImportPanel>
+    );
 
     expect(markup).toContain("No SENA contract loaded.");
     expect(markup).toContain('data-testid="workspace-empty-import-state"');

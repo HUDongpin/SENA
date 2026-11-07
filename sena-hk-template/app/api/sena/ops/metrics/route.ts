@@ -9,12 +9,14 @@ import {
 } from "@/lib/sena/enterprise/ops-status";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
+import { withWorkerProofEvidence } from "@/lib/sena/enterprise/server-job-worker-proof";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-ops-metrics" }, async () => {
     await requireOpsAccess(request);
+    return withWorkerProofEvidence(async () => {
     const status = await getEnterpriseOpsStatusWithPostgresEvidence();
     const readiness = await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus: status });
     // A Prometheus scrape target answers 200 whenever it can produce an
@@ -33,6 +35,7 @@ export async function GET(request: Request) {
       headers: {
         "content-type": "text/plain; version=0.0.4; charset=utf-8"
       }
+    });
     });
   });
 }

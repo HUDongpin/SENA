@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  buildEnterpriseProductionEvidenceManifest
+  buildEnterpriseProductionEvidenceManifest,
+  buildEnterpriseProductionEvidenceManifestWithWorkerProof
 } from "@/lib/sena/enterprise/ops-production-evidence";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
@@ -50,7 +51,7 @@ function productionEvidenceHeaders(
 export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-ops-production-evidence" }, async () => {
     const access = await requireOpsAccess(request);
-    const manifest = buildEnterpriseProductionEvidenceManifest();
+    const manifest = await buildEnterpriseProductionEvidenceManifestWithWorkerProof();
     return NextResponse.json({
       ...manifest,
       access

@@ -517,10 +517,10 @@ export function buildEnterpriseProductionRuntimeEnvPacket(
         "SENA_JOB_QUEUE_PROBE_ARTIFACT_SHA256",
         "SENA_JOB_QUEUE_PROBE_VERIFIED_AT",
         "SENA_JOB_QUEUE_PROBE_ARTIFACT_VALIDATION",
-        "SENA_JOB_WORKER_CONTRACT_CONFIRMED",
-        "SENA_JOB_WORKER_CONTRACT_ARTIFACT_SHA256",
-        "SENA_JOB_WORKER_CONTRACT_VERIFIED_AT",
-        "SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION"
+        "SENA_JOB_WORKER_PROOF_SECRET",
+        "SENA_JOB_WORKER_PROOF_KEY_VERSION",
+        "SENA_JOB_WORKER_PROOF_CALLBACK_URL",
+        "SENA_JOB_WORKER_PROOF_BUILD_ID"
       ],
       acceptedAliases: [
         "QSTASH_TOKEN",
@@ -533,10 +533,9 @@ export function buildEnterpriseProductionRuntimeEnvPacket(
         "npm run sena:jobs:queue-verify -- --output output/production-evidence/server-job-queue-probe.json",
         "npm run sena:jobs:worker-contract -- --output output/production-evidence/server-job-worker-contract.json",
         `npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-queue-contract.json --scope ${vercelScopePlaceholder} --yes`,
-        `npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-queue-probe.json --scope ${vercelScopePlaceholder} --yes`,
-        `npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-worker-contract.json --scope ${vercelScopePlaceholder} --yes`
+        `npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-queue-probe.json --scope ${vercelScopePlaceholder} --yes`
       ],
-      nextAction: "Configure QStash or an accepted managed queue, archive the queue contract, then prove queue acceptance and external worker ownership."
+      nextAction: "Configure the queue and dedicated proof callback key, deploy, issue the current deployment's worker proof, then archive its stable worker contract. Worker proof is read from Postgres; do not rebind it through deployment environment flags."
     }),
     providerGroup({
       id: "observability-alerting",

@@ -330,7 +330,7 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
       // security scheme an operation names exists in components.
       const declaredTags = new Set((document.tags ?? []).map((tag) => tag.name));
       const declaredSchemes = new Set(Object.keys(document.components?.securitySchemes ?? {}));
-      expect(declaredSchemes).toEqual(new Set(["sessionCookie", "opsBearer", "jobWorkerHmac", "provisioningBearer", "scimBearer"]));
+      expect(declaredSchemes).toEqual(new Set(["sessionCookie", "opsBearer", "jobWorkerHmac", "workerProofHmac", "provisioningBearer", "scimBearer"]));
       for (const [pathKey, item] of Object.entries(paths)) {
         for (const [method, operation] of Object.entries(item)) {
           const where = `${method.toUpperCase()} ${pathKey}`;
@@ -395,6 +395,8 @@ describe("GET /api/sena/docs?format=openapi (OpenAPI 3.1 document)", () => {
         ["POST", "/api/sena/workflows/runs/{runId}/actions", "202", ["application/json"]],
         ["POST", "/api/sena/ops/jobs", "200", ["application/json"]],
         ["POST", "/api/sena/ops/jobs", "202", ["application/json"]],
+        ["POST", "/api/sena/ops/jobs/worker-proof", "200", ["application/json"]],
+        ["POST", "/api/sena/ops/jobs/worker-proof", "202", ["application/json"]],
         ["POST", "/api/sena/ops/jobs/worker", "202", ["application/json"]],
         ["GET", "/api/sena/ops/metrics", "200", ["text/plain; version=0.0.4"]],
         ["POST", "/api/sena/ops/go-live-rehearsal", "200", ["application/json"]],

@@ -1,3 +1,4 @@
+import { withWorkerProofEvidence } from "./server-job-worker-proof";
 import {
   resolveEnterprisePostgresConfig
 } from "../enterprise-postgres";
@@ -881,6 +882,7 @@ export async function getEnterpriseOrganizationDeploymentPackageWithPostgresEvid
   governance?: SenaEnterpriseGovernanceStatus;
   db?: SenaEnterpriseDb;
 } = {}): Promise<SenaEnterpriseOrganizationDeploymentPackage> {
+  return withWorkerProofEvidence(async () => {
   const db = input.db ?? (await readEnterpriseState()).db;
   const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
   const readiness = input.readiness ?? await getEnterpriseDeploymentReadinessWithPostgresEvidence({ opsStatus });
@@ -891,6 +893,7 @@ export async function getEnterpriseOrganizationDeploymentPackageWithPostgresEvid
     opsStatus,
     governance,
     db
+  });
   });
 }
 

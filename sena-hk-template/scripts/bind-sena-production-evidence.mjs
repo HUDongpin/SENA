@@ -1078,6 +1078,15 @@ export function planSenaProductionEvidenceArtifactBinding(read, options, localPe
       reason: validationReason
     };
   }
+  if (schemaVersion === "sena-enterprise-server-job-worker-contract/v1" &&
+    read.artifact.readinessSource === "durable-worker-callback") {
+    return {
+      bindable: false,
+      archiveOnly: true,
+      binding,
+      reason: "archive-only-current-durable-worker-proof"
+    };
+  }
   const env = new Map([
     [binding.env.confirmed, "1"],
     [binding.env.sha256, read.artifactSha256],
@@ -1404,6 +1413,10 @@ function runSenaProductionEvidenceBinding(argv) {
   }
 
   if (bindablePlans.length === 0) {
+    if (plans.some((plan) => plan.result.archiveOnly)) {
+      console.log("Validated archive-only evidence. No environment values were written; the current deployment verifies its own durable callback receipt.");
+      return 0;
+    }
     console.error("No passed SENA production evidence artifacts were bindable.");
     return 1;
   }

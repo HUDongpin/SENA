@@ -77,14 +77,14 @@ describe("SENA server job worker contract", () => {
     expect(contract.worker.callbackConfigured).toBe(true);
     expect(contract.worker.heartbeatArtifactSha256).toBe("c".repeat(64));
     expect(contract.worker.statusStoreSelfTestOnly).toBe(true);
-    expect(contract.worker.externalWorkerCallbackReceiptSupported).toBe(false);
+    expect(contract.worker.externalWorkerCallbackReceiptSupported).toBe(true);
     expect(contract.worker.externalWorkerCallbackReceiptConfirmed).toBe(false);
     expect(contract.contract.statusStoreSelfTestSatisfiesExternalWorkerReadiness).toBe(false);
     expect(contract.contract.externalWorkerProofPolicy).toBe(
       "nonce-bound-managed-queue-to-external-worker-to-authenticated-callback"
     );
     expect(contract.missing).toContain(
-      "authenticated nonce-bound external worker callback receipt (not implemented)"
+      "fresh authenticated nonce-bound external worker callback receipt for this deployment"
     );
     expect(contract.contract.rawPayloadPersistedInJobStore).toBe(false);
     expect(contract.contract.acceptedActions).toEqual([
@@ -117,7 +117,7 @@ describe("SENA server job worker contract", () => {
     expect(contract.evidence).toContain("uploadWarningsCallbackField=uploadWarnings");
     expect(contract.evidence).toContain("workerInlinePayloadCustody=durable-pointers-only");
     expect(contract.evidence).toContain("workerStatusStoreSelfTestOnly=true");
-    expect(contract.evidence).toContain("externalWorkerCallbackReceiptSupported=false");
+    expect(contract.evidence).toContain("externalWorkerCallbackReceiptSupported=true");
     expect(contract.evidence).toContain("externalWorkerCallbackReceiptConfirmed=false");
     process.env.SENA_JOB_QUEUE_ALLOW_INLINE_PAYLOAD = "1";
     expect(getEnterpriseServerJobWorkerContract().contract).toEqual(expect.objectContaining({
@@ -142,12 +142,12 @@ describe("SENA server job worker contract", () => {
     expect(serverJobWorkerContractReadiness()).toEqual(expect.objectContaining({
       required: true,
       confirmed: false,
-      artifactHashConfigured: true,
+      artifactHashConfigured: false,
       verifiedAtConfigured: false
     }));
     expect(serverJobWorkerContractReadiness().evidence).toEqual(expect.arrayContaining([
       "serverJobWorkerContractProductionPerformancePathRequired=true",
-      "serverJobWorkerContractArtifactSha256=present",
+      "serverJobWorkerContractArtifactSha256=missing-or-invalid",
       "serverJobWorkerContractVerifiedAt=missing-or-invalid",
       "serverJobWorkerContractCommand=npm run sena:jobs:worker-contract"
     ]));
@@ -158,13 +158,13 @@ describe("SENA server job worker contract", () => {
     expect(serverJobWorkerContractReadiness()).toEqual(expect.objectContaining({
       required: true,
       confirmed: false,
-      artifactHash: "f".repeat(64),
-      verifiedAt,
-      artifactHashConfigured: true,
-      verifiedAtConfigured: true
+      artifactHash: undefined,
+      verifiedAt: undefined,
+      artifactHashConfigured: false,
+      verifiedAtConfigured: false
     }));
     expect(serverJobWorkerContractReadiness().evidence).toEqual(expect.arrayContaining([
-      "serverJobWorkerExternalCallbackReceiptSupported=false",
+      "serverJobWorkerExternalCallbackReceiptSupported=true",
       "serverJobWorkerExternalCallbackReceiptConfirmed=false"
     ]));
   });
@@ -193,7 +193,7 @@ describe("SENA server job worker contract", () => {
       "same-process-status-store-self-test-confirmed"
     );
     expect(response.headers.get("x-sena-server-job-worker-status-store-self-test")).toBe("confirmed");
-    expect(response.headers.get("x-sena-server-job-worker-external-callback-receipt")).toBe("unsupported");
+    expect(response.headers.get("x-sena-server-job-worker-external-callback-receipt")).toBe("missing");
     expect(response.headers.get("x-sena-server-job-worker-url-values")).toBe("excluded");
     expect(response.headers.get("x-sena-observed-route")).toBe("sena-ops-jobs-worker-contract");
     expect(body.schemaVersion).toBe("sena-enterprise-server-job-worker-contract/v1");

@@ -1,3 +1,4 @@
+import { withWorkerProofEvidence } from "./server-job-worker-proof";
 import {
   getEnterpriseDeploymentReadiness,
   type SenaEnterpriseDeploymentReadiness
@@ -327,12 +328,14 @@ export function buildEnterpriseOpsMetrics(
 }
 
 export async function buildEnterpriseOpsMetricsWithPostgresEvidence(
-  status: SenaEnterpriseOpsStatus = getEnterpriseOpsStatus(),
-  readiness: SenaEnterpriseDeploymentReadiness = getEnterpriseDeploymentReadiness()
+  status?: SenaEnterpriseOpsStatus,
+  readiness?: SenaEnterpriseDeploymentReadiness
 ) {
+  return withWorkerProofEvidence(async () => {
   return buildEnterpriseOpsMetricsFromObservability(
-    status,
-    readiness,
+    status ?? getEnterpriseOpsStatus(),
+    readiness ?? getEnterpriseDeploymentReadiness(),
     await getEnterpriseObservabilitySnapshotWithPostgresEvidence()
   );
+  });
 }

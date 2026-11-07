@@ -256,8 +256,7 @@ describe("SENA production runtime env packet", () => {
         "npm run sena:jobs:queue-verify -- --output output/production-evidence/server-job-queue-probe.json",
         "npm run sena:jobs:worker-contract -- --output output/production-evidence/server-job-worker-contract.json",
         "npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-queue-contract.json --scope <vercel-team-slug> --yes",
-        "npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-queue-probe.json --scope <vercel-team-slug> --yes",
-        "npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-worker-contract.json --scope <vercel-team-slug> --yes"
+        "npm run sena:production-evidence:bind -- --artifact output/production-evidence/server-job-queue-probe.json --scope <vercel-team-slug> --yes"
       ]);
     expect(artifact.providerGroups.find((group) => group.id === "observability-alerting")?.preflightMissingEnv)
       .toEqual(expect.arrayContaining([

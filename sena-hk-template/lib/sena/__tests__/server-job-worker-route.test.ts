@@ -52,6 +52,21 @@ describe("SENA server job worker receiver route", () => {
     vi.resetModules();
   });
 
+  it.each(["server_job.queue.probe", "server_job.worker.proof"])("rejects BOM-prefixed bytes with an unchanged signature for %s", async (event) => {
+    process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-queue-secret";
+    const payload = JSON.stringify({ schemaVersion: event === "server_job.worker.proof"
+      ? "sena-enterprise-server-job-worker-proof-challenge/v1"
+      : "sena-enterprise-server-job-queue-probe/v1" });
+    const signed = signedProbeRequest({ body: payload, event });
+    const tampered = new Request(signed.url, {
+      method: "POST", headers: signed.headers, body: `\uFEFF${payload}`
+    });
+    const { POST } = await import("../../../app/api/sena/ops/jobs/worker/route");
+    const response = await POST(tampered);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toMatchObject({ code: "server_job_worker_payload_hash_invalid" });
+  });
+
   it("accepts signed queue probe webhooks without leaking payload or secret values", async () => {
     process.env.SENA_JOB_QUEUE_SECRET = "sena-test-job-queue-secret";
     process.env.SENA_JOB_WORKER_RUNTIME = "vercel-serverless-queue-receiver";

@@ -271,13 +271,13 @@ describe("SENA production evidence manifest", () => {
     expect(workerContract).toEqual(expect.objectContaining({
       confirmed: false,
       status: "missing-advisory",
-      artifactHash: "7".repeat(64)
+      artifactHash: undefined
     }));
     expect(workerContract?.evidence).toEqual(expect.arrayContaining([
-      "serverJobWorkerExternalCallbackReceiptSupported=false",
+      "serverJobWorkerExternalCallbackReceiptSupported=true",
       "serverJobWorkerExternalCallbackReceiptConfirmed=false"
     ]));
-    expect(workerContract?.nextAction).toContain("same-process status-store self-test cannot confirm");
+    expect(workerContract?.nextAction).toContain("Legacy environment tuples and same-process self-tests cannot grant confirmation");
     expect(manifest.items.map((item) => item.artifactHash)).toEqual([
       "8".repeat(64),
       "1".repeat(64),
@@ -288,7 +288,7 @@ describe("SENA production evidence manifest", () => {
       "c".repeat(64),
       "6".repeat(64),
       "d".repeat(64),
-      "7".repeat(64),
+      undefined,
       "0".repeat(64),
       "e".repeat(64),
       "f".repeat(64),

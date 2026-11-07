@@ -13,12 +13,14 @@ import {
   type SenaServerJobWorkerOutcome
 } from "@/lib/sena/enterprise/server-job-worker-runtime";
 import { SENA_SCHEMA_VERSIONS } from "@/lib/sena/schema-registry";
+import { executeWorkerProofChallenge } from "@/lib/sena/enterprise/server-job-worker-proof";
 
 export const runtime = "nodejs";
 
 const acceptedEvents = new Set([
   "server_job.queue",
-  "server_job.queue.probe"
+  "server_job.queue.probe",
+  "server_job.worker.proof"
 ]);
 const SENA_SERVER_JOB_WORKER_REQUEST_MAX_BYTES = 64 * 1024;
 const SENA_SERVER_JOB_WORKER_REQUEST_MAX_CHUNKS = 1_024;
@@ -128,7 +130,7 @@ function preflightWorkerTransport(request: Request) {
     );
   }
   return {
-    event: event as "server_job.queue" | "server_job.queue.probe",
+    event: event as "server_job.queue" | "server_job.queue.probe" | "server_job.worker.proof",
     receivedHash,
     receivedWorkerPayloadHash: request.headers.get("x-sena-worker-payload-sha256")?.trim(),
     timestamp,
@@ -182,7 +184,7 @@ async function readBoundedWorkerRequest(request: Request) {
     offset += chunk.byteLength;
   }
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bodyBytes);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bodyBytes);
   } catch {
     workerTransportError("SENA job worker request is not valid UTF-8.", 400, "server_job_worker_request_invalid");
   }
@@ -266,14 +268,17 @@ function verifyWorkerPayloadHash(
   return expectedHash;
 }
 
-function acceptedEvent(event: "server_job.queue" | "server_job.queue.probe", payload: ReturnType<typeof parsePayload>) {
+function acceptedEvent(event: "server_job.queue" | "server_job.queue.probe" | "server_job.worker.proof", payload: ReturnType<typeof parsePayload>) {
+  if (event === "server_job.worker.proof" && payload.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerProofChallenge) {
+    throw new SenaEnterpriseError("Worker proof challenge schema is invalid.", 400, "worker_proof_schema_invalid");
+  }
   if (event === "server_job.queue.probe" && payload.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueProbe) {
     throw new SenaEnterpriseError("SENA job queue probe schema is invalid.", 400, "server_job_worker_probe_schema_invalid");
   }
   if (event === "server_job.queue" && payload.schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhook) {
     throw new SenaEnterpriseError("SENA job queue webhook schema is invalid.", 400, "server_job_worker_queue_schema_invalid");
   }
-  return event as "server_job.queue" | "server_job.queue.probe";
+  return event;
 }
 
 type WorkerExecutionReceipt = {
@@ -364,6 +369,17 @@ export async function POST(request: Request) {
     ));
     const payload = parsePayload(body);
     const event = acceptedEvent(transport.event, payload);
+    if (event === "server_job.worker.proof") {
+      const proof = await executeWorkerProofChallenge(payload);
+      return NextResponse.json({
+        schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobQueueWebhookReceipt,
+        generatedAt: new Date().toISOString(),
+        status: "accepted",
+        event,
+        proof,
+        redaction: { nonceValuesExcluded: true, secretValuesExcluded: true, endpointValuesExcluded: true }
+      }, { status: 202, headers: { "cache-control": "no-store", "x-sena-worker-proof": proof.status } });
+    }
     const workerPayloadSha256 = verifyWorkerPayloadHash(
       event,
       payload,

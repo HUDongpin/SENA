@@ -1,5 +1,9 @@
 # SENA Context
 
+## External worker callback proof (2026-10-28)
+
+The worker readiness implementation now uses a bounded signed HTTP challenge, distinct process runtime identity, dedicated authenticated callback, and atomic Postgres nonce consumption. Proof records use a separate table and do not alter heavy-job source custody. Current-deployment receipt evidence is loaded once per composed request and revalidated for configuration/credential drift and expiry. Legacy worker environment tuples cannot grant readiness; current worker contract artifacts are archive-only to avoid a rebinding/redeployment loop. See `docs/runbooks/server-job-worker-proof.md` for the configuration and evidence boundary. This describes the implementation; it does not claim production release acceptance.
+
 ## Purpose
 
 SENA is a research-pilot workbench for evidence-traceable fusion of social network analysis and epistemic network analysis. The current delivery target is local pilot readiness and reviewer handoff, not a claim that the system is already a staffed production SaaS.

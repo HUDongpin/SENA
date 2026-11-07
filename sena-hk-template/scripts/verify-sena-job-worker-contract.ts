@@ -1,11 +1,12 @@
-import { getEnterpriseServerJobWorkerContract } from "../lib/sena/enterprise/server-job-worker-contract";
+import { getEnterpriseServerJobWorkerContractWithEvidence } from "../lib/sena/enterprise/server-job-worker-contract";
 import { emitVerificationArtifact, parseVerificationArtifactArgs } from "./verification-artifact-output";
 
 const options = parseVerificationArtifactArgs(process.argv.slice(2), {
   description: "Verify the SENA external server job worker contract.",
   command: "npm run sena:jobs:worker-contract"
 });
-const contract = getEnterpriseServerJobWorkerContract();
+async function main() {
+const contract = await getEnterpriseServerJobWorkerContractWithEvidence();
 emitVerificationArtifact({
   artifact: contract,
   output: options.output,
@@ -21,3 +22,9 @@ if (!contract.productionReady) {
 }
 
 console.log("SENA server job worker contract passed.");
+}
+
+void main().catch(() => {
+  console.error("SENA worker proof could not be verified from current durable state.");
+  process.exitCode = 1;
+});

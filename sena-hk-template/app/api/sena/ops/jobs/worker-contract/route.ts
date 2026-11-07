@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
-  getEnterpriseServerJobWorkerContract
+  getEnterpriseServerJobWorkerContract,
+  getEnterpriseServerJobWorkerContractWithEvidence
 } from "@/lib/sena/enterprise/server-job-worker-contract";
 import { observeSenaApiRoute } from "@/lib/sena/api-helpers";
 import { requireOpsAccess } from "@/lib/sena/ops-api";
@@ -28,7 +29,7 @@ function workerContractHeaders(contract: ReturnType<typeof getEnterpriseServerJo
 export async function GET(request: Request) {
   return observeSenaApiRoute(request, { routeId: "sena-ops-jobs-worker-contract" }, async () => {
     const access = await requireOpsAccess(request);
-    const contract = getEnterpriseServerJobWorkerContract();
+    const contract = await getEnterpriseServerJobWorkerContractWithEvidence();
     return NextResponse.json({
       ...contract,
       access
