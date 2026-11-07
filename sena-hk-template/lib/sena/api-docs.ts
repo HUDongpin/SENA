@@ -59,6 +59,8 @@ export function buildSenaApiDocumentation(input: { baseUrl?: string } = {}) {
 function securityFor(auth: SenaApiAuthMode) {
   if (auth === "public") return [];
   if (auth === "job-worker-hmac") return [{ jobWorkerHmac: [] }];
+  if (auth === "worker-proof-hmac") return [{ workerProofHmac: [] }];
+  if (auth === "ops-bearer") return [{ opsBearer: [] }];
   if (auth === "provisioning-bearer") return [{ provisioningBearer: [] }];
   if (auth === "scim-bearer") return [{ scimBearer: [] }];
   if (auth === "session-or-ops-bearer") return [{ sessionCookie: [] }, { opsBearer: [] }];
@@ -283,6 +285,12 @@ export function buildSenaOpenApiDocument(input: { serverUrl?: string } = {}) {
           in: "header",
           name: "x-sena-webhook-signature",
           description: "HMAC-SHA256 over '<x-sena-webhook-timestamp>.<exact request body>' using SENA_JOB_QUEUE_SECRET; the payload SHA-256, timestamp, and event headers are also required."
+        },
+        workerProofHmac: {
+          type: "apiKey",
+          in: "header",
+          name: "x-sena-worker-proof-signature",
+          description: "Dedicated SENA_JOB_WORKER_PROOF_SECRET HMAC with worker-proof callback domain separation, exact request body, and canonical integer-seconds x-sena-worker-proof-timestamp; a fresh nonce and exact deployment binding are required."
         },
         provisioningBearer: {
           type: "http",

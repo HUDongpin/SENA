@@ -1469,7 +1469,7 @@ function serverJobQueueWebhookPayload(input: {
 
 function serverJobQueueRequestHeaders(input: {
   mode: SenaEnterpriseServerJobQueueMode;
-  event: "server_job.queue" | "server_job.queue.probe";
+  event: "server_job.queue" | "server_job.queue.probe" | "server_job.worker.proof";
   attemptedAt: string;
   body: string;
   payloadSha256: string;
@@ -1512,6 +1512,61 @@ function serverJobQueueRequestHeaders(input: {
     ["content-type", "application/json"],
     ...Object.entries(senaHeaders).map(([key, value]) => [`upstash-forward-${key}`, value])
   ]);
+}
+
+/** Private runtime configuration for the proof protocol; never serialize this object. */
+export function serverJobWorkerProofTransport() {
+  const queue = serverJobQueueStatus();
+  const dispatchUrl = serverJobDispatchUrl(queue.mode);
+  const workerUrl = queue.mode === "qstash"
+    ? qstashDestinationUrl()
+    : httpUrlFromEnv(["SENA_JOB_WORKER_CALLBACK_URL", "SENA_JOB_QUEUE_URL"], "invalid_server_job_queue_url");
+  const queueSecret = serverJobQueueSecret();
+  if (!queue.productionReady || !dispatchUrl || !workerUrl || !queueSecret ||
+    (queue.mode !== "managed" && queue.mode !== "webhook" && queue.mode !== "qstash")) {
+    throw new SenaEnterpriseError("External worker proof requires a configured signed queue transport.", 503, "worker_proof_queue_not_configured");
+  }
+  return { mode: queue.mode, dispatchUrl, workerUrl, queueSecret, providerToken: serverJobQueueProviderToken() };
+}
+
+/** Dispatches only the synthetic proof envelope, without altering heavy-job custody. */
+export async function dispatchEnterpriseServerJobWorkerProof(payload: unknown) {
+  const transport = serverJobWorkerProofTransport();
+  if (!payload || typeof payload !== "object" ||
+    (payload as { schemaVersion?: unknown }).schemaVersion !== SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerProofChallenge) {
+    throw new SenaEnterpriseError("Worker proof challenge schema is invalid.", 400, "worker_proof_schema_invalid");
+  }
+  const attemptedAt = now();
+  const body = JSON.stringify(payload);
+  const headers = serverJobQueueRequestHeaders({
+    mode: transport.mode,
+    event: "server_job.worker.proof",
+    attemptedAt,
+    body,
+    payloadSha256: createHash("sha256").update(body).digest("hex"),
+    schemaVersion: SENA_SCHEMA_VERSIONS.enterpriseServerJobWorkerProofChallenge
+  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), serverJobQueueStatus().timeoutMs);
+  try {
+    const response = await fetch(transport.dispatchUrl, {
+      method: "POST", headers, body, redirect: "error", signal: controller.signal
+    });
+    await response.body?.cancel();
+    return {
+      attemptedAt,
+      webhookStatus: response.ok ? "delivered" as const : "failed" as const,
+      httpStatus: response.status
+    };
+  } catch (error) {
+    return {
+      attemptedAt,
+      webhookStatus: "failed" as const,
+      errorCode: error instanceof Error && error.name === "AbortError" ? "timeout" : "network_error"
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function dispatchServerJobQueueWebhook(input: {

@@ -432,10 +432,10 @@ describe("SENA enterprise go-live production release", () => {
       }
     }));
     // This long-form test exercises the downstream ready/attestation lifecycle.
-    // Production code deliberately has no implementation for this receipt yet;
-    // the focused worker-contract tests assert that the real runtime stays
-    // review. Here only, simulate the future independently validated receipt so
-    // the rest of the release-state machine remains covered.
+    // The focused worker-proof suites exercise real protocol and SQL semantics.
+    // Here only, simulate a verified receipt and its derived artifact metadata
+    // so the rest of the release-state machine remains covered. Environment
+    // confirmation flags alone no longer provide this runtime evidence.
     vi.doMock("../enterprise/server-job-worker-contract", async () => {
       const actual = await vi.importActual<typeof import("../enterprise/server-job-worker-contract")>(
         "../enterprise/server-job-worker-contract"
@@ -463,6 +463,10 @@ describe("SENA enterprise go-live production release", () => {
           return {
             ...readiness,
             confirmed: true,
+            artifactHash: sha256Text("simulated-worker-contract-artifact"),
+            verifiedAt: new Date().toISOString(),
+            artifactHashConfigured: true,
+            verifiedAtConfigured: true,
             evidence: [
               ...readiness.evidence,
               "serverJobWorkerExternalCallbackReceiptSupported=true",

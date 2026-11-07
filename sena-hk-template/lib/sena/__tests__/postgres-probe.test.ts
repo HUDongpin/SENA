@@ -117,12 +117,12 @@ describe("SENA enterprise Postgres live probe", () => {
       status: "pass",
       schemaName: "public",
       summary: expect.objectContaining({
-        tableCount: 20,
-        productionTableCount: 19,
+        tableCount: 21,
+        productionTableCount: 20,
         verifierTableCount: 1,
-        indexCount: 71,
+        indexCount: 72,
         uniqueIndexCount: 10,
-        ddlStatementCount: 98,
+        ddlStatementCount: 100,
         destructiveDdlStatementCount: 0,
         migrationMode: "create-if-not-exists"
       }),
@@ -136,6 +136,7 @@ describe("SENA enterprise Postgres live probe", () => {
       "sena_enterprise_state",
       "sena_enterprise_uploads",
       "sena_enterprise_server_jobs",
+      "sena_enterprise_worker_proofs",
       "sena_enterprise_audit_log",
       "sena_enterprise_observed_requests",
       "sena_workflow_runs",
@@ -148,6 +149,7 @@ describe("SENA enterprise Postgres live probe", () => {
     expect(probe.schemaContract.indexes.map((index) => index.name)).toEqual(expect.arrayContaining([
       "sena_enterprise_uploads_team_created_idx",
       "sena_enterprise_server_jobs_status_updated_idx",
+      "sena_enterprise_worker_proofs_receipts_idx",
       "sena_enterprise_observed_requests_error_idx",
       "sena_workflow_runs_team_start_idempotency_uidx",
       "sena_workflow_commands_run_claimed_uidx",
@@ -176,12 +178,12 @@ describe("SENA enterprise Postgres live probe", () => {
     expect(contract.schemaVersion).toBe("sena-enterprise-postgres-schema-contract/v1");
     expect(contract.status).toBe("pass");
     expect(contract.summary).toEqual(expect.objectContaining({
-      tableCount: 20,
-      productionTableCount: 19,
+      tableCount: 21,
+      productionTableCount: 20,
       verifierTableCount: 1,
-      indexCount: 71,
+      indexCount: 72,
       uniqueIndexCount: 10,
-      ddlStatementCount: 98,
+      ddlStatementCount: 100,
       destructiveDdlStatementCount: 0
     }));
     expect(contract.evidence).toEqual(expect.arrayContaining([

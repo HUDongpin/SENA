@@ -12,6 +12,7 @@ export type SenaCollectedProductionEvidenceArtifactRead = SenaProductionEvidence
 
 export type SenaProductionEvidenceBindingPlan = {
   bindable: boolean;
+  archiveOnly?: boolean;
   reason?: string;
   binding?: {
     env: {

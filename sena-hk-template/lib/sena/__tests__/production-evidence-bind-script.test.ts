@@ -823,6 +823,31 @@ describe("SENA production evidence binding script", () => {
     }
   });
 
+  it("archives current durable worker proof without writing another deployment environment tuple", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "sena-worker-proof-archive-only-"));
+    try {
+      const binDir = path.join(root, "bin");
+      const capturePath = path.join(root, "writes.txt");
+      mkdirSync(binDir);
+      writeFakeVercel(binDir, capturePath);
+      const { artifactPath } = writeArtifact(root, "worker.json", {
+        ...serverJobWorkerContractFixture(),
+        readinessSource: "durable-worker-callback"
+      });
+      const result = runBind(["--artifact", artifactPath, "--yes"], {
+        env: { ...process.env, PATH: `${binDir}${path.delimiter}${process.env.PATH ?? ""}` }
+      });
+      const output = outputOf(result);
+      expect(result.status).toBe(0);
+      expect(output).toContain("archive-only-current-durable-worker-proof");
+      expect(output).not.toContain("SENA_JOB_WORKER_CONTRACT_CONFIRMED=");
+      expect(output).toContain("No environment values were written");
+      expect(existsSync(capturePath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not require a production target URL when binding non-target-bound production evidence", () => {
     const root = mkdtempSync(path.join(tmpdir(), "sena-production-evidence-bind-non-load-target-"));
 

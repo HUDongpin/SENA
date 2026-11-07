@@ -86,6 +86,7 @@ import {
 } from "./enterprise/validation-integrity";
 import { senaValidationSourceVerificationCache } from "./enterprise/validation-request-scope";
 import { SENA_WORKFLOW_POSTGRES_SCHEMA_DEFINITIONS } from "./workflow/postgres-store";
+import { createWorkerProofPostgresStore } from "./enterprise/server-job-worker-proof-store";
 
 export type SenaEnterprisePostgresQuery = <T = Record<string, unknown>>(
   sql: string,
@@ -381,6 +382,13 @@ const enterprisePostgresSchemaTableDefinitions: EnterprisePostgresSchemaTableDef
     role: "server-side job queue, worker delivery status, retries, and payload custody hashes",
     productionRequired: true,
     createEnsurer: ({ query, schemaName }) => createEnterprisePostgresServerJobAdapter({ query, schemaName })
+  },
+  {
+    id: "worker-proofs",
+    name: "sena_enterprise_worker_proofs",
+    role: "nonce-bound external worker callback challenges and immutable verification receipts",
+    productionRequired: true,
+    createEnsurer: ({ query, schemaName }) => createWorkerProofPostgresStore({ query, schemaName })
   },
   {
     id: "audit-log",

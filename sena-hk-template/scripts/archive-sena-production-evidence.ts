@@ -15,7 +15,7 @@ import {
 } from "../lib/sena/enterprise/performance-build-measurement.mjs";
 import { validateSenaPerformanceBudgetSemantics } from "../lib/sena/enterprise/performance-budget-validation.mjs";
 import { buildSenaGoLiveCloseoutCheck } from "../lib/sena/enterprise/go-live-closeout-check";
-import { buildEnterpriseProductionEvidenceManifest } from "../lib/sena/enterprise/ops-production-evidence";
+import { buildEnterpriseProductionEvidenceManifest, buildEnterpriseProductionEvidenceManifestWithWorkerProof } from "../lib/sena/enterprise/ops-production-evidence";
 import { buildSenaEnterpriseProductionGoLiveGate } from "../lib/sena/enterprise/production-go-live-gate";
 import { buildEnterpriseProductionRuntimeEnvPacket } from "../lib/sena/enterprise/production-runtime-env-packet";
 import { SENA_SCHEMA_VERSIONS } from "../lib/sena/schema-registry";
@@ -1071,7 +1071,7 @@ async function productionGoLiveGateItem(options: Options, archiveItems: ArchiveI
     : undefined;
   const manifest = isProductionEvidenceManifestArtifact(manifestArtifact)
     ? manifestArtifact
-    : buildEnterpriseProductionEvidenceManifest();
+    : await buildEnterpriseProductionEvidenceManifestWithWorkerProof();
   const packet = isProductionRuntimeEnvPacketArtifact(packetArtifact)
     ? packetArtifact
     : buildEnterpriseProductionRuntimeEnvPacket({

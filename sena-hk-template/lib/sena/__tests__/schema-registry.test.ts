@@ -155,6 +155,10 @@ const FROZEN_SCHEMA_VERSIONS = {
   enterpriseServerJobStoreRuntime: "sena-enterprise-server-job-store-runtime/v1",
   enterpriseServerJobStatusUpdate: "sena-enterprise-server-job-status-update/v1",
   enterpriseServerJobWorkerContract: "sena-enterprise-server-job-worker-contract/v1",
+  enterpriseServerJobWorkerProofChallenge: "sena-enterprise-server-job-worker-proof-challenge/v1",
+  enterpriseServerJobWorkerProofCallback: "sena-enterprise-server-job-worker-proof-callback/v1",
+  enterpriseServerJobWorkerProofReceipt: "sena-enterprise-server-job-worker-proof-receipt/v1",
+  enterpriseServerJobWorkerProofStatus: "sena-enterprise-server-job-worker-proof-status/v1",
   enterpriseServerJobWorkerHeartbeat: "sena-enterprise-server-job-worker-heartbeat/v1",
   enterpriseServerJob: "sena-enterprise-server-job/v2",
   enterpriseSessionList: "sena-enterprise-session-list/v1",
@@ -326,8 +330,8 @@ describe("SENA schema registry", () => {
     expect(disabled).toEqual({ optimization: { splitChunks: false } });
   });
 
-  it("preserves all 242 ordered schema values, data properties and exact literal types", () => {
-    expect(Object.keys(FROZEN_SCHEMA_VERSIONS)).toHaveLength(242);
+  it("preserves all 246 ordered schema values, data properties and exact literal types", () => {
+    expect(Object.keys(FROZEN_SCHEMA_VERSIONS)).toHaveLength(246);
     expect(JSON.stringify(SENA_SCHEMA_VERSIONS)).toBe(JSON.stringify(FROZEN_SCHEMA_VERSIONS));
     expect(Object.getOwnPropertyDescriptors(SENA_SCHEMA_VERSIONS)).toEqual(
       Object.getOwnPropertyDescriptors(FROZEN_SCHEMA_VERSIONS)

@@ -1,3 +1,4 @@
+import { withWorkerProofEvidence } from "./server-job-worker-proof";
 import { enterprisePostgresProbeReadiness, enterprisePostgresSchemaContractReadiness } from "../enterprise-postgres";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import { conferenceLoadRehearsalProductionEvidenceReadiness } from "./conference-load-rehearsal";
@@ -339,6 +340,10 @@ function nonNegativeIntegerEnv(key: string) {
   return Number.isSafeInteger(parsed) ? parsed : undefined;
 }
 
+export function buildEnterpriseProductionEvidenceManifestWithWorkerProof() {
+  return withWorkerProofEvidence(() => buildEnterpriseProductionEvidenceManifest());
+}
+
 export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProductionEvidenceManifest {
   const postgres = enterprisePostgresProbeReadiness();
   const postgresSchemaContract = enterprisePostgresSchemaContractReadiness();
@@ -598,7 +603,7 @@ export function buildEnterpriseProductionEvidenceManifest(): SenaEnterpriseProdu
         artifactValidation: "SENA_JOB_WORKER_CONTRACT_ARTIFACT_VALIDATION"
       },
       evidence: serverJobWorkerContract.evidence,
-      nextAction: "Implement a nonce-bound managed-queue to external-worker authenticated callback receipt, then run and bind the worker contract; the same-process status-store self-test cannot confirm this production item."
+      nextAction: "Issue a nonce-bound worker proof on the current deployment, verify its durable authenticated callback receipt, and archive the stable worker contract. Legacy environment tuples and same-process self-tests cannot grant confirmation."
     }),
     buildEvidenceItem({
       id: "observability-contract",

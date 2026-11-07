@@ -43,6 +43,12 @@ const fakeQstashEnv = {
   SENA_JOB_WORKER_CALLBACK_URL: "https://worker-secret.example.com/api/sena/ops/jobs",
   SENA_JOB_QUEUE_SECRET: "secret-qstash-sena-hmac"
 };
+const fakeWorkerProofEnv = {
+  SENA_JOB_WORKER_PROOF_SECRET: "synthetic-worker-proof-secret-for-tests-only",
+  SENA_JOB_WORKER_PROOF_KEY_VERSION: "synthetic-worker-proof-key-v1",
+  SENA_JOB_WORKER_PROOF_CALLBACK_URL: "https://worker-proof.example.com/api/sena/ops/jobs/worker-proof/callback",
+  SENA_JOB_WORKER_PROOF_BUILD_ID: "synthetic-worker-proof-build-id"
+};
 const fakeObservabilityAliasEnv = {
   OBSERVABILITY_OWNER: "secret-observability-owner",
   OBSERVABILITY_WEBHOOK_URL: "https://observability-alias-secret.example.com/export",
@@ -60,6 +66,7 @@ function cleanEnv(overrides: SenaTestProcessEnv = {}) {
     ...Object.keys(fakeR2Env),
     ...Object.keys(fakeVercelBlobEnv),
     ...Object.keys(fakeQstashEnv),
+    ...Object.keys(fakeWorkerProofEnv),
     ...Object.keys(fakeObservabilityAliasEnv),
     "SENA_OBJECT_STORAGE_R2_ACCOUNT_ID",
     "CLOUDFLARE_R2_ACCOUNT_ID",
@@ -133,6 +140,7 @@ function expectSensitiveValuesExcluded(output: string) {
     ...Object.values(fakeR2Env),
     ...Object.values(fakeVercelBlobEnv),
     ...Object.values(fakeQstashEnv),
+    ...Object.values(fakeWorkerProofEnv),
     ...Object.values(fakeObservabilityAliasEnv)
   ]) {
     if (value.length < 4) continue;
@@ -199,6 +207,34 @@ exit 1
 }
 
 describe("SENA Vercel production services configuration script", () => {
+  it("dry-runs all worker proof env values for Preview without printing values or invoking Vercel", () => {
+    const result = runConfigure([
+      "--services",
+      "job-queue",
+      "--env-json-stdin",
+      "--env-file",
+      "/dev/null",
+      "--env",
+      "preview"
+    ], {
+      input: `${JSON.stringify({ ...fakeQstashEnv, ...fakeWorkerProofEnv })}\n`,
+      env: cleanEnv({ PATH: "" })
+    });
+    const output = outputOf(result);
+
+    expect(result.status).toBe(0);
+    expect(output).toContain("vercelEnvironment=preview");
+    expect(output).not.toContain("vercelEnvironment=production");
+    expect(output).toContain("services=job-queue");
+    expect(output).toContain("deploy=false");
+    for (const key of Object.keys(fakeWorkerProofEnv)) {
+      expect(output).toContain(`${key}=configured(redacted) source=stdin-json`);
+    }
+    expect(output).toContain("Dry run only. Re-run with --yes to write these values to Vercel.");
+    expect(output).not.toContain("SENA Vercel production services configuration complete");
+    expectSensitiveValuesExcluded(output);
+  });
+
   it("dry-runs object storage, queue, and observability env writes without printing values", () => {
     const result = runConfigure(["--env-json-stdin", "--scope", "test-team", "--strict-production"], {
       input: `${JSON.stringify(fakeEnv)}\n`

@@ -129,10 +129,26 @@ describe("SENA API documentation contract", () => {
         ["x-sena-webhook-event", "header", true]
       ]);
     expect(operation.parameters?.find((parameter) => parameter.name === "x-sena-webhook-event")?.schema?.enum)
-      .toEqual(["server_job.queue", "server_job.queue.probe"]);
+      .toEqual(["server_job.queue", "server_job.queue.probe", "server_job.worker.proof"]);
     expect(Object.keys(operation.requestBody?.content ?? {})).toEqual(["application/json"]);
     expect(Object.keys(operation.responses)).toEqual(expect.arrayContaining(["202", "400", "401", "503"]));
     expect(operation.responses["202"].content).toHaveProperty("application/json");
+
+    const issue = openApi.paths["/api/sena/ops/jobs/worker-proof"].post;
+    expect(issue.security).toEqual([{ opsBearer: [] }]);
+    expect(issue.requestBody).toBeUndefined();
+    expect(Object.keys(issue.responses)).toEqual(expect.arrayContaining(["200", "202", "503"]));
+
+    const callback = openApi.paths["/api/sena/ops/jobs/worker-proof/callback"].post;
+    expect(callback.security).toEqual([{ workerProofHmac: [] }]);
+    expect(openApi.components.securitySchemes.workerProofHmac.name).toBe("x-sena-worker-proof-signature");
+    expect(callback.parameters?.map((parameter) => [parameter.name, parameter.in, parameter.required]))
+      .toEqual([
+        ["x-sena-worker-proof-timestamp", "header", true],
+        ["x-sena-worker-proof-signature", "header", true]
+      ]);
+    expect(Object.keys(callback.requestBody?.content ?? {})).toEqual(["application/json"]);
+    expect(Object.keys(callback.responses)).toEqual(expect.arrayContaining(["401", "409", "410", "413"]));
   });
 
   it("documents exact request media types instead of granting multipart to JSON-only handlers", () => {

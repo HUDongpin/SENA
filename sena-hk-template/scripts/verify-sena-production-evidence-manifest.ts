@@ -1,4 +1,4 @@
-import { buildEnterpriseProductionEvidenceManifest } from "../lib/sena/enterprise/ops-production-evidence";
+import { buildEnterpriseProductionEvidenceManifestWithWorkerProof } from "../lib/sena/enterprise/ops-production-evidence";
 import { emitVerificationArtifact, parseVerificationArtifactArgs } from "./verification-artifact-output";
 
 const options = parseVerificationArtifactArgs(process.argv.slice(2), {
@@ -6,7 +6,8 @@ const options = parseVerificationArtifactArgs(process.argv.slice(2), {
   command: "npm run sena:production-evidence:check",
   outputDescription: "Write the redacted manifest JSON and <file>.sha256 custody hash."
 });
-const manifest = buildEnterpriseProductionEvidenceManifest();
+async function main() {
+const manifest = await buildEnterpriseProductionEvidenceManifestWithWorkerProof();
 emitVerificationArtifact({
   artifact: manifest,
   output: options.output,
@@ -22,3 +23,10 @@ if (manifest.status !== "ready") {
 }
 
 console.log("SENA production evidence manifest passed.");
+
+}
+
+void main().catch(() => {
+  console.error("SENA production evidence manifest could not be verified from current durable state.");
+  process.exitCode = 1;
+});

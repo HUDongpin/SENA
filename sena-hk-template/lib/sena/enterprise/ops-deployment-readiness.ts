@@ -1,3 +1,4 @@
+import { withWorkerProofEvidence } from "./server-job-worker-proof";
 import { SENA_SCHEMA_VERSIONS } from "../schema-registry";
 import type { SenaEnterpriseSsoProvider } from "./auth-sso";
 import {
@@ -702,6 +703,7 @@ export function getEnterpriseDeploymentReadiness(input: {
 export async function getEnterpriseDeploymentReadinessWithPostgresEvidence(input: {
   opsStatus?: SenaEnterpriseOpsStatus;
 } = {}): Promise<SenaEnterpriseDeploymentReadiness> {
+  return withWorkerProofEvidence(async () => {
   const opsStatus = input.opsStatus ?? await getEnterpriseOpsStatusWithPostgresEvidence();
   const uploadStorageVerification = await verifyEnterpriseUploadStorageAsync();
   const uploadObjectStorageCustody = await summarizeEnterpriseUploadObjectStorageCustodyWithPostgresEvidence();
@@ -715,6 +717,7 @@ export async function getEnterpriseDeploymentReadinessWithPostgresEvidence(input
     governance,
     uploadStorageVerification,
     uploadObjectStorageCustody
+  });
   });
 }
 
