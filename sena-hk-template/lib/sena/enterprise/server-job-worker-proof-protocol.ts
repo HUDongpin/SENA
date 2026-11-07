@@ -168,11 +168,14 @@ export function createWorkerProofContext(
     if (!["postgres:", "postgresql:"].includes(parsed.protocol) || !parsed.hostname || !parsed.username || !parsed.password) configurationInvalid();
   } catch { configurationInvalid(); }
   const builds = [env.VERCEL_GIT_COMMIT_SHA, env.SENA_JOB_WORKER_PROOF_BUILD_ID]
-    .filter((value): value is string => value !== undefined).map((value) => value.trim().toLowerCase());
+    .map((value) => value?.trim().toLowerCase())
+    .filter((value): value is string => Boolean(value));
   if (!builds.length || builds.some((value) => !BUILD.test(value) || value !== builds[0])) configurationInvalid();
   let deploymentIdentity: string;
-  if (env.VERCEL_DEPLOYMENT_ID !== undefined) {
-    const id = env.VERCEL_DEPLOYMENT_ID.trim();
+  // CLI deployments can expose unavailable system identifiers as empty strings.
+  // A blank is absent; any nonblank malformed or conflicting identity still fails.
+  const id = env.VERCEL_DEPLOYMENT_ID?.trim();
+  if (id) {
     if (!/^dpl_[A-Za-z0-9_-]{1,128}$/.test(id)) configurationInvalid();
     deploymentIdentity = `deployment-id:${id}`;
   } else {

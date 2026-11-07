@@ -87,6 +87,20 @@ describe("worker proof trusted configuration", () => {
     expect(current.binding.buildId).toBe("b".repeat(64));
   });
 
+  it.each(["", " "])("uses trusted fallback identities when CLI system identifiers are blank (%j)", (blank) => {
+    const env = environment({
+      VERCEL_GIT_COMMIT_SHA: blank,
+      SENA_JOB_WORKER_PROOF_BUILD_ID: "b".repeat(40),
+      VERCEL_DEPLOYMENT_ID: blank,
+      VERCEL_URL: "sena-9abcdef12-team.vercel.app"
+    });
+    expect(context(issuerRuntime, env).binding.buildId).toBe("b".repeat(40));
+    expectStatus(() => context(issuerRuntime, { ...env, SENA_JOB_WORKER_PROOF_BUILD_ID: blank }), 503);
+    expectStatus(() => context(issuerRuntime, { ...env, VERCEL_URL: blank }), 503);
+    expectStatus(() => context(issuerRuntime, { ...env, VERCEL_GIT_COMMIT_SHA: "malformed" }), 503);
+    expectStatus(() => context(issuerRuntime, { ...env, VERCEL_DEPLOYMENT_ID: "malformed" }), 503);
+  });
+
   it("allows loopback HTTP and injected process identity only in tests", () => {
     const testEnv = environment({ SENA_JOB_WORKER_PROOF_CALLBACK_URL: "http://127.0.0.1:3000/api/sena/ops/jobs/worker-proof/callback" });
     expect(context(issuerRuntime, testEnv, transport({ dispatchUrl: "http://localhost:3001/worker", workerUrl: "http://[::1]:3001/worker" })).binding.environment).toBe("preview");
